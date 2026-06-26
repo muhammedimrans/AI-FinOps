@@ -1,5 +1,5 @@
 # AI FinOps — Software Design Document (SDD)
-## Chapter 3 (Part 2): Domain Model, Components & Engineering Contracts
+## Chapter 3 : Domain Model, Components & Engineering Contracts
 
 | Field | Value |
 |---|---|

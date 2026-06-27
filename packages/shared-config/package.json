@@ -1,0 +1,29 @@
+{
+  "name": "@ai-finops/shared-config",
+  "version": "0.1.0",
+  "description": "Shared configuration types and constants for the AI FinOps platform",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc --build",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --build --watch"
+  },
+  "dependencies": {
+    "@ai-finops/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}

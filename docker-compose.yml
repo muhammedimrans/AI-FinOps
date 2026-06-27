@@ -1,0 +1,165 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI FinOps — Docker Compose (Development)
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-restart: &default-restart
+  restart: unless-stopped
+
+services:
+  # ─── Infrastructure ─────────────────────────────────────────────────────────
+
+  postgres:
+    <<: *default-restart
+    image: postgres:16-alpine
+    container_name: aifinops-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aifinops}
+      POSTGRES_USER: ${POSTGRES_USER:-aifinops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aifinops_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aifinops} -d ${POSTGRES_DB:-aifinops}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *default-logging
+    networks:
+      - aifinops
+
+  clickhouse:
+    <<: *default-restart
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: aifinops-clickhouse
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-aifinops}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-aifinops}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-aifinops_dev_password}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./deployment/docker/clickhouse/config.xml:/etc/clickhouse-server/config.d/custom.xml:ro
+      - ./deployment/docker/clickhouse/users.xml:/etc/clickhouse-server/users.d/custom.xml:ro
+    ports:
+      - "${CLICKHOUSE_HTTP_PORT:-8123}:8123"
+      - "${CLICKHOUSE_NATIVE_PORT:-9000}:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --query 'SELECT 1'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *default-logging
+    networks:
+      - aifinops
+
+  redis:
+    <<: *default-restart
+    image: redis:7-alpine
+    container_name: aifinops-redis
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    logging: *default-logging
+    networks:
+      - aifinops
+
+  # ─── Backend ────────────────────────────────────────────────────────────────
+
+  api:
+    <<: *default-restart
+    build:
+      context: ./backend
+      dockerfile: ../deployment/docker/backend/Dockerfile
+      target: development
+    container_name: aifinops-api
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-aifinops}:${POSTGRES_PASSWORD:-aifinops_dev_password}@postgres:5432/${POSTGRES_DB:-aifinops}
+      REDIS_URL: redis://redis:6379/0
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: ${CLICKHOUSE_HTTP_PORT:-8123}
+      API_RELOAD: "true"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: *default-logging
+    networks:
+      - aifinops
+
+  # ─── Frontend ───────────────────────────────────────────────────────────────
+
+  frontend:
+    <<: *default-restart
+    build:
+      context: ./frontend
+      dockerfile: ../deployment/docker/frontend/Dockerfile
+      target: development
+    container_name: aifinops-frontend
+    env_file:
+      - .env
+    environment:
+      VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    logging: *default-logging
+    networks:
+      - aifinops
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  postgres_data:
+    driver: local
+  clickhouse_data:
+    driver: local
+  redis_data:
+    driver: local
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+
+networks:
+  aifinops:
+    driver: bridge

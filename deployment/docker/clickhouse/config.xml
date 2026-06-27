@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <!-- AI FinOps ClickHouse custom configuration -->
+    <logger>
+        <level>warning</level>
+        <console>true</console>
+    </logger>
+
+    <!-- Allow connections from any host in Docker network -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <!-- Disable default user for security -->
+    <default_profile>default</default_profile>
+    <default_database>aifinops</default_database>
+</clickhouse>

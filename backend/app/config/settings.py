@@ -3,18 +3,17 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, computed_field, model_validator
+from pydantic import AliasChoices, Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# The sentinel value used when APP_SECRET_KEY is not explicitly set.
-# Safe for development/testing; rejected by the model validator in production.
+# Sentinel used when APP_SECRET_KEY is not set; rejected in production.
 _DEV_SECRET = "CHANGE-ME-IN-PRODUCTION-THIS-IS-NOT-SECURE!!"  # noqa: S105
 
 
 class Settings(BaseSettings):
     """
-    Application settings loaded from environment variables.
-    All fields map directly to the variable names in .env.example.
+    Application settings loaded from environment variables / .env file.
+    Secrets are typed as SecretStr so they are never printed to logs.
     """
 
     model_config = SettingsConfigDict(
@@ -25,18 +24,30 @@ class Settings(BaseSettings):
     )
 
     # ─── Application ──────────────────────────────────────────────────────────
+    app_name: str = Field(default="AI FinOps", validation_alias=AliasChoices("APP_NAME", "app_name"))
     app_env: Literal["development", "staging", "production", "testing"] = "development"
     app_debug: bool = False
-    app_secret_key: str = Field(default=_DEV_SECRET, min_length=32)
+    app_secret_key: SecretStr = Field(default=_DEV_SECRET, min_length=32)
 
     @model_validator(mode="after")
     def _enforce_secret_in_production(self) -> "Settings":
-        if self.app_env == "production" and self.app_secret_key == _DEV_SECRET:
+        if self.app_env == "production" and self.app_secret_key.get_secret_value() == _DEV_SECRET:
             raise ValueError(
                 "APP_SECRET_KEY must be set to a secure random value in production."
             )
         return self
-    app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
+    # Accepts both LOG_LEVEL and APP_LOG_LEVEL for flexibility.
+    app_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO",
+        validation_alias=AliasChoices("LOG_LEVEL", "APP_LOG_LEVEL", "app_log_level"),
+    )
+
+    # JWT — typed SecretStr so the value is never included in repr/logs.
+    jwt_secret: SecretStr = Field(
+        default="",
+        validation_alias=AliasChoices("JWT_SECRET", "jwt_secret"),
+    )
 
     # ─── API server ───────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"
@@ -46,17 +57,26 @@ class Settings(BaseSettings):
     api_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     # ─── PostgreSQL ───────────────────────────────────────────────────────────
+    # DATABASE_URL takes priority when set (e.g. Neon, Railway, Render).
+    # Falls back to individual POSTGRES_* parts for local Docker Compose.
+    database_url_override: str | None = Field(
+        default=None,
+        validation_alias="DATABASE_URL",
+    )
     postgres_host: str = "localhost"
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_db: str = "aifinops"
     postgres_user: str = "aifinops"
-    postgres_password: str = "aifinops_dev_password"
+    postgres_password: SecretStr = Field(default="aifinops_dev_password")
 
     @computed_field  # type: ignore[misc]
     @property
     def database_url(self) -> str:
+        if self.database_url_override:
+            return self.database_url_override
+        pw = self.postgres_password.get_secret_value()
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql+asyncpg://{self.postgres_user}:{pw}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
@@ -64,9 +84,8 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Synchronous URL used by Alembic migrations."""
-        return (
-            f"postgresql+psycopg2://{self.postgres_user}:{self.postgres_password}"
-            f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+        return self.database_url.replace(
+            "postgresql+asyncpg://", "postgresql+psycopg2://", 1
         )
 
     # ─── ClickHouse ───────────────────────────────────────────────────────────
@@ -74,7 +93,7 @@ class Settings(BaseSettings):
     clickhouse_port: int = Field(default=8123, ge=1, le=65535)
     clickhouse_db: str = "aifinops"
     clickhouse_user: str = "aifinops"
-    clickhouse_password: str = "aifinops_dev_password"
+    clickhouse_password: SecretStr = Field(default="aifinops_dev_password")
 
     @computed_field  # type: ignore[misc]
     @property
@@ -85,13 +104,14 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = Field(default=6379, ge=1, le=65535)
     redis_db: int = Field(default=0, ge=0, le=15)
-    redis_password: str = ""
+    redis_password: SecretStr = Field(default="")
 
     @computed_field  # type: ignore[misc]
     @property
     def redis_url(self) -> str:
-        if self.redis_password:
-            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        pw = self.redis_password.get_secret_value()
+        if pw:
+            return f"redis://:{pw}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
     # ─── Observability ────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ and are skipped in the default run.
 """
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -19,6 +20,26 @@ from httpx import ASGITransport, AsyncClient
 from app.config.settings import Settings, get_settings
 from app.core.container import AppContainer
 from app.main import create_app
+
+
+# ─── Environment isolation ────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True, scope="session")
+def _isolate_env() -> None:
+    """
+    Prevent a local backend/.env from leaking DATABASE_URL or JWT_SECRET
+    into unit tests. OS env vars take priority over the .env file in
+    pydantic-settings, so setting them to empty forces the computed fallback.
+    """
+    overrides = {"DATABASE_URL": "", "JWT_SECRET": ""}
+    originals = {k: os.environ.get(k) for k in overrides}
+    os.environ.update(overrides)
+    yield
+    for k, v in originals.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
 
 
 # ─── Settings ─────────────────────────────────────────────────────────────────

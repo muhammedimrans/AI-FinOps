@@ -1,0 +1,19 @@
+# ─── Global ownership ─────────────────────────────────────────────────────────
+* @muhammedimrans
+
+# ─── Documentation ────────────────────────────────────────────────────────────
+/docs/ @muhammedimrans
+/Docs/ @muhammedimrans
+
+# ─── Backend ──────────────────────────────────────────────────────────────────
+/backend/ @muhammedimrans
+
+# ─── Frontend ─────────────────────────────────────────────────────────────────
+/frontend/ @muhammedimrans
+
+# ─── Infrastructure ───────────────────────────────────────────────────────────
+/deployment/ @muhammedimrans
+/docker-compose.yml @muhammedimrans
+
+# ─── Shared packages ──────────────────────────────────────────────────────────
+/packages/ @muhammedimrans

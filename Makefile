@@ -82,6 +82,9 @@ install-frontend: ## Install frontend Node dependencies
 	pnpm install
 
 # ─── Database / Migrations ────────────────────────────────────────────────────
+db-check: ## Verify database connectivity using configured DATABASE_URL
+	cd $(BACKEND_DIR) && $(PYTHON) ../scripts/dev/check_db.py
+
 migrate: ## Run pending Alembic migrations
 	cd $(BACKEND_DIR) && $(ALEMBIC) upgrade head
 

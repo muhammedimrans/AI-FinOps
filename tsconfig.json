@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared-types" },
+    { "path": "./packages/error-codes" },
+    { "path": "./packages/shared-config" },
+    { "path": "./packages/event-schema" },
+    { "path": "./packages/api-contracts" },
+    { "path": "./frontend" }
+  ]
+}

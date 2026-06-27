@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true,
+    "paths": {
+      "@ai-finops/shared-types": ["../shared-types/src/index.ts"],
+      "@ai-finops/error-codes": ["../error-codes/src/index.ts"],
+      "@ai-finops/event-schema": ["../event-schema/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../shared-types" },
+    { "path": "../error-codes" },
+    { "path": "../event-schema" }
+  ],
+  "include": ["src"]
+}

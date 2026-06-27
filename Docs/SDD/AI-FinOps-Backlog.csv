@@ -1,0 +1,185 @@
+ID,Type,Title,Parent,Epic,Priority,StoryPoints,Labels,Sprint,Dependencies,Owner,AcceptanceCriteria,TracesTo
+EP-01,Epic,Repository & Foundation,,EP-01,critical,,type:epic;infra,Sprint 1,,Founder,Request flows through api; CI green,M1;§3.23;ADR-017
+EP-02,Epic,Developer Experience,,EP-02,high,,type:epic;infra,Sprint 1,EP-01,DevOps,New dev productive in <1 day,§6.9;§6.10
+EP-03,Epic,CI/CD Pipeline,,EP-03,critical,,type:epic;ci-cd,Sprint 1,EP-01,DevOps,Auto-deploy dev; gated prod,§6.11
+EP-04,Epic,Observability & Monitoring,,EP-04,high,,type:epic;observability,Sprint 6,EP-01,DevOps,SLO dashboards live,§3.11;§3.19
+EP-05,Epic,Authentication,,EP-05,critical,,type:epic;security,Sprint 2,EP-01,Backend,Login + key auth work,M2;§5.3;ADR-032
+EP-06,Epic,Organizations,,EP-06,critical,,type:epic;backend,Sprint 2,EP-05,Backend,Org CRUD; tenant scoping,M3;§5.8
+EP-07,Epic,Users & RBAC,,EP-07,critical,,type:epic;security,Sprint 2,EP-05,Backend,RBAC enforced (SC-8),M2;§5.3
+EP-08,Epic,Projects & Attribution,,EP-08,critical,,type:epic;backend,Sprint 2,EP-06,Backend,Key to project resolves,M4;§3.15;§5.8
+EP-09,Epic,Provider Adapter Framework,,EP-09,critical,,type:epic;provider,Sprint 3,EP-01,Founder,New provider = adapter only (SC-5),M5;§AP-4;§5.11
+EP-10,Epic,OpenAI Integration,,EP-10,critical,,type:epic;provider,Sprint 3,EP-09;EP-13,Backend,Connect + sync + cost,M5
+EP-11,Epic,Anthropic Integration,,EP-11,critical,,type:epic;provider,Sprint 3,EP-09;EP-13,Backend,Connect + sync + cost,M5
+EP-12,Epic,Provider Connections,,EP-12,critical,,type:epic;provider,Sprint 3,EP-09,Backend,Connection state machine works,M5;§3.21.1
+EP-13,Epic,Pricing Engine,,EP-13,critical,,type:epic;pricing,Sprint 4,EP-01,Backend,Cost = f(usage price@time),§4.5;M7
+EP-14,Epic,Canonical Event Model,,EP-14,critical,,type:epic;ingestion,Sprint 3,EP-01,Founder,Schema frozen; CI gate,§4.3;§4.20;ADR-030
+EP-15,Epic,Event Ingestion,,EP-15,critical,,type:epic;ingestion,Sprint 3,EP-12;EP-14;EP-18,Backend,Push+pull idempotent (SC-6),M6;§5.10;§3.9
+EP-16,Epic,Normalization & Costing,,EP-16,critical,,type:epic;ingestion,Sprint 4,EP-13;EP-15,Backend,Costed events in ClickHouse,M7;§3.4
+EP-17,Epic,Reconciliation,,EP-17,critical,,type:epic;reconciliation,Sprint 4,EP-16,Founder,Reconciled within ±2% (SC-3),M7;§3.9.2
+EP-18,Epic,Data Stores,,EP-18,critical,,type:epic;database,Sprint 1,EP-01,DevOps,All stores provisioned + backed up,§3.8;§4.6
+EP-19,Epic,Analytics Engine,,EP-19,critical,,type:epic;analytics,Sprint 4,EP-16,Backend,p95 <2s on rollups (SC-2),M7;§5.9;§4.8
+EP-20,Epic,Dashboard / Frontend,,EP-20,critical,,type:epic;dashboard,Sprint 4,EP-19;EP-05,Frontend,Onboarding ≤15min to cost (SC-1),M8;§5
+EP-21,Epic,Budgets & Governance,,EP-21,high,,type:epic;budget,Sprint 5,EP-16,Backend,Thresholds fire (SC-4),M9;§3.21.2
+EP-22,Epic,Alerts & Notification,,EP-22,high,,type:epic;alerts,Sprint 5,EP-21,Backend,Breach to alert delivered (SC-4),M10;§5.13
+EP-23,Epic,Reports & Export,,EP-23,high,,type:epic;analytics,Sprint 5,EP-19,Backend,Export traceable (SC-9),M11;§5.8
+EP-24,Epic,Webhooks,,EP-24,medium,,type:epic;api,Sprint 5,EP-22,Backend,Signed delivery + retry,§5.13;ADR-040
+EP-25,Epic,SDK,,EP-25,high,,type:epic;api,Sprint 5,EP-15,Backend,track_usage non-blocking,§5.12;ADR-039
+EP-26,Epic,API Gateway & Public API,,EP-26,critical,,type:epic;api,Sprint 2,EP-05,Backend,REST surface live,§5.2;ADR-031
+EP-27,Epic,Security & Compliance,,EP-27,high,,type:epic;security,Sprint 6,EP-05;EP-18,DevOps,Security review passed,§4.15;§5.16
+EP-28,Epic,Testing & Quality,,EP-28,high,,type:epic;testing,Sprint 6,EP-03,QA,SC-1..10 acceptance pass,§6.12
+EP-29,Epic,Documentation,,EP-29,medium,,type:epic;documentation,Sprint 6,EP-26,All,OpenAPI generated; docs live,§6.6
+EP-30,Epic,Deployment & Environments,,EP-30,high,,type:epic;deployment,Sprint 6,EP-03;EP-18,DevOps,Prod deploy + rollback work,§6.10
+EP-31,Epic,Release Management,,EP-31,high,,type:epic;release,Sprint 6,,Founder,Release plan executed,§6.15;§12
+EP-32,Epic,Forecasting (Phase 2),,EP-32,low,,type:epic;phase-2,,EP-19,Backend,Out of MVP,§6.16
+F-001,Feature,Monorepo scaffold,EP-01,EP-01,critical,5,type:feature;infra,Sprint 1,,Founder,Folders + CODEOWNERS exist,§6.5
+F-002,Feature,Shared packages,EP-01,EP-01,critical,5,type:feature;infra,Sprint 1,F-001,Backend,Contracts importable by services,§4.20
+F-003,Feature,Service skeletons,EP-01,EP-01,critical,5,type:feature;backend,Sprint 1,F-001,Backend,Each exposes /health /ready,§3.19
+F-004,Feature,Base tooling,EP-01,EP-01,high,3,type:feature;infra,Sprint 1,F-001,DevOps,Linters enforced local + CI,§6.6
+F-010,Feature,Test+lint pipeline,EP-03,EP-03,critical,5,type:feature;ci-cd,Sprint 1,F-001,DevOps,Runs on PR,§6.11
+F-011,Feature,Security + dependency scan,EP-03,EP-03,high,3,type:feature;security,Sprint 1,F-010,DevOps,Blocks on critical findings,§6.11
+F-012,Feature,Contract gates,EP-03,EP-03,critical,5,type:feature;ci-cd,Sprint 1,F-010,Backend,Incompatible change blocked,§4.26;SC-5
+F-013,Feature,Build + deploy pipeline,EP-03,EP-03,critical,5,type:feature;deployment,Sprint 1,F-010,DevOps,Dev auto prod gated,§6.11
+F-020,Feature,OIDC login,EP-05,EP-05,critical,5,type:feature;security,Sprint 2,F-003,Backend,Login issues JWT,§5.3
+F-021,Feature,JWT + refresh,EP-05,EP-05,critical,5,type:feature;security,Sprint 2,F-020,Backend,Short access; rotating refresh,§5.3
+F-022,Feature,API keys sk/ik,EP-05,EP-05,critical,5,type:feature;security,Sprint 2,F-020,Backend,Ingestion key write-only,§5.3
+F-023,Feature,Service identity mTLS,EP-05,EP-05,medium,3,type:feature;security,Sprint 6,F-020,DevOps,Internal calls authenticated,§5.3
+F-030,Feature,Roles & scopes,EP-07,EP-07,critical,5,type:feature;security,Sprint 2,F-021,Backend,Role to scope enforced,§5.3
+F-031,Feature,User invite,EP-07,EP-07,high,3,type:feature;backend,Sprint 2,F-030,Backend,Invite to active flow,§5.8
+F-032,Feature,Tenant scoping,EP-07,EP-07,critical,5,type:feature;security,Sprint 2,F-030,Backend,Cross-org access impossible,SC-8
+F-040,Feature,Adapter contract,EP-09,EP-09,critical,5,type:feature;provider,Sprint 3,F-002,Founder,Contract published in packages,§5.11
+F-041,Feature,Capability descriptor,EP-09,EP-09,high,3,type:feature;provider,Sprint 3,F-040,Backend,Surfaced in dashboard,§3.18
+F-042,Feature,Adapter fitness test,EP-09,EP-09,critical,5,type:feature;testing,Sprint 3,F-040,QA,CI asserts no core diff,SC-5
+F-043,Feature,Resumable sync,EP-09,EP-09,critical,5,type:feature;provider,Sprint 3,F-040,Backend,Resumes from checkpoint,§5.11
+F-050,Feature,Pricing catalog,EP-13,EP-13,critical,5,type:feature;pricing,Sprint 4,F-002,Backend,Lookup by model+time,§4.5
+F-051,Feature,Pricing changelog,EP-13,EP-13,high,3,type:feature;pricing,Sprint 4,F-050,Backend,Normalization reads local view,§3.4
+F-052,Feature,Pricing maintenance process,EP-13,EP-13,critical,3,type:feature;pricing,Sprint 0,,Backend,Defined source + update flow,OQ-E5
+F-060,Feature,Event envelope + payload,EP-14,EP-14,critical,5,type:feature;ingestion,Sprint 3,F-002,Founder,Schema in event-schema package,§4.20
+F-061,Feature,Deterministic event_id,EP-14,EP-14,critical,5,type:feature;ingestion,Sprint 3,F-060,Backend,Same event same id,§4.3
+F-062,Feature,Schema freeze + change control,EP-14,EP-14,critical,3,type:feature;ingestion,Sprint 3,F-060,Founder,CI compat gate + ADR required,§4.26
+F-070,Feature,Collector API push,EP-15,EP-15,critical,8,type:feature;ingestion,Sprint 3,F-060;EP-18,Backend,202 ack; per-item result,§5.10
+F-071,Feature,Pull workers,EP-15,EP-15,critical,8,type:feature;ingestion,Sprint 3,F-040;F-052,Backend,Authoritative events published,§3.9.2
+F-072,Feature,Raw archive,EP-15,EP-15,critical,3,type:feature;ingestion,Sprint 3,EP-18,Backend,Every event archived,§3.8.1
+F-073,Feature,Idempotency + dedup,EP-15,EP-15,critical,5,type:feature;ingestion,Sprint 3,F-061,Backend,No double-count,SC-6
+F-074,Feature,DLQ handling,EP-15,EP-15,high,3,type:feature;ingestion,Sprint 3,F-070,Backend,Unprocessable to dlq,§3.6
+F-075,Feature,Historical backfill,EP-15,EP-15,high,5,type:feature;ingestion,Sprint 3,F-071,Backend,Backfill resumes on failure,§3.9.5
+F-080,Feature,Dedup + validation,EP-16,EP-16,critical,5,type:feature;ingestion,Sprint 4,F-073,Backend,Duplicates benign-counted,§3.8.4
+F-081,Feature,Attribution enrichment,EP-16,EP-16,critical,5,type:feature;ingestion,Sprint 4,F-032;EP-08,Backend,Local view from compacted topic,§3.4
+F-082,Feature,Cost computation,EP-16,EP-16,critical,5,type:feature;pricing,Sprint 4,F-050,Backend,Decimal money pins pricing_version,DP-10
+F-083,Feature,ClickHouse writer,EP-16,EP-16,critical,5,type:feature;database,Sprint 4,EP-18,Backend,ReplacingMergeTree dedup,§3.8.3
+F-090,Feature,Push pull merge,EP-17,EP-17,critical,8,type:feature;reconciliation,Sprint 4,F-082,Founder,Status flips to reconciled,§3.9.2
+F-091,Feature,Adjustment events,EP-17,EP-17,critical,5,type:feature;reconciliation,Sprint 4,F-090,Backend,Latest-version-wins,§4.3.2
+F-092,Feature,Drift detection,EP-17,EP-17,critical,5,type:feature;reconciliation,Sprint 4,F-090,Founder,Alerts on drift,SC-3
+F-100,Feature,Rollup materialized views,EP-19,EP-19,critical,5,type:feature;analytics,Sprint 4,F-083,Backend,Dashboards query rollups,§4.8
+F-101,Feature,Query service,EP-19,EP-19,critical,5,type:feature;analytics,Sprint 4,F-100,Backend,p95 <2s,SC-2
+F-102,Feature,Analytics endpoints,EP-19,EP-19,critical,5,type:feature;api,Sprint 4,F-101,Backend,usage/costs/breakdown/top-N,§5.9
+F-103,Feature,Provisional reconciled flag,EP-19,EP-19,high,2,type:feature;analytics,Sprint 4,F-092,Backend,Status shown on every figure,SC-7
+F-110,Feature,Onboarding flow,EP-20,EP-20,critical,5,type:feature;dashboard,Sprint 4,F-020;F-111,Frontend,Signup to cost in 15 min,SC-1
+F-111,Feature,Provider connect UI,EP-20,EP-20,critical,5,type:feature;dashboard,Sprint 4,F-040,Frontend,Guided connect + status,§5
+F-112,Feature,Cost dashboard,EP-20,EP-20,critical,8,type:feature;dashboard,Sprint 4,F-102,Frontend,Time-series + breakdowns,§5.9
+F-113,Feature,Budget utilization view,EP-20,EP-20,high,3,type:feature;dashboard,Sprint 5,F-121,Frontend,Per-budget utilization,§5.9
+F-114,Feature,Estimate labeling,EP-20,EP-20,critical,2,type:feature;dashboard,Sprint 4,F-103,Frontend,Labels + confidence shown,SC-10
+F-120,Feature,Budget CRUD,EP-21,EP-21,critical,5,type:feature;budget,Sprint 5,F-082,Backend,Org/project scope,§5.8
+F-121,Feature,Threshold evaluation,EP-21,EP-21,critical,5,type:feature;budget,Sprint 5,F-120,Backend,State machine fires,§3.21.2
+F-130,Feature,Alert raising,EP-22,EP-22,critical,3,type:feature;alerts,Sprint 5,F-121,Backend,alert.raised emitted,§5.13
+F-131,Feature,Email delivery,EP-22,EP-22,critical,3,type:feature;alerts,Sprint 5,F-130,Backend,Delivered <60s,SC-4
+F-132,Feature,Webhook delivery,EP-22,EP-22,high,5,type:feature;api,Sprint 5,F-130,Backend,Signed + retried,§5.13
+F-133,Feature,Acknowledge resolve,EP-22,EP-22,medium,2,type:feature;alerts,Sprint 5,F-130,Backend,State transitions,§5.8
+F-140,Feature,Report generation,EP-23,EP-23,high,5,type:feature;analytics,Sprint 5,F-101,Backend,Deterministic artifact,SC-9
+F-141,Feature,Export download,EP-23,EP-23,high,3,type:feature;analytics,Sprint 5,F-140,Backend,Traceable to source,SC-9
+F-150,Feature,Compose stack,EP-02,EP-02,high,3,type:feature;infra,Sprint 1,F-001,DevOps,Stores up locally,§6.10
+F-151,Feature,Seed data,EP-02,EP-02,high,2,type:feature;infra,Sprint 1,F-150,DevOps,Realistic seed available,§6.9
+F-152,Feature,Scripts,EP-02,EP-02,medium,2,type:feature;infra,Sprint 1,F-150,DevOps,Repeatable dev tasks,§6.5
+F-160,Feature,Platform metrics,EP-04,EP-04,high,3,type:feature;observability,Sprint 6,F-003,DevOps,Prometheus metrics emitted,§3.11
+F-161,Feature,Tracing,EP-04,EP-04,medium,3,type:feature;observability,Sprint 6,F-160,DevOps,Trace propagation works,§5.4
+F-162,Feature,SLO dashboards,EP-04,EP-04,high,3,type:feature;observability,Sprint 6,F-160,DevOps,SLOs visualized,§4.24
+F-163,Feature,Platform alerting,EP-04,EP-04,high,2,type:feature;observability,Sprint 6,F-162,DevOps,On-call alerts on SLO breach,§3.11
+F-170,Feature,Org CRUD,EP-06,EP-06,critical,3,type:feature;backend,Sprint 2,F-021,Backend,Org create/read/update,§5.8
+F-171,Feature,Org settings,EP-06,EP-06,medium,2,type:feature;backend,Sprint 2,F-170,Backend,Settings persist,§5.8
+F-180,Feature,Project CRUD,EP-08,EP-08,critical,3,type:feature;backend,Sprint 2,F-170,Backend,Project create/read/update,§5.8
+F-181,Feature,Attribution tags,EP-08,EP-08,high,2,type:feature;backend,Sprint 2,F-180,Backend,Tags persist on project,§3.15
+F-182,Feature,Key to project mapping,EP-08,EP-08,critical,5,type:feature;backend,Sprint 2,F-180;F-022,Backend,Mapping on compacted topic,§3.4
+F-190,Feature,OpenAI auth,EP-10,EP-10,critical,3,type:feature;provider,Sprint 3,F-040,Backend,Credential validates,§5.11
+F-191,Feature,OpenAI usage sync,EP-10,EP-10,critical,5,type:feature;provider,Sprint 3,F-190,Backend,Usage events published,§3.9
+F-192,Feature,OpenAI pricing fetch,EP-10,EP-10,high,3,type:feature;pricing,Sprint 3,F-190,Backend,Pricing available,§5.11
+F-193,Feature,OpenAI model mapping,EP-10,EP-10,high,2,type:feature;provider,Sprint 3,F-191,Backend,Models normalized,§4.19
+F-200,Feature,Anthropic auth,EP-11,EP-11,critical,3,type:feature;provider,Sprint 3,F-040,Backend,Credential validates,§5.11
+F-201,Feature,Anthropic usage sync,EP-11,EP-11,critical,5,type:feature;provider,Sprint 3,F-200,Backend,Usage events published,§3.9
+F-202,Feature,Anthropic pricing,EP-11,EP-11,high,3,type:feature;pricing,Sprint 3,F-200,Backend,Pricing available,§5.11
+F-203,Feature,Anthropic model mapping,EP-11,EP-11,high,2,type:feature;provider,Sprint 3,F-201,Backend,Models normalized,§4.19
+F-210,Feature,Connect provider,EP-12,EP-12,critical,3,type:feature;provider,Sprint 3,F-040,Backend,Connection established,§3.21.1
+F-211,Feature,Validate credentials,EP-12,EP-12,critical,2,type:feature;provider,Sprint 3,F-210,Backend,Pre-flight check passes,§5.11
+F-212,Feature,Test connection,EP-12,EP-12,medium,2,type:feature;provider,Sprint 3,F-210,Backend,Health check returns,§5.11
+F-213,Feature,Disconnect,EP-12,EP-12,medium,2,type:feature;provider,Sprint 3,F-210,Backend,Cleanup + revoke,§5.11
+F-220,Feature,Postgres provisioning,EP-18,EP-18,critical,3,type:feature;database,Sprint 1,F-001,DevOps,HA primary + replica,§4.6
+F-221,Feature,ClickHouse provisioning,EP-18,EP-18,critical,3,type:feature;database,Sprint 1,F-001,DevOps,Single node + backup,§4.6
+F-222,Feature,Redpanda provisioning,EP-18,EP-18,critical,3,type:feature;database,Sprint 1,F-001,DevOps,Topics created,§4.22
+F-223,Feature,Redis provisioning,EP-18,EP-18,high,2,type:feature;database,Sprint 1,F-001,DevOps,Cache + dedup window,§4.6
+F-224,Feature,Object storage,EP-18,EP-18,critical,2,type:feature;database,Sprint 1,F-001,DevOps,Archive bucket + versioning,§4.6
+F-230,Feature,Webhook subscriptions,EP-24,EP-24,medium,3,type:feature;api,Sprint 5,F-130,Backend,Endpoint CRUD,§5.13
+F-231,Feature,Webhook signing,EP-24,EP-24,medium,2,type:feature;security,Sprint 5,F-230,Backend,HMAC + timestamp,§5.13
+F-232,Feature,Webhook retry,EP-24,EP-24,medium,2,type:feature;api,Sprint 5,F-230,Backend,Backoff + disable,§5.13
+F-240,Feature,SDK initialize,EP-25,EP-25,high,2,type:feature;api,Sprint 5,F-022,Backend,Config + auth,§5.12
+F-241,Feature,Non-blocking track,EP-25,EP-25,high,5,type:feature;api,Sprint 5,F-070,Backend,track_usage returns immediately,§5.12
+F-242,Feature,Flush + shutdown,EP-25,EP-25,high,3,type:feature;api,Sprint 5,F-241,Backend,Buffer drains on shutdown,§5.12
+F-243,Feature,Offline buffering,EP-25,EP-25,medium,3,type:feature;api,Sprint 5,F-241,Backend,Bounded queue; drop with metric,§5.12
+F-250,Feature,Edge auth + routing,EP-26,EP-26,critical,5,type:feature;api,Sprint 2,F-021,Backend,TLS auth rate-limit routing,§5.2
+F-251,Feature,Response envelope,EP-26,EP-26,critical,3,type:feature;api,Sprint 2,F-250,Backend,Consistent envelope,§5.6
+F-252,Feature,Error model,EP-26,EP-26,critical,3,type:feature;api,Sprint 2,F-250,Backend,Taxonomy + retryable flag,§5.7
+F-253,Feature,Cursor pagination,EP-26,EP-26,high,3,type:feature;api,Sprint 2,F-251,Backend,Cursor + has_more,§5.4
+F-254,Feature,Rate limiting,EP-26,EP-26,high,3,type:feature;api,Sprint 2,F-250,Backend,Per org/key/user,§5.15
+F-260,Feature,Secret encryption,EP-27,EP-27,high,3,type:feature;security,Sprint 6,F-022,DevOps,Envelope encryption KMS,§4.15
+F-261,Feature,Tenancy isolation tests,EP-27,EP-27,high,3,type:feature;testing,Sprint 6,F-032,QA,No cross-org leakage,SC-8
+F-262,Feature,Audit log,EP-27,EP-27,high,3,type:feature;security,Sprint 6,F-170,Backend,Immutable audit trail,§4.5
+F-263,Feature,Input validation,EP-27,EP-27,high,2,type:feature;security,Sprint 6,F-250,Backend,Reject unknown/oversized,§5.16
+F-270,Feature,Unit test suite,EP-28,EP-28,high,3,type:feature;testing,Sprint 6,F-010,QA,Core logic ≥80%,§6.12
+F-271,Feature,Integration tests,EP-28,EP-28,high,3,type:feature;testing,Sprint 6,F-270,QA,Service+store covered,§6.12
+F-272,Feature,Contract tests,EP-28,EP-28,critical,3,type:feature;testing,Sprint 6,F-012,QA,Contracts conform,§6.12
+F-273,Feature,E2E tests,EP-28,EP-28,high,5,type:feature;testing,Sprint 6,F-271,QA,Wedge path covered,§6.12
+F-274,Feature,Load tests,EP-28,EP-28,high,3,type:feature;performance,Sprint 6,F-273,QA,p95 <2s under load,SC-2
+F-275,Feature,Acceptance suite,EP-28,EP-28,critical,5,type:feature;testing,Sprint 6,F-273,QA,SC-1..10 pass,§2.9
+F-280,Feature,OpenAPI spec,EP-29,EP-29,high,3,type:feature;documentation,Sprint 6,F-252,Backend,Spec generated from §5,§6.6
+F-281,Feature,SDK docs,EP-29,EP-29,medium,2,type:feature;documentation,Sprint 6,F-241,All,SDK usage documented,§6.6
+F-282,Feature,Runbooks,EP-29,EP-29,medium,2,type:feature;documentation,Sprint 6,F-162,DevOps,Ops runbooks exist,§6.6
+F-283,Feature,ADR index,EP-29,EP-29,low,1,type:feature;documentation,Sprint 6,,Founder,ADR register standalone,§3.24
+F-290,Feature,Dev environment,EP-30,EP-30,high,2,type:feature;deployment,Sprint 1,F-013,DevOps,Auto-deploy from main,§6.10
+F-291,Feature,Staging environment,EP-30,EP-30,high,3,type:feature;deployment,Sprint 6,F-290,DevOps,Prod-like; manual promote,§6.10
+F-292,Feature,Production environment,EP-30,EP-30,critical,3,type:feature;deployment,Sprint 6,F-291,DevOps,Gated deploy; secrets in KMS,§6.10
+F-293,Feature,Rollback,EP-30,EP-30,high,2,type:feature;deployment,Sprint 6,F-292,DevOps,Previous version restorable,§4.13
+F-300,Feature,Alpha gate,EP-31,EP-31,high,1,type:feature;release,Sprint 6,F-275,Founder,Wedge demo works,§12
+F-301,Feature,Beta gate,EP-31,EP-31,high,1,type:feature;release,Sprint 6,F-300,Founder,±2% on real data,§12
+F-302,Feature,GA gate,EP-31,EP-31,high,1,type:feature;release,Sprint 6,F-301,Founder,§6.15 checklist green,§12
+US-001,Story,Org creation,EP-06,EP-06,critical,3,type:story;backend,Sprint 2,F-170,Backend,Org created; creator is Owner,§3.15
+US-010,Story,Login via OIDC,EP-05,EP-05,critical,5,type:story;security,Sprint 2,F-020,Backend,OIDC issues JWT + refresh,§5.3
+US-011,Story,Ingestion API key,EP-05,EP-05,critical,3,type:story;security,Sprint 2,F-022,Backend,ik key write-only revocable,§5.3
+US-020,Story,Enforce RBAC + tenant scope,EP-07,EP-07,critical,5,type:story;security,Sprint 2,F-030,Backend,Cross-org denied,SC-8
+US-030,Story,Create project,EP-08,EP-08,critical,2,type:story;backend,Sprint 2,F-180,Backend,Project CRUD + tags,§5.8
+US-031,Story,Map key to project,EP-08,EP-08,critical,5,type:story;backend,Sprint 2,F-182,Backend,Mapping resolves at enrich,§3.4
+US-040,Story,Define adapter contract,EP-09,EP-09,critical,5,type:story;provider,Sprint 3,F-040,Founder,Fitness test passes,SC-5
+US-050,Story,Connect OpenAI,EP-10,EP-10,critical,5,type:story;provider,Sprint 3,F-190;F-210,Backend,Encrypted validated healthy,§3.21.1
+US-051,Story,Connect Anthropic,EP-11,EP-11,critical,5,type:story;provider,Sprint 3,F-200;F-210,Backend,Encrypted validated healthy,OQ-1
+US-060,Story,Pricing catalog lookup,EP-13,EP-13,critical,5,type:story;pricing,Sprint 4,F-050,Backend,Lookup by model+time decimal,DP-10
+US-070,Story,Freeze canonical event,EP-14,EP-14,critical,3,type:story;ingestion,Sprint 3,F-060,Founder,CI compat gate; ADR required,§4.26
+US-080,Story,Push ingestion,EP-15,EP-15,critical,8,type:story;ingestion,Sprint 3,F-070,Backend,202 ack; per-item; idempotent,§5.10
+US-081,Story,Pull ingestion,EP-15,EP-15,critical,8,type:story;ingestion,Sprint 3,F-071,Backend,Resumable; publishes usage.pulled,§3.9.2
+US-082,Story,Idempotent dedup,EP-15,EP-15,critical,5,type:story;ingestion,Sprint 3,F-073,Backend,Retries never double-count,SC-6
+US-090,Story,Cost computation,EP-16,EP-16,critical,5,type:story;ingestion,Sprint 4,F-082,Backend,Decimal; pins pricing_version,DP-10
+US-100,Story,Reconcile push vs pull,EP-17,EP-17,critical,8,type:story;reconciliation,Sprint 4,F-090,Founder,Status flips; drift alerts,SC-3
+US-110,Story,Rollups + query,EP-19,EP-19,critical,8,type:story;analytics,Sprint 4,F-100,Backend,p95 <2s,SC-2
+US-120,Story,Onboarding to first cost,EP-20,EP-20,critical,8,type:story;dashboard,Sprint 4,F-110,Frontend,Reconciled cost in 15 min,SC-1
+US-130,Story,Budget + threshold alert,EP-21,EP-22,high,5,type:story;budget,Sprint 5,F-121;F-130,Backend,Alert delivered <60s,SC-4
+US-140,Story,Export report,EP-23,EP-23,high,3,type:story;analytics,Sprint 5,F-140,Backend,Deterministic traceable export,SC-9
+US-150,Story,Acknowledge alert,EP-22,EP-22,medium,2,type:story;alerts,Sprint 5,F-133,Backend,Alert state transitions,§5.8
+US-160,Story,Webhook subscription,EP-24,EP-24,medium,3,type:story;api,Sprint 5,F-230,Backend,Subscribe to events,§5.13
+US-170,Story,SDK non-blocking track,EP-25,EP-25,high,5,type:story;api,Sprint 5,F-241,Backend,track_usage never blocks,§5.12
+US-180,Story,Provider connect UI,EP-20,EP-20,critical,5,type:story;dashboard,Sprint 4,F-111,Frontend,Guided connect + status,§5
+US-190,Story,Cost dashboard views,EP-20,EP-20,critical,8,type:story;dashboard,Sprint 4,F-112,Frontend,By provider/model/project,§5.9
+US-200,Story,Estimate labeling,EP-20,EP-20,critical,2,type:story;dashboard,Sprint 4,F-114,Frontend,Estimates never shown as exact,SC-10
+US-210,Story,Historical backfill job,EP-15,EP-15,high,5,type:story;ingestion,Sprint 3,F-075,Backend,Resumes on failure,§3.9.5
+US-220,Story,DLQ inspection,EP-15,EP-15,medium,3,type:story;ingestion,Sprint 3,F-074,Backend,Operators inspect + replay,§3.6
+US-230,Story,Adapter fitness CI test,EP-09,EP-09,critical,3,type:story;testing,Sprint 3,F-042,QA,New provider zero core diff,SC-5
+US-240,Story,Pricing maintenance decision,EP-13,EP-13,critical,2,type:story;pricing,Sprint 0,F-052,Backend,Source + cadence decided,OQ-E5
+US-250,Story,Tenancy isolation tests,EP-27,EP-27,high,3,type:story;testing,Sprint 6,F-261,QA,No cross-org leakage,SC-8
+US-260,Story,Acceptance suite SC1-10,EP-28,EP-28,critical,5,type:story;testing,Sprint 6,F-275,QA,All SC pass,§2.9
+US-270,Story,Production deploy + rollback,EP-30,EP-30,critical,3,type:story;deployment,Sprint 6,F-292;F-293,DevOps,Deploy + rollback verified,§6.10
+US-280,Story,Backups + DR validation,EP-27,EP-27,high,3,type:story;deployment,Sprint 6,F-292,DevOps,Replay-rebuild verified,§4.12
+US-290,Story,OpenAPI generation,EP-29,EP-29,high,3,type:story;documentation,Sprint 6,F-280,Backend,Spec matches §5,§6.6

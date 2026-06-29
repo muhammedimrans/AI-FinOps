@@ -14,6 +14,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
 )
 
 _CAPABILITIES = ProviderCapabilities(
@@ -127,3 +128,13 @@ class OllamaProvider(AIProvider):
 
     async def verify_auth(self) -> bool:
         raise NotImplementedError("Ollama auth verification is implemented in EP-07")
+
+    async def check_capability(self, capability: str) -> bool:
+        raise NotImplementedError("Ollama capability check is implemented in EP-07")
+
+    @property
+    def is_healthy(self) -> bool:
+        return False
+
+    async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
+        raise NotImplementedError("Ollama is self-hosted and does not expose a usage API")

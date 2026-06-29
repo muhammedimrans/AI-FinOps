@@ -14,6 +14,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
 )
 
 _CAPABILITIES = ProviderCapabilities(
@@ -113,11 +114,21 @@ class OpenRouterProvider(AIProvider):
             checked_at=datetime.now(UTC),
         )
 
+    async def verify_auth(self) -> bool:
+        raise NotImplementedError("OpenRouter auth verification is implemented in EP-07")
+
+    async def check_capability(self, capability: str) -> bool:
+        raise NotImplementedError("OpenRouter capability check is implemented in EP-07")
+
+    @property
+    def is_healthy(self) -> bool:
+        return False
+
     async def list_models(self) -> list[ModelMetadata]:
         return list(_MODELS)
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("OpenRouter completion is implemented in EP-07")
 
-    async def verify_auth(self) -> bool:
-        raise NotImplementedError("OpenRouter auth verification is implemented in EP-07")
+    async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
+        raise NotImplementedError("OpenRouter usage fetching is implemented in EP-08")

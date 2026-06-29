@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field
+
+# ── Model-level capability flags ──────────────────────────────────────────────
 
 
 class ModelCapabilityFlag(enum.StrEnum):
@@ -32,6 +35,9 @@ class ModelMetadata(BaseModel):
     deprecated_at: datetime | None = None
 
 
+# ── Usage tracking ────────────────────────────────────────────────────────────
+
+
 class UsageData(BaseModel):
     model_config = {"frozen": True}
 
@@ -39,6 +45,9 @@ class UsageData(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     cached_tokens: int | None = None
+
+
+# ── Health / connectivity ─────────────────────────────────────────────────────
 
 
 class HealthStatus(enum.StrEnum):
@@ -58,13 +67,119 @@ class ConnectionStatus(BaseModel):
     checked_at: datetime
 
 
+# ── Message content types (REC-06) ────────────────────────────────────────────
+# Discriminated union keyed on `type` — no ambiguity, fast Pydantic dispatch.
+
+
+class TextContent(BaseModel):
+    """Plain text content block."""
+
+    model_config = {"frozen": True}
+    type: Literal["text"] = "text"
+    text: str
+
+
+class ImageUrlContent(BaseModel):
+    """Image referenced by a public or data-URI URL."""
+
+    model_config = {"frozen": True}
+    type: Literal["image_url"] = "image_url"
+    url: str
+    detail: str | None = None
+
+
+class ImageBase64Content(BaseModel):
+    """Inline base64-encoded image."""
+
+    model_config = {"frozen": True}
+    type: Literal["image_base64"] = "image_base64"
+    data: str
+    media_type: str = "image/jpeg"
+
+
+class AudioContent(BaseModel):
+    """Inline base64-encoded audio clip."""
+
+    model_config = {"frozen": True}
+    type: Literal["audio"] = "audio"
+    data: str
+    format: str = "wav"
+
+
+class ToolCall(BaseModel):
+    """A single tool invocation emitted by the model."""
+
+    model_config = {"frozen": True}
+    id: str
+    name: str
+    arguments: dict[str, Any]
+
+
+class ToolCallContent(BaseModel):
+    """Assistant turn that contains one or more tool calls."""
+
+    model_config = {"frozen": True}
+    type: Literal["tool_call"] = "tool_call"
+    tool_calls: list[ToolCall]
+
+
+class ToolResultContent(BaseModel):
+    """Tool-result turn returned to the model after execution."""
+
+    model_config = {"frozen": True}
+    type: Literal["tool_result"] = "tool_result"
+    tool_call_id: str
+    content: str
+
+
+MessageContent = Annotated[
+    (
+        TextContent
+        | ImageUrlContent
+        | ImageBase64Content
+        | AudioContent
+        | ToolCallContent
+        | ToolResultContent
+    ),
+    Field(discriminator="type"),
+]
+
+
+# ── Message roles ─────────────────────────────────────────────────────────────
+
+
+class MessageRole(enum.StrEnum):
+    SYSTEM = "system"
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL = "tool"
+
+
+class Message(BaseModel):
+    """Provider-neutral message in a conversation turn.
+
+    `content` is either a plain string (simple text) or a list of typed content
+    blocks (multimodal — vision, audio, tool calls).  Pydantic coerces plain
+    dicts to this model automatically, so existing callers that pass
+    ``{"role": "user", "content": "hello"}`` continue to work.
+    """
+
+    role: MessageRole
+    content: str | list[MessageContent]
+    name: str | None = None
+    tool_call_id: str | None = None
+
+
+# ── Request / response ────────────────────────────────────────────────────────
+
+
 class ProviderRequest(BaseModel):
     model_id: str
-    messages: list[dict[str, str]]
+    messages: list[Message]
     max_tokens: int | None = None
     temperature: float | None = None
     stream: bool = False
-    extra: dict = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class ProviderResponse(BaseModel):
@@ -74,4 +189,4 @@ class ProviderResponse(BaseModel):
     content: str
     usage: UsageData | None = None
     finish_reason: str | None = None
-    raw_response: dict = Field(default_factory=dict)
+    raw_response: dict[str, Any] = Field(default_factory=dict)

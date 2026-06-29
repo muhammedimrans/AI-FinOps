@@ -14,17 +14,15 @@ from sqlalchemy.ext.asyncio import create_async_engine
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from app.config.settings import get_settings
-from app.core.database import Base
+from app.db.base import Base
+import app.db.mixins  # noqa: F401 — registers BaseModel in Base.metadata
+import app.models  # noqa: F401 — future business models register here
 
 # Alembic Config object provides access to .ini values
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-# Import all models here so Alembic can detect schema changes via autogenerate.
-# Uncomment as models are implemented in future sprints:
-# from app.models import organization, project, usage_event  # noqa: F401
 
 target_metadata = Base.metadata
 

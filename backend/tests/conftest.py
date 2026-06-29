@@ -31,6 +31,7 @@ from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
 from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
+from app.models.user import User, UserStatus
 
 # ─── Environment isolation ────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ def test_settings() -> Settings:
         redis_host="localhost",
         redis_port=6379,
         redis_db=0,
+        jwt_secret="test-jwt-secret-for-unit-tests-only!!",
     )
 
 
@@ -155,6 +157,27 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
 # ─── Model Factories ──────────────────────────────────────────────────────────
 # Canonical transient ORM instances for use across all test files.
 # These do NOT hit the database; they are plain Python objects.
+
+
+def make_user(
+    *,
+    email: str = "alice@example.com",
+    username: str | None = "alice",
+    display_name: str = "Alice",
+    status: UserStatus = UserStatus.ACTIVE,
+    email_verified: bool = False,
+    password_hash: str | None = None,
+) -> User:
+    """Return a transient User instance with a generated UUIDv7 id."""
+    obj = User()
+    obj.id = uuid7()
+    obj.email = email
+    obj.username = username
+    obj.display_name = display_name
+    obj.status = status
+    obj.email_verified = email_verified
+    obj.password_hash = password_hash
+    return obj
 
 
 def make_org(

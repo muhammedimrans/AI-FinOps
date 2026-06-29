@@ -77,6 +77,13 @@ class User(BaseModel):
     timezone: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     locale: Mapped[str | None] = mapped_column(String(35), nullable=True, default=None)
 
+    # ── Authentication ────────────────────────────────────────────────────────
+    password_hash: Mapped[str | None] = mapped_column(
+        String(256),
+        nullable=True,
+        default=None,
+    )
+
     # ── Session tracking ──────────────────────────────────────────────────────
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None

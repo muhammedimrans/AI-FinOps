@@ -315,5 +315,72 @@ validators, and documentation. EP-04.1 closes all gaps before EP-05 begins.
 
 ---
 
+## [0.5.0] — EP-05 — 2026-06-29
+
+### Change: Authentication and RBAC Foundation (F-017 through F-022)
+
+#### New models
+
+- **`Session`** (`sessions` table) — refresh-token bearer records; stores SHA-256 hash of
+  the raw refresh token, expiry, revocation timestamp, and client metadata (ip, user_agent).
+  Prefix: `ses_`.
+- **`VerificationToken`** (`verification_tokens` table) — single-use email verification
+  tokens; SHA-256 hash + expiry + used_at. Prefix: `vt_`.
+- **`PasswordResetToken`** (`password_reset_tokens` table) — single-use password reset
+  tokens; SHA-256 hash + expiry + used_at. Prefix: `pr_`.
+
+#### User model extension
+
+`password_hash: String(256) NULL` — Argon2id PHC string. Nullable to support OAuth users.
+
+#### Auth module (`app/auth/`)
+
+- `password.py` — Argon2id hash / verify / needs_rehash
+- `tokens.py` — JWT access token (HS256) creation/decoding + opaque refresh token generation + SHA-256 token hashing
+- `rbac.py` — `Permission` StrEnum (13 permissions) + `ROLE_PERMISSIONS` mapping + `has_permission()` / `get_permissions()`
+- `exceptions.py` — Auth exception hierarchy (`AuthError`, `InvalidCredentialsError`, etc.)
+- `service.py` — `AuthService`: login, logout, refresh, verify_email, create_password_reset_token, reset_password
+
+#### FastAPI dependencies (`app/auth/dependencies.py`)
+
+- `CurrentUser` — validates Bearer JWT → User (DB lookup)
+- `CurrentOrganization` — resolves `{org_id}` path param → Organization
+- `CurrentMembership` — (CurrentUser, CurrentOrganization) → Membership
+- `RequirePermission(perm)` — dependency factory enforcing a permission
+
+#### Repositories
+
+- `SessionRepository` — create, revoke, rotate, revoke_all_for_user, list_active_for_user, get_active_by_token_hash
+- `VerificationTokenRepository` — create, get_valid_by_hash, mark_used
+- `PasswordResetTokenRepository` — create, get_valid_by_hash, mark_used, invalidate_for_user
+
+#### API router (`app/api/v1/auth.py`)
+
+Six endpoints under `/v1/auth/`: login, logout, refresh, verify-email, request-password-reset, reset-password.
+
+#### Migration: `d5e6f7a8b9c0`
+
+Additive migration over `c3d4e5f6a7b8`. Adds `password_hash` to `users` and creates three new tables.
+
+### Reason
+
+EP-05 provides the authentication primitives required before any user-facing resource can be secured. RBAC dependencies are ready to apply to all v1 routes.
+
+### Impact
+
+- **New dependencies in `pyproject.toml`:** `PyJWT>=2.7.0`, `argon2-cffi>=23.1.0`, `email-validator>=2.2.0`
+- **New settings:** `jwt_algorithm`, `jwt_access_token_expire_minutes`, `jwt_refresh_token_expire_days` (all have defaults)
+- **`JWT_SECRET` must be set in production** — `jwt_secret` validation in production mode deferred to EP-06
+- **Email transport deferred:** `create_verification_token()` and `create_password_reset_token()` return the raw token; email provider integration is EP-06
+- **F-023 deferred:** rate limiting, account lockout, audit hooks, and access token revocation blocklist are not implemented
+
+### Related Documents
+
+- docs/knowledge/EP-05-Knowledge-Transfer.md
+- docs/engineering/EP-05-Completion-Report.md
+- docs/security/Authentication-Architecture.md
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

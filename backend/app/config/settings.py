@@ -48,6 +48,26 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("JWT_SECRET", "jwt_secret"),
     )
+    jwt_algorithm: str = Field(
+        default="HS256",
+        validation_alias=AliasChoices("JWT_ALGORITHM", "jwt_algorithm"),
+    )
+    jwt_access_token_expire_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=1440,
+        validation_alias=AliasChoices(
+            "JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "jwt_access_token_expire_minutes"
+        ),
+    )
+    jwt_refresh_token_expire_days: int = Field(
+        default=30,
+        ge=1,
+        le=365,
+        validation_alias=AliasChoices(
+            "JWT_REFRESH_TOKEN_EXPIRE_DAYS", "jwt_refresh_token_expire_days"
+        ),
+    )
 
     # ─── API server ───────────────────────────────────────────────────────────
     api_host: str = "0.0.0.0"  # noqa: S104

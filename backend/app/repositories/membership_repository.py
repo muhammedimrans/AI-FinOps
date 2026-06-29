@@ -80,11 +80,13 @@ class MembershipRepository(BaseRepository[Membership]):
         *,
         limit: int = 20,
         cursor: str | None = None,
+        order: str = "asc",
     ) -> CursorPage[Membership]:
         """Return active Memberships for (org, role)."""
         return await self.list_page(
             limit=limit,
             cursor=cursor,
+            order=order,
             extra_filters=and_(
                 Membership.organization_id == org_id,
                 Membership.role == role,

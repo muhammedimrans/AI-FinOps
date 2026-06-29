@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import and_
+from sqlalchemy import and_, exists, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.mixins import BaseModel
 from app.models.organization import Organization, OrganizationStatus
 from app.repositories.base_repository import BaseRepository, CursorPage
 
@@ -31,12 +30,25 @@ class OrganizationRepository(BaseRepository[Organization]):
         return result.scalar_one_or_none()
 
     async def slug_exists(self, slug: str, *, exclude_id: uuid.UUID | None = None) -> bool:
-        """Return True if the slug is already taken by another active Organization."""
-        stmt = self._active_query().where(Organization.slug == slug)
+        """
+        Return True if the slug is already taken by another active Organization.
+
+        Uses SELECT EXISTS(SELECT 1 ...) instead of fetching the full ORM row,
+        which avoids unnecessary column hydration and is faster at scale.
+        """
+        inner = (
+            select(literal(1))
+            .select_from(Organization)
+            .where(
+                Organization.deleted_at.is_(None),
+                Organization.slug == slug,
+            )
+        )
         if exclude_id is not None:
-            stmt = stmt.where(Organization.id != exclude_id)
+            inner = inner.where(Organization.id != exclude_id)
+        stmt = select(exists(inner))
         result = await self._session.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        return bool(result.scalar_one())
 
     async def list_by_status(
         self,

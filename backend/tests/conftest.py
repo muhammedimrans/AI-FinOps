@@ -5,10 +5,15 @@ All tests run without live infrastructure services by default.
 The AppContainer is replaced with mocks so tests remain fast and hermetic.
 Tests requiring live Postgres/Redis are marked @pytest.mark.integration
 and are skipped in the default run.
+
+Model factory helpers (_make_org, _make_project, etc.) are defined here so
+all test files share a single canonical source of truth for transient ORM
+instances (TD-018).
 """
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -19,7 +24,12 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config.settings import Settings, get_settings
 from app.core.container import AppContainer
+from app.db.mixins import uuid7
 from app.main import create_app
+from app.models.membership import Membership, MembershipRole
+from app.models.organization import Organization, OrganizationStatus
+from app.models.project import Project, ProjectEnvironment
+from app.models.provider_connection import ProviderConnection, ProviderType
 
 
 # ─── Environment isolation ────────────────────────────────────────────────────
@@ -120,6 +130,72 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
         base_url="http://test",
     ) as ac:
         yield ac
+
+
+# ─── Model Factories ──────────────────────────────────────────────────────────
+# Canonical transient ORM instances for use across all test files.
+# These do NOT hit the database; they are plain Python objects.
+
+def make_org(
+    *,
+    name: str = "Acme Corp",
+    slug: str = "acme",
+    status: OrganizationStatus = OrganizationStatus.ACTIVE,
+) -> Organization:
+    """Return a transient Organization instance with a generated UUIDv7 id."""
+    obj = Organization()
+    obj.id = uuid7()
+    obj.name = name
+    obj.slug = slug
+    obj.status = status
+    return obj
+
+
+def make_project(
+    *,
+    org_id: uuid.UUID | None = None,
+    name: str = "Main Project",
+    environment: ProjectEnvironment = ProjectEnvironment.PRODUCTION,
+) -> Project:
+    """Return a transient Project instance."""
+    obj = Project()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.name = name
+    obj.environment = environment
+    return obj
+
+
+def make_membership(
+    *,
+    org_id: uuid.UUID | None = None,
+    user_email: str = "alice@example.com",
+    role: MembershipRole = MembershipRole.MEMBER,
+) -> Membership:
+    """Return a transient Membership instance."""
+    obj = Membership()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.user_email = user_email
+    obj.role = role
+    return obj
+
+
+def make_connection(
+    *,
+    org_id: uuid.UUID | None = None,
+    provider_type: ProviderType = ProviderType.OPENAI,
+) -> ProviderConnection:
+    """Return a transient ProviderConnection instance."""
+    obj = ProviderConnection()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.provider_name = "openai"
+    obj.display_name = "OpenAI"
+    obj.provider_type = provider_type
+    obj.is_active = True
+    obj.configuration = {}
+    return obj
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────

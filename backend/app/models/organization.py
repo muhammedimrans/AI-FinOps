@@ -55,24 +55,39 @@ class Organization(BaseModel):
 
     # ── Relationships ─────────────────────────────────────────────────────────
     # String references are resolved lazily by SQLAlchemy after all models load.
+    #
+    # lazy="raise" — accessing these collections without a prior selectinload()
+    # or joinedload() raises InvalidRequestError. This prevents accidental lazy
+    # loads that would crash with MissingGreenlet in async context.
+    #
+    # passive_deletes=True — rely on the DB-level ON DELETE CASCADE constraint
+    # rather than loading the collection into Python for orphan detection. This
+    # avoids needing to eagerly load children before hard-deleting a parent.
+    #
+    # Service layer pattern (EP-04+):
+    #   from sqlalchemy.orm import selectinload
+    #   stmt = select(Organization).options(selectinload(Organization.projects))
 
     projects: Mapped[list[Project]] = relationship(
         "Project",
         back_populates="organization",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
+        passive_deletes=True,
     )
     memberships: Mapped[list[Membership]] = relationship(
         "Membership",
         back_populates="organization",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
+        passive_deletes=True,
     )
     provider_connections: Mapped[list[ProviderConnection]] = relationship(
         "ProviderConnection",
         back_populates="organization",
         cascade="all, delete-orphan",
-        lazy="select",
+        lazy="raise",
+        passive_deletes=True,
     )
 
     # ── Constraints / Indexes ─────────────────────────────────────────────────

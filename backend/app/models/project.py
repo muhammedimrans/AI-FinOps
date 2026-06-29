@@ -55,16 +55,18 @@ class Project(BaseModel):
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
+    # lazy="raise": accessing without prior selectinload()/joinedload() raises.
+    # See docs/engineering/sqlalchemy-loading-strategy.md for the loading policy.
 
     organization: Mapped[Organization] = relationship(
         "Organization",
         back_populates="projects",
-        lazy="select",
+        lazy="raise",
     )
     provider_connections: Mapped[list[ProviderConnection]] = relationship(
         "ProviderConnection",
         back_populates="project",
-        lazy="select",
+        lazy="raise",
     )
 
     # ── Indexes ───────────────────────────────────────────────────────────────

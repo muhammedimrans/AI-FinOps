@@ -110,6 +110,10 @@ class BaseRepository(Generic[T]):
 
     def _active_query(self) -> Select[tuple[T]]:
         """Base SELECT that excludes soft-deleted records."""
+        # type: ignore[attr-defined] — Mypy cannot resolve .deleted_at through
+        # Generic[T] even though T is bound to BaseModel (which has the column).
+        # SQLAlchemy's Mypy plugin handles ORM column access at the concrete
+        # class level, not through generics. The ignore is correct; do not remove.
         return select(self.model).where(self.model.deleted_at.is_(None))  # type: ignore[attr-defined]
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
@@ -137,8 +141,20 @@ class BaseRepository(Generic[T]):
         return instance
 
     async def update(self, instance: T, **kwargs: Any) -> T:
-        """Apply updates to an existing instance and flush."""
+        """
+        Apply keyword updates to an existing instance and flush.
+
+        Raises AttributeError for unknown keys so silent data loss is
+        impossible — if a key isn't a model attribute, it would be set on
+        the Python instance but never persisted (SQLAlchemy ignores unknown
+        instance attributes on flush). The guard prevents that foot-gun.
+        """
         for key, value in kwargs.items():
+            if not hasattr(instance, key):
+                raise AttributeError(
+                    f"{type(instance).__name__} has no attribute {key!r}. "
+                    f"Check the column name and try again."
+                )
             setattr(instance, key, value)
         await self._session.flush()
         await self._session.refresh(instance)

@@ -66,11 +66,13 @@ class Membership(BaseModel):
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
+    # lazy="raise": accessing without prior selectinload()/joinedload() raises.
+    # See docs/engineering/sqlalchemy-loading-strategy.md for the loading policy.
 
     organization: Mapped[Organization] = relationship(
         "Organization",
         back_populates="memberships",
-        lazy="select",
+        lazy="raise",
     )
 
     # ── Constraints / Indexes ─────────────────────────────────────────────────

@@ -428,9 +428,10 @@ class TestOrganizationRepository:
 
     @pytest.mark.asyncio
     async def test_slug_exists_returns_false_when_none(self) -> None:
+        # slug_exists() now uses SELECT EXISTS(...) → scalar_one() returns False
         session = _make_mock_session()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
+        result_mock.scalar_one.return_value = False
         session.execute = AsyncMock(return_value=result_mock)
 
         repo = OrganizationRepository(session)
@@ -440,9 +441,10 @@ class TestOrganizationRepository:
 
     @pytest.mark.asyncio
     async def test_slug_exists_returns_true_when_found(self) -> None:
+        # slug_exists() now uses SELECT EXISTS(...) → scalar_one() returns True
         session = _make_mock_session()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = _make_org()
+        result_mock.scalar_one.return_value = True
         session.execute = AsyncMock(return_value=result_mock)
 
         repo = OrganizationRepository(session)

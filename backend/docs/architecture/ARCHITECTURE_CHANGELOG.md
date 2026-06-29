@@ -1,5 +1,72 @@
 # Architecture Changelog
 
+## [0.9.1] — EP-09 Engineering Review (2026-06-29)
+
+### Review Outcome
+
+**APPROVED WITH MINOR CHANGES** — EP-09 is deployable to development and staging immediately. Two MEDIUM findings (REV-02, REV-05) and five LOW findings must be resolved before or during EP-10. No findings block merging.
+
+### Architecture Score: 8.5 / 10
+
+| Category | Score |
+|----------|-------|
+| Data Model Design | 9/10 |
+| Pricing Engine Architecture | 9/10 |
+| Repository Pattern | 9/10 |
+| Service Layer Design | 8/10 |
+| API Design | 7/10 |
+| Financial Accuracy | 9/10 |
+| Test Coverage | 9/10 |
+| Code Quality | 9/10 |
+| **Overall** | **8.5/10** |
+
+### Findings
+
+| ID | Severity | Finding |
+|----|----------|---------|
+| REV-01 | LOW | Cursor pagination not propagated in filtered `/pricing/models` list path (filtered-path responses always return `next_cursor=null`) |
+| REV-02 | MEDIUM | `get_totals_by_org()` sums `total_cost` across all currencies — incorrect in multi-currency deployments; other aggregation methods correctly GROUP BY currency |
+| REV-03 | LOW | Soft-delete filter applied manually in aggregation queries (maintainability concern; not a bug) |
+| REV-04 | LOW | `POST /pricing/calculate`: `usage_date` defaults to server local date, not UTC — should be documented |
+| REV-05 | MEDIUM | `GET /pricing/providers` accepts required `organization_id` query parameter but silently ignores it in SQL — tenant isolation gap |
+| REV-06 | LOW | `from datetime import datetime, UTC` inside for loop in `AggregationService.build_daily_summaries` — should be top-level import |
+| REV-07 | LOW | `get_top_models()` / `get_top_projects()` fetch all rows from DB and slice in Python — LIMIT should be applied in SQL |
+
+### Review Documents Created
+
+- `docs/knowledge/EP-09-Knowledge-Transfer.md` — full implementation reference (11 sections, 40 engineering concepts), overwrites stub
+- `docs/knowledge/EP-09-Architecture-Review.md` — architecture score 8.5/10; findings REV-01 through REV-07; 6 ADRs reviewed
+- `docs/knowledge/EP-09-Production-Readiness.md` — production risk register (PRR-01 through PRR-10); 12-item gap analysis
+
+### Security Findings
+
+| ID | Finding |
+|----|---------|
+| SEC-03 FAIL | No org membership verification — any authenticated user can query any organization's cost data via `organization_id` query parameter |
+| SEC-04 FAIL | No RBAC enforcement — `BILLING_READ`, `BILLING_WRITE`, `USAGE_READ` permissions not checked |
+| SEC-05 PARTIAL | No row-level security; access control entirely at application layer |
+
+Both SEC-03 and SEC-04 are documented as EP-10 prerequisites throughout the EP-09 codebase.
+
+### EP-09.5 Requirements
+
+No EP-09.5 sprint required. All findings are addressable in EP-10.
+
+Recommended at the start of EP-10:
+1. Resolve REV-02: fix multi-currency aggregation in `get_totals_by_org()` before non-USD pricing is configured
+2. Resolve REV-05: fix `GET /pricing/providers` to respect `organization_id` or remove the parameter
+
+### EP-10 Prerequisites
+
+1. **Wire PricingEngine into collection pipeline** — `UsageCostRecord` is empty until EP-10 calls `calculate_event_cost()` after each `UsageEvent` is persisted
+2. **Org membership verification** — `organization_id` must be verified against authenticated user's JWT claims (SEC-03)
+3. **RBAC enforcement** — `BILLING_READ`, `BILLING_WRITE`, `USAGE_READ` permissions (SEC-04)
+4. **Derive `organization_id` from JWT claims** — not accepted as an untrusted query parameter
+5. **Scheduled aggregation job** — `AggregationService.rebuild_range()` must run nightly to keep `daily_cost_summaries` current
+6. **Pricing cascade recalculation** — background job to reprice events when pricing changes
+
+---
+
 ## [0.9.0] — EP-09 Cost & Analytics Engine (2026-06-29)
 
 ### Changes

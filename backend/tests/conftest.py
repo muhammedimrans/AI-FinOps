@@ -38,15 +38,29 @@ from app.models.provider_connection import ProviderConnection, ProviderType
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_env() -> None:
     """
-    Prevent a local backend/.env from leaking DATABASE_URL or JWT_SECRET
-    into unit tests. OS env vars take priority over the .env file in
-    pydantic-settings, so setting them to empty forces the computed fallback.
+    Prevent environment variables (local .env or CI workflow) from leaking
+    into unit tests.
+
+    - DATABASE_URL / JWT_SECRET: set to empty so tests use computed defaults
+    - APP_ENV / APP_SECRET_KEY: removed entirely so Settings uses its own
+      defaults (these cannot be set to empty — pydantic would reject them)
     """
     overrides = {"DATABASE_URL": "", "JWT_SECRET": ""}
-    originals = {k: os.environ.get(k) for k in overrides}
+    originals_override = {k: os.environ.get(k) for k in overrides}
     os.environ.update(overrides)
+
+    # Pop keys that can't be set to empty (strict Literal / min_length types)
+    pop_keys = ["APP_ENV", "APP_SECRET_KEY"]
+    originals_pop = {k: os.environ.pop(k, None) for k in pop_keys}
+
     yield
-    for k, v in originals.items():
+
+    for k, v in originals_override.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    for k, v in originals_pop.items():
         if v is None:
             os.environ.pop(k, None)
         else:

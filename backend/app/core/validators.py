@@ -2,8 +2,8 @@
 Domain-level validation utilities.
 
 These validators enforce invariants that cannot be expressed as PostgreSQL
-constraints. They are called by the service layer (EP-04+) before persisting
-data to the database.
+constraints. They are called by the service layer before persisting data to
+the database.
 
 Design rules:
   - Validators raise ValueError with a human-readable message on violation.
@@ -13,7 +13,62 @@ Design rules:
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+# ── User ──────────────────────────────────────────────────────────────────────
+
+_EMAIL_RE: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+_DISPLAY_NAME_MIN = 1
+_DISPLAY_NAME_MAX = 255
+_EMAIL_MAX = 320
+
+
+def validate_user_email(email: str) -> None:
+    """
+    Reject obviously invalid email addresses.
+
+    Uses a conservative RFC 5321-compatible regex. Full RFC 5322 parsing is
+    deferred to the email-validator library in the API layer. This validator
+    is the fast in-process guard before any DB round-trip.
+
+    Args:
+        email: The email address string to validate.
+
+    Raises:
+        ValueError: If the address is empty, too long, or does not match the
+                    expected ``local@domain.tld`` pattern.
+    """
+    if not email or not email.strip():
+        raise ValueError("User email must not be empty.")
+    if len(email) > _EMAIL_MAX:
+        raise ValueError(
+            f"User email must not exceed {_EMAIL_MAX} characters " f"(got {len(email)})."
+        )
+    if not _EMAIL_RE.match(email.strip()):
+        raise ValueError(f"User email {email!r} is not a valid email address.")
+
+
+def validate_display_name(display_name: str) -> None:
+    """
+    Reject empty or excessively long display names.
+
+    Args:
+        display_name: The name string to validate.
+
+    Raises:
+        ValueError: If the name is blank or exceeds 255 characters.
+    """
+    stripped = display_name.strip() if display_name else ""
+    if len(stripped) < _DISPLAY_NAME_MIN:
+        raise ValueError("User display_name must not be empty.")
+    if len(display_name) > _DISPLAY_NAME_MAX:
+        raise ValueError(
+            f"User display_name must not exceed {_DISPLAY_NAME_MAX} characters "
+            f"(got {len(display_name)})."
+        )
+
 
 # ── Provider Configuration ────────────────────────────────────────────────────
 

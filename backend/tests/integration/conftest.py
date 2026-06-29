@@ -68,7 +68,7 @@ async def run_migrations(integration_engine):  # type: ignore[return]
 
     backend_dir = Path(__file__).parent.parent.parent
     result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
+        [sys.executable, "-m", "alembic", "-c", "migrations/alembic.ini", "upgrade", "head"],
         cwd=str(backend_dir),
         capture_output=True,
         text=True,

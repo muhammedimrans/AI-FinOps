@@ -1,0 +1,304 @@
+"""UsageCostRecordRepository — F-051 (EP-09).
+
+Provides upsert and aggregation queries for cost records.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import date
+from decimal import Decimal
+
+import structlog
+from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from app.models.usage_cost_record import UsageCostRecord
+from app.repositories.base_repository import BaseRepository
+
+log = structlog.get_logger(__name__)
+
+
+class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
+    """Repository for UsageCostRecord records."""
+
+    model = UsageCostRecord
+
+    async def get_by_event(self, usage_event_id: uuid.UUID) -> UsageCostRecord | None:
+        """Get the cost record for a specific usage event."""
+        stmt = self._active_query().where(
+            UsageCostRecord.usage_event_id == usage_event_id
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def upsert(self, record: UsageCostRecord) -> UsageCostRecord:
+        """Insert or update using ON CONFLICT on uq_usage_cost_records_event.
+
+        If a cost record already exists for the same usage_event_id, all
+        cost fields are updated. This supports recalculation when pricing
+        changes.
+        """
+        values = {
+            "id": record.id,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "deleted_at": record.deleted_at,
+            "deleted_by": record.deleted_by,
+            "usage_event_id": record.usage_event_id,
+            "organization_id": record.organization_id,
+            "project_id": record.project_id,
+            "provider_connection_id": record.provider_connection_id,
+            "model_pricing_id": record.model_pricing_id,
+            "provider": record.provider,
+            "model": record.model,
+            "currency": record.currency,
+            "usage_date": record.usage_date,
+            "prompt_tokens": record.prompt_tokens,
+            "completion_tokens": record.completion_tokens,
+            "cached_tokens": record.cached_tokens,
+            "total_tokens": record.total_tokens,
+            "prompt_cost": record.prompt_cost,
+            "completion_cost": record.completion_cost,
+            "cached_cost": record.cached_cost,
+            "total_cost": record.total_cost,
+            "calculation_version": record.calculation_version,
+        }
+
+        stmt = pg_insert(UsageCostRecord.__table__).values(**values)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_usage_cost_records_event",
+            set_={
+                "model_pricing_id": stmt.excluded.model_pricing_id,
+                "currency": stmt.excluded.currency,
+                "usage_date": stmt.excluded.usage_date,
+                "prompt_tokens": stmt.excluded.prompt_tokens,
+                "completion_tokens": stmt.excluded.completion_tokens,
+                "cached_tokens": stmt.excluded.cached_tokens,
+                "total_tokens": stmt.excluded.total_tokens,
+                "prompt_cost": stmt.excluded.prompt_cost,
+                "completion_cost": stmt.excluded.completion_cost,
+                "cached_cost": stmt.excluded.cached_cost,
+                "total_cost": stmt.excluded.total_cost,
+                "calculation_version": stmt.excluded.calculation_version,
+                "updated_at": func.now(),
+            },
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+        # Return the persisted record
+        result = await self.get_by_event(record.usage_event_id)
+        if result is None:
+            # Should not happen; return the original object
+            log.warning("upsert_cost_record_not_found", event_id=str(record.usage_event_id))
+            return record
+        return result
+
+    async def get_totals_by_org(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+    ) -> dict:
+        """Sum total_cost, total_tokens, request count for org + date range."""
+        stmt = (
+            select(
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+        )
+        result = await self._session.execute(stmt)
+        row = result.one()
+        return {
+            "total_cost": row.total_cost or Decimal(0),
+            "total_tokens": row.total_tokens or 0,
+            "total_prompt_tokens": row.total_prompt_tokens or 0,
+            "total_completion_tokens": row.total_completion_tokens or 0,
+            "record_count": row.record_count or 0,
+        }
+
+    async def get_totals_by_provider(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Group by provider, sum costs and tokens."""
+        stmt = (
+            select(
+                UsageCostRecord.provider,
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+            .group_by(UsageCostRecord.provider, UsageCostRecord.currency)
+            .order_by(func.sum(UsageCostRecord.total_cost).desc())
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "provider": row.provider,
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "total_prompt_cost": row.total_prompt_cost or Decimal(0),
+                "total_completion_cost": row.total_completion_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "total_prompt_tokens": row.total_prompt_tokens or 0,
+                "total_completion_tokens": row.total_completion_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
+
+    async def get_totals_by_model(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Group by model, sum costs and tokens."""
+        stmt = (
+            select(
+                UsageCostRecord.provider,
+                UsageCostRecord.model,
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+            .group_by(UsageCostRecord.provider, UsageCostRecord.model, UsageCostRecord.currency)
+            .order_by(func.sum(UsageCostRecord.total_cost).desc())
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "provider": row.provider,
+                "model": row.model,
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "total_prompt_cost": row.total_prompt_cost or Decimal(0),
+                "total_completion_cost": row.total_completion_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "total_prompt_tokens": row.total_prompt_tokens or 0,
+                "total_completion_tokens": row.total_completion_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
+
+    async def get_totals_by_project(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Group by project_id, sum costs and tokens."""
+        stmt = (
+            select(
+                UsageCostRecord.project_id,
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+            .group_by(UsageCostRecord.project_id, UsageCostRecord.currency)
+            .order_by(func.sum(UsageCostRecord.total_cost).desc())
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "project_id": row.project_id,
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
+
+    async def get_daily_trend(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+    ) -> list[dict]:
+        """Group by usage_date, sum costs. Returns date-ordered list."""
+        stmt = (
+            select(
+                UsageCostRecord.usage_date,
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+            .group_by(UsageCostRecord.usage_date, UsageCostRecord.currency)
+            .order_by(UsageCostRecord.usage_date.asc())
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "usage_date": row.usage_date,
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "total_prompt_cost": row.total_prompt_cost or Decimal(0),
+                "total_completion_cost": row.total_completion_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]

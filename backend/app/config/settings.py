@@ -132,6 +132,18 @@ class Settings(BaseSettings):
             return f"redis://:{pw}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
         return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
 
+    # ─── Provider API keys (EP-07) ────────────────────────────────────────────
+    # Optional — used only when a provider config references the env-store key.
+    # SecretStr prevents values from appearing in logs or repr output.
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPENAI_API_KEY", "openai_api_key"),
+    )
+    anthropic_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "anthropic_api_key"),
+    )
+
     # ─── Observability ────────────────────────────────────────────────────────
     otel_service_name: str = "aifinops-api"
     metrics_port: int = Field(default=9090, ge=1, le=65535)

@@ -644,19 +644,20 @@ class TestOpenAIProvider:
         assert p.capabilities.supports_fine_tuning is True
 
     @pytest.mark.asyncio
-    async def test_check_connection_returns_unknown(self) -> None:
+    async def test_check_connection_without_key_is_unhealthy(self) -> None:
+        # EP-07: check_connection now makes a real API call; without a key it
+        # catches AuthenticationError and returns UNHEALTHY (not UNKNOWN).
         p = self._make()
         status = await p.check_connection()
-        assert status.health_status == HealthStatus.UNKNOWN
+        assert status.health_status == HealthStatus.UNHEALTHY
         assert status.is_connected is False
 
     @pytest.mark.asyncio
-    async def test_list_models(self) -> None:
+    async def test_list_models_without_key_raises_auth_error(self) -> None:
+        # EP-07: list_models now calls the live API and requires a valid key.
         p = self._make()
-        models = await p.list_models()
-        assert len(models) > 0
-        ids = [m.id for m in models]
-        assert "gpt-4o" in ids
+        with pytest.raises(AuthenticationError):
+            await p.list_models()
 
     @pytest.mark.asyncio
     async def test_complete_raises_not_implemented(self) -> None:
@@ -666,21 +667,21 @@ class TestOpenAIProvider:
             await p.complete(req)
 
     @pytest.mark.asyncio
-    async def test_verify_auth_raises_not_implemented(self) -> None:
+    async def test_verify_auth_without_key_raises_auth_error(self) -> None:
+        # EP-07: verify_auth now raises AuthenticationError when no key is set.
         p = self._make()
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.verify_auth()
 
     def test_isinstance_ai_provider(self) -> None:
         p = self._make()
         assert isinstance(p, AIProvider)
 
-    @pytest.mark.asyncio
-    async def test_deprecated_model_in_list(self) -> None:
-        p = self._make()
-        models = await p.list_models()
-        deprecated = [m for m in models if m.is_deprecated]
-        assert any(m.id == "gpt-3.5-turbo" for m in deprecated)
+    def test_deprecated_model_in_enrichment(self) -> None:
+        # EP-07: static enrichment still marks gpt-3.5-turbo as deprecated.
+        from app.providers.adapters.openai import _MODEL_ENRICHMENT
+
+        assert _MODEL_ENRICHMENT["gpt-3.5-turbo"]["is_deprecated"] is True
 
 
 # ── Adapter stubs — Anthropic ─────────────────────────────────────────────────
@@ -702,17 +703,19 @@ class TestAnthropicProvider:
         assert p.capabilities.max_context_window == 200000
 
     @pytest.mark.asyncio
-    async def test_check_connection(self) -> None:
+    async def test_check_connection_without_key_is_unhealthy(self) -> None:
+        # EP-07: check_connection now makes a real API call; without a key it
+        # catches AuthenticationError and returns UNHEALTHY (not UNKNOWN).
         p = self._make()
         status = await p.check_connection()
-        assert status.health_status == HealthStatus.UNKNOWN
+        assert status.health_status == HealthStatus.UNHEALTHY
 
     @pytest.mark.asyncio
-    async def test_list_models(self) -> None:
+    async def test_list_models_without_key_raises_auth_error(self) -> None:
+        # EP-07: list_models now calls the live API and requires a valid key.
         p = self._make()
-        models = await p.list_models()
-        ids = [m.id for m in models]
-        assert any("claude" in mid for mid in ids)
+        with pytest.raises(AuthenticationError):
+            await p.list_models()
 
     @pytest.mark.asyncio
     async def test_complete_not_implemented(self) -> None:
@@ -721,9 +724,10 @@ class TestAnthropicProvider:
             await p.complete(ProviderRequest(model_id="claude-3-5-sonnet-20241022", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
+    async def test_verify_auth_without_key_raises_auth_error(self) -> None:
+        # EP-07: verify_auth now raises AuthenticationError when no key is set.
         p = self._make()
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.verify_auth()
 
 
@@ -1352,10 +1356,17 @@ class TestHealthInterface:
 
     @pytest.mark.asyncio
     async def test_all_adapters_check_capability_not_implemented(self) -> None:
+        # OpenAI and Anthropic implement check_capability in EP-07; other
+        # adapters still raise NotImplementedError until their own EP.
+        ep07_adapters = (OpenAIProvider, AnthropicProvider)
         for cls, cfg in self._ALL_PROVIDERS:
             p = cls(cfg)
-            with pytest.raises(NotImplementedError):
-                await p.check_capability("streaming")
+            if isinstance(p, ep07_adapters):
+                result = await p.check_capability("streaming")
+                assert isinstance(result, bool)
+            else:
+                with pytest.raises(NotImplementedError):
+                    await p.check_capability("streaming")
 
     def test_all_adapters_satisfy_health_interface(self) -> None:
         from app.providers.health import HealthCheckInterface

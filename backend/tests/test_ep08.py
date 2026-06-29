@@ -1044,15 +1044,12 @@ class TestUsageAPI:
         assert "gemini" in data["detail"]
 
     @pytest.mark.asyncio
-    async def test_list_events_returns_empty(self, client: Any) -> None:
+    async def test_list_events_returns_501(self, client: Any) -> None:
         resp = await client.get(
             "/v1/usage/events", params={"organization_id": str(_ORG_ID)}
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["items"] == []
-        assert data["has_more"] is False
-        assert data["count"] == 0
+        assert resp.status_code == 501
+        assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_get_event_returns_404(self, client: Any) -> None:
@@ -1064,13 +1061,12 @@ class TestUsageAPI:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_list_runs_returns_empty(self, client: Any) -> None:
+    async def test_list_runs_returns_501(self, client: Any) -> None:
         resp = await client.get(
             "/v1/usage/runs", params={"organization_id": str(_ORG_ID)}
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["items"] == []
+        assert resp.status_code == 501
+        assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_get_run_returns_404(self, client: Any) -> None:
@@ -1082,24 +1078,21 @@ class TestUsageAPI:
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_list_checkpoints_returns_empty(self, client: Any) -> None:
+    async def test_list_checkpoints_returns_501(self, client: Any) -> None:
         resp = await client.get(
             "/v1/usage/checkpoints", params={"organization_id": str(_ORG_ID)}
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["items"] == []
+        assert resp.status_code == 501
+        assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_provider_status_openai(self, client: Any) -> None:
+    async def test_provider_status_openai_returns_501(self, client: Any) -> None:
         resp = await client.get(
             "/v1/usage/providers/openai/status",
             params={"organization_id": str(_ORG_ID)},
         )
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["provider"] == "openai"
-        assert data["has_checkpoint"] is False
+        assert resp.status_code == 501
+        assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
     async def test_provider_status_unsupported_returns_404(self, client: Any) -> None:
@@ -1264,6 +1257,34 @@ class TestAnthropicAdapterGetUsage:
 
         assert isinstance(page, UsagePage)
         assert page.events == []
+
+    @pytest.mark.asyncio
+    async def test_get_usage_logs_warning_on_api_error(self) -> None:
+        """RH-02: Anthropic exception handler must log before returning empty page."""
+        adapter = self._make_adapter()
+        logged_events: list[Any] = []
+
+        import structlog.testing
+
+        with patch.object(adapter, "_build_client") as mock_build_client:
+            mock_client = AsyncMock()
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=None)
+            mock_client.get = AsyncMock(side_effect=RuntimeError("connection refused"))
+            mock_build_client.return_value = mock_client
+
+            with structlog.testing.capture_logs() as cap_logs:
+                page = await adapter.get_usage(_START, _END)
+            logged_events = cap_logs
+
+        assert isinstance(page, UsagePage)
+        assert page.events == []
+        assert len(logged_events) == 1
+        evt = logged_events[0]
+        assert evt["log_level"] == "warning"
+        assert evt["event"] == "anthropic_usage_api_unavailable"
+        assert evt["error_type"] == "RuntimeError"
+        assert "connection refused" in evt["error"]
 
     @pytest.mark.asyncio
     async def test_get_usage_with_data(self) -> None:

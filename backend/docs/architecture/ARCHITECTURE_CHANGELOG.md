@@ -1,5 +1,42 @@
 # Architecture Changelog
 
+## [0.7.1] — EP-07 Engineering Review (2026-06-29)
+
+### Review Outcome
+
+**APPROVED WITH MINOR CHANGES** — EP-07 is production-deployable for development and staging. Two efficiency gaps must be resolved in EP-07.5 before high-throughput production traffic or EP-08 begins.
+
+### Review Documents
+
+- `docs/knowledge/EP-07-Knowledge-Transfer.md` — full implementation reference
+- `docs/knowledge/EP-07-Architecture-Review.md` — architecture score 8/10; findings ARC-01 through ARC-06
+- `docs/knowledge/EP-07-Production-Readiness.md` — production risk register; EP-07.5 gap analysis
+
+### Findings
+
+| ID | Severity | Finding |
+|----|----------|---------|
+| ARC-01 / PRR-01 | HIGH | Connection pool churn — `httpx.AsyncClient` created/destroyed per adapter method call |
+| ARC-02 / PRR-02 | HIGH | `ExponentialRetryPolicy` not wired — `ProviderHttpClient` makes one attempt only |
+| ARC-03 / PRR-03 | MEDIUM | `test_connection` endpoint always returns HTTP 200; auth failure is in response body only |
+| ARC-04 / PRR-04 | LOW | `get_provider_info()` not declared in `AIProvider` ABC |
+| ARC-05 | LOW | `ProviderFactory`/`ProviderRegistry` bypassed in API layer |
+| ARC-06 | LOW | `_SUPPORTED_PROVIDERS` set disconnected from `ProviderType` enum |
+
+### EP-07.5 Required Before EP-08
+
+1. Resolve ARC-01: share `ProviderHttpClient` instance across adapter method calls
+2. Resolve ARC-02: wire `ExponentialRetryPolicy` into `ProviderHttpClient._request()`
+3. Resolve ARC-04: add `get_provider_info()` to `AIProvider` ABC
+4. Resolve PRR-05: replace `print()` in `RequestTelemetry` with structured `logging`
+5. Resolve ARC-03: document or fix HTTP-200-always contract on `test_connection`
+
+### Security Findings
+
+None. Credential isolation, TLS verification, and SSRF protection are all production-grade.
+
+---
+
 ## [0.7.0] — EP-07 OpenAI & Anthropic Provider Integration (2026-06-29)
 
 ### Added

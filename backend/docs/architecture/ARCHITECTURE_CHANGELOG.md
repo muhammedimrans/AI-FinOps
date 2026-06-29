@@ -1,5 +1,40 @@
 # Architecture Changelog
 
+## [0.8.1] — EP-08 Engineering Review (2026-06-29)
+
+### Review Outcome
+
+**APPROVED WITH MINOR CHANGES** — EP-08 is deployable to development and staging. Two HIGH findings (REV-01, REV-02) must be resolved before EP-09 begins. Two MEDIUM findings (REV-03, REV-04) may be resolved in the first EP-09 iteration.
+
+### Review Documents
+
+- `docs/knowledge/EP-08-Knowledge-Transfer.md` — full implementation reference (15 sections, 40+ concepts)
+- `docs/knowledge/EP-08-Architecture-Review.md` — architecture score 7.5/10; findings REV-01 through REV-05
+- `docs/knowledge/EP-08-Production-Readiness.md` — production risk register; 12-item gap analysis
+
+### Findings
+
+| ID | Severity | Finding |
+|----|----------|---------|
+| REV-01 | HIGH | `from unittest.mock import MagicMock` dead import in production code (`app/api/v1/usage.py`) |
+| REV-02 | HIGH | Anthropic `get_usage()` catches all exceptions silently — no log output before returning empty `UsagePage` |
+| REV-03 | MEDIUM | GET query endpoints return misleading HTTP 200 with empty data — should return HTTP 501 |
+| REV-04 | MEDIUM | Migration enum names (`collectionrunstatus`, `collectiontrigger`) do not match ORM-declared names (`collection_run_status`, `collection_trigger`) |
+| REV-05 | LOW | `_run_collection_sync` does not persist to DB — documented EP-08 stop condition; resolved by EP-09 |
+
+### EP-08.5 Required Before EP-09 Production Deployment
+
+1. Resolve REV-01: remove dead `unittest.mock` import from `app/api/v1/usage.py`
+2. Resolve REV-02: log exception in Anthropic `get_usage()` before returning empty `UsagePage`
+3. Resolve REV-04: align migration enum type names with ORM-declared names
+4. Resolve REV-03: return HTTP 501 from stub GET endpoints (or implement in EP-09)
+
+### Security Findings
+
+None new. Multi-tenant isolation and authentication gaps are documented as EP-09 prerequisites (PRR-01, PRR-04 in Production Readiness document).
+
+---
+
 ## [0.8.0] — EP-08 Usage Collection Engine (2026-06-29)
 
 ### Added

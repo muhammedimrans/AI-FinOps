@@ -85,17 +85,19 @@ install-frontend: ## Install frontend Node dependencies
 db-check: ## Verify database connectivity using configured DATABASE_URL
 	cd $(BACKEND_DIR) && $(PYTHON) ../scripts/dev/check_db.py
 
+ALEMBIC_CFG  := -c migrations/alembic.ini
+
 migrate: ## Run pending Alembic migrations
-	cd $(BACKEND_DIR) && $(ALEMBIC) upgrade head
+	cd $(BACKEND_DIR) && $(ALEMBIC) $(ALEMBIC_CFG) upgrade head
 
 migrate-create: ## Create a new migration (usage: make migrate-create MSG="add user table")
-	cd $(BACKEND_DIR) && $(ALEMBIC) revision --autogenerate -m "$(MSG)"
+	cd $(BACKEND_DIR) && $(ALEMBIC) $(ALEMBIC_CFG) revision --autogenerate -m "$(MSG)"
 
 migrate-rollback: ## Roll back one migration
-	cd $(BACKEND_DIR) && $(ALEMBIC) downgrade -1
+	cd $(BACKEND_DIR) && $(ALEMBIC) $(ALEMBIC_CFG) downgrade -1
 
 migrate-history: ## Show migration history
-	cd $(BACKEND_DIR) && $(ALEMBIC) history --verbose
+	cd $(BACKEND_DIR) && $(ALEMBIC) $(ALEMBIC_CFG) history --verbose
 
 # ─── Testing ──────────────────────────────────────────────────────────────────
 test: test-backend ## Run all tests

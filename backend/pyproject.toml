@@ -23,6 +23,10 @@ dependencies = [
     "redis[hiredis]>=5.1.0",
     # Structured logging
     "structlog>=24.4.0",
+    # Authentication
+    "PyJWT>=2.7.0",
+    "argon2-cffi>=23.1.0",
+    "email-validator>=2.2.0",
 ]
 
 [project.optional-dependencies]

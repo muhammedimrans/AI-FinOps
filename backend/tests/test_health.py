@@ -20,12 +20,12 @@ _REDIS_UNHEALTHY = {"status": "unhealthy", "latency_ms": None, "error": "connect
 @pytest.mark.unit
 class TestHealthEndpoint:
     async def test_returns_200(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         assert response.status_code == 200
 
     async def test_response_shape(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         body = response.json()
         assert "status" in body
@@ -35,29 +35,29 @@ class TestHealthEndpoint:
         assert isinstance(body["dependencies"], list)
 
     async def test_status_healthy_when_all_up(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         assert response.json()["status"] == "healthy"
 
     async def test_status_degraded_when_one_dependency_down(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_UNHEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_UNHEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         assert response.status_code == 200  # health always returns 200
         assert response.json()["status"] == "degraded"
 
     async def test_status_unhealthy_when_all_dependencies_down(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_UNHEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_UNHEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_UNHEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_UNHEALTHY):  # noqa: E501
             response = await client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "unhealthy"
 
     async def test_version_field_present(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         assert response.json()["version"] == "0.1.0"
 
     async def test_dependencies_include_postgres_and_redis(self, client: AsyncClient) -> None:
-        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):
+        with patch(_PATCH_DB, return_value=_DB_HEALTHY), patch(_PATCH_REDIS, return_value=_REDIS_HEALTHY):  # noqa: E501
             response = await client.get("/health")
         names = {d["name"] for d in response.json()["dependencies"]}
         assert "postgres" in names

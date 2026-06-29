@@ -126,5 +126,5 @@ class TestValidateProviderConfiguration:
             validate_provider_configuration({"api_key": "sk-..."})
 
     def test_error_message_is_actionable(self) -> None:
-        with pytest.raises(ValueError, match="(?i)prohibited"):
+        with pytest.raises(ValueError, match=r"(?i)prohibited"):
             validate_provider_configuration({"password": "x"})

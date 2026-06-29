@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from redis.asyncio import Redis
@@ -26,7 +27,7 @@ class AppContainer:
     settings: Settings
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
-    redis: Redis
+    redis: Redis[Any]
 
     @classmethod
     async def create(cls, settings: Settings) -> AppContainer:
@@ -65,5 +66,5 @@ class AppContainer:
         """Release all resources gracefully."""
         logger.info("container_closing")
         await self.engine.dispose()
-        await self.redis.aclose()
+        await self.redis.close()
         logger.info("container_closed")

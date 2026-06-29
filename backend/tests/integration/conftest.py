@@ -15,13 +15,11 @@ Database setup strategy:
 """
 from __future__ import annotations
 
-import asyncio
 import os
 from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -83,7 +81,7 @@ async def run_migrations(integration_engine):  # type: ignore[return]
 
 
 @pytest_asyncio.fixture
-async def db_session(integration_engine) -> AsyncGenerator[AsyncSession, None]:
+async def db_session(integration_engine) -> AsyncGenerator[AsyncSession]:
     """
     Function-scoped database session.
 

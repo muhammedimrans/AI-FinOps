@@ -24,13 +24,15 @@ class Settings(BaseSettings):
     )
 
     # ─── Application ──────────────────────────────────────────────────────────
-    app_name: str = Field(default="AI FinOps", validation_alias=AliasChoices("APP_NAME", "app_name"))
+    app_name: str = Field(
+        default="AI FinOps", validation_alias=AliasChoices("APP_NAME", "app_name")
+    )
     app_env: Literal["development", "staging", "production", "testing"] = "development"
     app_debug: bool = False
-    app_secret_key: SecretStr = Field(default=_DEV_SECRET, min_length=32)
+    app_secret_key: SecretStr = Field(default=_DEV_SECRET, min_length=32)  # type: ignore[assignment]
 
     @model_validator(mode="after")
-    def _enforce_secret_in_production(self) -> "Settings":
+    def _enforce_secret_in_production(self) -> Settings:
         if self.app_env == "production" and self.app_secret_key.get_secret_value() == _DEV_SECRET:
             raise ValueError(
                 "APP_SECRET_KEY must be set to a secure random value in production."
@@ -44,13 +46,13 @@ class Settings(BaseSettings):
     )
 
     # JWT — typed SecretStr so the value is never included in repr/logs.
-    jwt_secret: SecretStr = Field(
+    jwt_secret: SecretStr = Field(  # type: ignore[assignment]
         default="",
         validation_alias=AliasChoices("JWT_SECRET", "jwt_secret"),
     )
 
     # ─── API server ───────────────────────────────────────────────────────────
-    api_host: str = "0.0.0.0"
+    api_host: str = "0.0.0.0"  # noqa: S104
     api_port: int = Field(default=8000, ge=1, le=65535)
     api_workers: int = Field(default=1, ge=1)
     api_reload: bool = False
@@ -67,9 +69,9 @@ class Settings(BaseSettings):
     postgres_port: int = Field(default=5432, ge=1, le=65535)
     postgres_db: str = "aifinops"
     postgres_user: str = "aifinops"
-    postgres_password: SecretStr = Field(default="aifinops_dev_password")
+    postgres_password: SecretStr = Field(default="aifinops_dev_password")  # type: ignore[assignment]
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:
         if self.database_url_override:
@@ -80,7 +82,7 @@ class Settings(BaseSettings):
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url_sync(self) -> str:
         """Synchronous URL used by Alembic migrations."""
@@ -93,9 +95,9 @@ class Settings(BaseSettings):
     clickhouse_port: int = Field(default=8123, ge=1, le=65535)
     clickhouse_db: str = "aifinops"
     clickhouse_user: str = "aifinops"
-    clickhouse_password: SecretStr = Field(default="aifinops_dev_password")
+    clickhouse_password: SecretStr = Field(default="aifinops_dev_password")  # type: ignore[assignment]
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def clickhouse_url(self) -> str:
         return f"http://{self.clickhouse_host}:{self.clickhouse_port}"
@@ -104,9 +106,9 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = Field(default=6379, ge=1, le=65535)
     redis_db: int = Field(default=0, ge=0, le=15)
-    redis_password: SecretStr = Field(default="")
+    redis_password: SecretStr = Field(default="")  # type: ignore[assignment]
 
-    @computed_field  # type: ignore[misc]
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def redis_url(self) -> str:
         pw = self.redis_password.get_secret_value()

@@ -1,5 +1,5 @@
 """
-Tests for EP-03 – Core Domain Models.
+Tests for EP-03 - Core Domain Models.
 
 Covers (without a live database):
   - Model class attributes (tablename, external_id prefix)
@@ -12,7 +12,6 @@ Covers (without a live database):
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,7 +25,6 @@ from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

@@ -19,7 +19,6 @@ from app.config.settings import Settings
 from app.core.container import AppContainer
 from tests.conftest import make_connection, make_membership, make_org, make_project
 
-
 # ── H-001: Startup lifecycle ──────────────────────────────────────────────────
 
 
@@ -63,7 +62,6 @@ class TestStartupLifecycle:
 
     async def test_init_db_uses_structlog(self) -> None:
         """init_db must log with structlog, not stdlib logging."""
-        import structlog
 
         from app.db.init_db import init_db
 

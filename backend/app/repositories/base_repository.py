@@ -14,7 +14,7 @@ from __future__ import annotations
 import base64
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import Select, and_, asc, desc, func, or_, select
@@ -28,7 +28,7 @@ T = TypeVar("T", bound=BaseModel)
 # ─── Pagination ───────────────────────────────────────────────────────────────
 
 
-class CursorPage(Generic[T]):
+class CursorPage(Generic[T]):  # noqa: UP046
     """
     A page of results for cursor-based pagination (§API-7).
 
@@ -38,7 +38,7 @@ class CursorPage(Generic[T]):
         has_more    — True when there are more records beyond this page
     """
 
-    __slots__ = ("items", "next_cursor", "has_more")
+    __slots__ = ("has_more", "items", "next_cursor")
 
     def __init__(
         self,
@@ -86,7 +86,7 @@ def _decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
 # ─── Repository ───────────────────────────────────────────────────────────────
 
 
-class BaseRepository(Generic[T]):
+class BaseRepository(Generic[T]):  # noqa: UP046
     """
     Generic async repository providing CRUD, cursor-paginated list, and
     soft-delete operations.
@@ -110,10 +110,9 @@ class BaseRepository(Generic[T]):
 
     def _active_query(self) -> Select[tuple[T]]:
         """Base SELECT that excludes soft-deleted records."""
-        # type: ignore[attr-defined] — Mypy cannot resolve .deleted_at through
-        # Generic[T] even though T is bound to BaseModel (which has the column).
-        # SQLAlchemy's Mypy plugin handles ORM column access at the concrete
-        # class level, not through generics. The ignore is correct; do not remove.
+        # Mypy cannot resolve .deleted_at through Generic[T] even though T is
+        # bound to BaseModel. The SQLAlchemy plugin resolves it at the concrete
+        # class level, not through generics.
         return select(self.model).where(self.model.deleted_at.is_(None))  # type: ignore[attr-defined]
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
@@ -140,7 +139,7 @@ class BaseRepository(Generic[T]):
         await self._session.refresh(instance)
         return instance
 
-    async def update(self, instance: T, **kwargs: Any) -> T:
+    async def update(self, instance: T, **kwargs: Any) -> T:  # noqa: ANN401
         """
         Apply keyword updates to an existing instance and flush.
 
@@ -189,7 +188,7 @@ class BaseRepository(Generic[T]):
         limit: int = 20,
         cursor: str | None = None,
         order: str = "asc",
-        extra_filters: Any = None,
+        extra_filters: Any = None,  # noqa: ANN401
     ) -> CursorPage[T]:
         """
         Return a cursor-paginated page of active records ordered by (created_at, id).
@@ -254,7 +253,7 @@ class BaseRepository(Generic[T]):
 
         return CursorPage(items=rows, next_cursor=next_cursor, has_more=has_more)
 
-    async def count(self, extra_filters: Any = None) -> int:
+    async def count(self, extra_filters: Any = None) -> int:  # noqa: ANN401
         """Return the count of active (non-deleted) records."""
         stmt = select(func.count()).select_from(self.model).where(
             self.model.deleted_at.is_(None)  # type: ignore[attr-defined]

@@ -10,7 +10,8 @@ from __future__ import annotations
 import enum
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SQLEnum, Index, String, Text, UniqueConstraint
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from app.models.provider_connection import ProviderConnection
 
 
-class OrganizationStatus(str, enum.Enum):
+class OrganizationStatus(enum.StrEnum):
     """Lifecycle states for an Organization (§4.5)."""
 
     ACTIVE = "active"

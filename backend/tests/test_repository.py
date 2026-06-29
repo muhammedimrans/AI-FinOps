@@ -1,5 +1,5 @@
 """
-Tests for F-008 – Repository Layer.
+Tests for F-008 - Repository Layer.
 
 Covers:
   - CursorPage data structure
@@ -12,8 +12,8 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,13 +24,12 @@ from app.repositories.base import (
     _encode_cursor,
 )
 
-
 # ─── Cursor codec ─────────────────────────────────────────────────────────────
 
 
 class TestCursorCodec:
     def test_round_trip(self) -> None:
-        now = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
         uid = uuid.uuid4()
         token = _encode_cursor(now, uid)
         decoded_dt, decoded_id = _decode_cursor(token)
@@ -38,11 +37,11 @@ class TestCursorCodec:
         assert decoded_id == uid
 
     def test_token_is_string(self) -> None:
-        token = _encode_cursor(datetime.now(tz=timezone.utc), uuid.uuid4())
+        token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
         assert isinstance(token, str)
 
     def test_token_is_url_safe(self) -> None:
-        token = _encode_cursor(datetime.now(tz=timezone.utc), uuid.uuid4())
+        token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
         safe_chars = set(
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
         )
@@ -109,7 +108,7 @@ class FakeRecord:
         return self.deleted_at is not None
 
     def soft_delete(self, deleted_by: uuid.UUID | None = None) -> None:
-        self.deleted_at = datetime.now(tz=timezone.utc)
+        self.deleted_at = datetime.now(tz=UTC)
         self.deleted_by = deleted_by
 
 
@@ -132,7 +131,7 @@ class TestBaseRepositoryCreate:
     async def test_create_adds_and_flushes(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         result = await repo.create(record)
 
@@ -147,7 +146,7 @@ class TestBaseRepositorySoftDelete:
     async def test_soft_delete_sets_deleted_at(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
         assert record.deleted_at is None
 
         result = await repo.soft_delete(record)
@@ -161,7 +160,7 @@ class TestBaseRepositorySoftDelete:
         session = _make_mock_session()
         repo = FakeRepository(session)
         actor_id = uuid.uuid4()
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         result = await repo.soft_delete(record, deleted_by=actor_id)
 
@@ -174,7 +173,7 @@ class TestBaseRepositoryHardDelete:
     async def test_hard_delete_calls_session_delete(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         await repo.hard_delete(record)
 
@@ -200,7 +199,7 @@ class TestCursorPageEdgeCases:
 
 class TestCursorEncodeDecodePreservesTimezone:
     def test_utc_timezone_preserved(self) -> None:
-        now = datetime(2025, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC)
         uid = uuid.uuid4()
         token = _encode_cursor(now, uid)
         decoded_dt, _ = _decode_cursor(token)

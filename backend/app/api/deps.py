@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, Request
 from redis.asyncio import Redis
@@ -19,7 +19,7 @@ def get_container(request: Request) -> AppContainer:
 
 async def get_db(
     container: Annotated[AppContainer, Depends(get_container)],
-) -> AsyncGenerator[AsyncSession, None]:
+) -> AsyncGenerator[AsyncSession]:
     """Yield a database session. Commits on success, rolls back on exception."""
     async with container.session_factory() as session:
         try:
@@ -32,7 +32,7 @@ async def get_db(
 
 async def get_redis(
     container: Annotated[AppContainer, Depends(get_container)],
-) -> Redis:
+) -> Redis[Any]:
     """Return the shared Redis client from the container."""
     return container.redis
 
@@ -40,5 +40,5 @@ async def get_redis(
 # Convenience type aliases for use in routers
 ContainerDep = Annotated[AppContainer, Depends(get_container)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-RedisDep = Annotated[Redis, Depends(get_redis)]
+RedisDep = Annotated[Redis, Depends(get_redis)]  # type: ignore[type-arg]
 SettingsDep = Annotated[Settings, Depends(get_settings)]

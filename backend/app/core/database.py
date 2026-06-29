@@ -19,9 +19,9 @@ from app.db.session import managed_transaction as managed_transaction
 
 __all__ = [
     "Base",
+    "check_database",
     "create_engine",
     "create_session_factory",
-    "check_database",
     "get_session",
     "managed_transaction",
 ]

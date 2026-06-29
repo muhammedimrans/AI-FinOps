@@ -19,24 +19,20 @@ from __future__ import annotations
 import uuid
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.mixins import uuid7
-from app.models.membership import Membership, MembershipRole
+from app.models.membership import MembershipRole
 from app.models.organization import Organization, OrganizationStatus
-from app.models.project import Project, ProjectEnvironment
-from app.models.provider_connection import ProviderConnection, ProviderType
+from app.models.project import ProjectEnvironment
+from app.models.provider_connection import ProviderType
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
 from tests.conftest import make_connection, make_membership, make_org, make_project
 from tests.integration.conftest import requires_db
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -251,8 +247,12 @@ class TestProjectRepositoryIntegration:
         org = await _persist_org(db_session, slug="env-filter-org")
         proj_repo = ProjectRepository(db_session)
 
-        await proj_repo.create(make_project(org_id=org.id, name="Prod", environment=ProjectEnvironment.PRODUCTION))
-        await proj_repo.create(make_project(org_id=org.id, name="Dev", environment=ProjectEnvironment.DEVELOPMENT))
+        await proj_repo.create(
+            make_project(org_id=org.id, name="Prod", environment=ProjectEnvironment.PRODUCTION)
+        )
+        await proj_repo.create(
+            make_project(org_id=org.id, name="Dev", environment=ProjectEnvironment.DEVELOPMENT)
+        )
 
         page = await proj_repo.list_by_org_and_env(org.id, ProjectEnvironment.PRODUCTION)
         assert all(p.environment == ProjectEnvironment.PRODUCTION for p in page.items)
@@ -281,7 +281,9 @@ class TestMembershipRepositoryIntegration:
     ) -> None:
         org = await _persist_org(db_session, slug="mem-org")
         repo = MembershipRepository(db_session)
-        mem = make_membership(org_id=org.id, user_email="bob@example.com", role=MembershipRole.ADMIN)
+        mem = make_membership(
+            org_id=org.id, user_email="bob@example.com", role=MembershipRole.ADMIN
+        )
         await repo.create(mem)
 
         found = await repo.get_by_org_and_email(org.id, "bob@example.com")
@@ -307,8 +309,12 @@ class TestMembershipRepositoryIntegration:
         org = await _persist_org(db_session, slug="role-filter-org")
         repo = MembershipRepository(db_session)
 
-        await repo.create(make_membership(org_id=org.id, user_email="owner@e.com", role=MembershipRole.OWNER))
-        await repo.create(make_membership(org_id=org.id, user_email="viewer@e.com", role=MembershipRole.VIEWER))
+        await repo.create(
+            make_membership(org_id=org.id, user_email="owner@e.com", role=MembershipRole.OWNER)
+        )
+        await repo.create(
+            make_membership(org_id=org.id, user_email="viewer@e.com", role=MembershipRole.VIEWER)
+        )
 
         page = await repo.list_by_org_and_role(org.id, MembershipRole.OWNER)
         assert all(m.role == MembershipRole.OWNER for m in page.items)

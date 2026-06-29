@@ -13,7 +13,6 @@ Skipped when DATABASE_URL is not set.
 from __future__ import annotations
 
 import pytest
-import pytest_asyncio
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 

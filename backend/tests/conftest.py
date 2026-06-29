@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.config.settings import Settings, get_settings
+from app.config.settings import Settings
 from app.core.container import AppContainer
 from app.db.mixins import uuid7
 from app.main import create_app
@@ -30,7 +30,6 @@ from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
 from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
-
 
 # ─── Environment isolation ────────────────────────────────────────────────────
 
@@ -75,7 +74,9 @@ def test_settings() -> Settings:
 
 # ─── Mock container ───────────────────────────────────────────────────────────
 
-def _make_mock_container(settings: Settings, db_healthy: bool = True, redis_healthy: bool = True) -> AppContainer:
+def _make_mock_container(
+    settings: Settings, db_healthy: bool = True, redis_healthy: bool = True
+) -> AppContainer:
     """
     Build a mock AppContainer with configurable health states.
     No network connections are made.
@@ -120,7 +121,7 @@ def app(test_settings: Settings, mock_container: AppContainer) -> FastAPI:
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
     """
     Async HTTP test client backed by the ASGI app.
     Skips the lifespan (container is pre-injected via app.state).

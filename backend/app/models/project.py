@@ -10,7 +10,8 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SQLEnum, ForeignKey, Index, String, Text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from app.models.provider_connection import ProviderConnection
 
 
-class ProjectEnvironment(str, enum.Enum):
+class ProjectEnvironment(enum.StrEnum):
     """Deployment environment of the Project."""
 
     DEVELOPMENT = "development"

@@ -22,7 +22,7 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
 @asynccontextmanager
 async def managed_transaction(
     session: AsyncSession,
-) -> AsyncGenerator[AsyncSession, None]:
+) -> AsyncGenerator[AsyncSession]:
     """
     Explicit nested transaction context manager for use outside FastAPI DI —
     e.g. background jobs, batch processing, or service-layer helpers that need

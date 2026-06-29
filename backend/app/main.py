@@ -23,7 +23,7 @@ APP_VERSION = "0.1.0"
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """
     Manage the application lifecycle:
     - Startup: configure logging, initialise database/redis, store container.

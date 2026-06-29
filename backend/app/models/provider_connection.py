@@ -15,8 +15,10 @@ import enum
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Enum as SQLEnum, ForeignKey, Index, String, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import Boolean, ForeignKey, Index, String, text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -26,7 +28,7 @@ if TYPE_CHECKING:
     from app.models.project import Project
 
 
-class ProviderType(str, enum.Enum):
+class ProviderType(enum.StrEnum):
     """Supported AI provider types."""
 
     OPENAI = "openai"

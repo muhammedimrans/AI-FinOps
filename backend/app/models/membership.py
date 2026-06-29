@@ -15,7 +15,8 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SQLEnum, ForeignKey, Index, String, UniqueConstraint
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,7 +26,7 @@ if TYPE_CHECKING:
     from app.models.organization import Organization
 
 
-class MembershipRole(str, enum.Enum):
+class MembershipRole(enum.StrEnum):
     """
     RBAC roles within an Organization (§5.3.2).
 

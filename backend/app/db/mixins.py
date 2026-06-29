@@ -14,14 +14,14 @@ import os
 import struct
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import DateTime, Index, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
 
 # ─── UUIDv7 ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ class SoftDeleteMixin:
 
     def soft_delete(self, deleted_by: uuid.UUID | None = None) -> None:
         """Mark this record as deleted. Caller must flush/commit the session."""
-        self.deleted_at = datetime.now(tz=timezone.utc)
+        self.deleted_at = datetime.now(tz=UTC)
         self.deleted_by = deleted_by
 
 
@@ -148,10 +148,10 @@ class BaseModel(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         super().__init_subclass__(**kwargs)
         if not cls.__dict__.get("__abstract__", False):
             table_name = getattr(cls, "__tablename__", cls.__name__.lower())
-            existing: tuple = getattr(cls, "__table_args__", ())
+            existing: tuple[Any, ...] = getattr(cls, "__table_args__", ())
             if isinstance(existing, dict):
                 existing = ()
-            cls.__table_args__ = (  # type: ignore[attr-defined]
+            cls.__table_args__ = (
                 *existing,
                 Index(f"ix_{table_name}_cursor", "created_at", "id"),
                 Index(f"ix_{table_name}_deleted", "deleted_at"),

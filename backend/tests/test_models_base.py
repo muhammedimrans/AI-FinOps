@@ -1,5 +1,5 @@
 """
-Tests for F-006 – Base ORM Classes.
+Tests for F-006 - Base ORM Classes.
 
 Covers:
   - uuid7() uniqueness, version, and variant bits
@@ -11,18 +11,14 @@ Covers:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from app.models.base import (
     BaseModel,
     SoftDeleteMixin,
     TimestampMixin,
-    UUIDMixin,
     uuid7,
 )
-
 
 # ─── uuid7() ─────────────────────────────────────────────────────────────────
 
@@ -113,7 +109,7 @@ class TestSoftDeleteMixin:
         assert obj.is_deleted is False
 
     def test_is_deleted_true_when_deleted_at_set(self) -> None:
-        obj = _make_fake(deleted_at=datetime.now(tz=timezone.utc))
+        obj = _make_fake(deleted_at=datetime.now(tz=UTC))
         assert obj.is_deleted is True
 
     def test_has_deleted_by_column(self) -> None:

@@ -217,3 +217,103 @@ minor items before EP-04 begins.
 
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*
+
+## [0.4.0] — EP-04 — 2026-06-29
+
+### Change: F-013 — User Entity (initial)
+
+`User` ORM model introduced:
+- Fields: `id` (UUIDv7), `email` (unique), `display_name`, `is_active` (boolean),
+  `avatar_url`, `bio`, plus `created_at`, `updated_at`, `deleted_at`, `deleted_by`
+  from `BaseModel`
+- External ID prefix: `usr_`
+- Repository: `UserRepository` with `get_by_email()`, `email_exists()`, `list_active()`,
+  `count_active()`, `create()`, `get_or_raise()`
+- Validators: `validate_user_email()`, `validate_display_name()`
+- Alembic migration `b1c2d3e4f5a6`: creates `users` table
+
+### Change: F-014 — Membership Refactor
+
+`Membership.user_id` added as nullable FK to `users.id` (ON DELETE CASCADE):
+- Expand-Contract pattern: `user_email` preserved; `user_id` nullable for backward compat
+- `ix_memberships_user_id` index created
+- `User ↔ Membership` bidirectional relationship with `lazy="raise"` on both sides
+- Migration included in `b1c2d3e4f5a6`
+
+### Reason
+EP-03 established `Membership.user_email` as a temporary identity anchor. EP-04 introduces
+the `User` entity and wires the FK from `Membership` to `User`, completing the identity layer
+foundation before the authentication service (EP-05) is built.
+
+### Impact
+- `User.id` is the identity root; EP-05+ auth tokens will reference `user_id`
+- `Membership.user_id` is nullable; service layer must populate both `user_id` and
+  `user_email` on all new Membership rows until the contract phase
+- All relationships use `lazy="raise"` per H-003 (EP-03.5)
+
+### Related Documents
+- SDD §4.4 (User lifecycle), §4.5 (Logical Data Model)
+- docs/knowledge/EP-04-Knowledge-Transfer.md
+
+---
+
+## [0.4.1] — EP-04.1 — 2026-06-29
+
+### Change: F-013 Gap Closure — UserStatus Enum
+
+Replaced `is_active: bool` with `status: UserStatus` (ACTIVE / INVITED / DISABLED):
+- Aligns with SDD §4.4 lifecycle: `invited → active → disabled`
+- PostgreSQL native enum type `user_status` introduced
+- `is_active` retained as a Python property (getter + setter) for backward compatibility
+- `ix_users_status` index added
+
+### Change: F-013 Gap Closure — Missing Identity Fields
+
+Five new columns added to the `users` table:
+- `username` (String 50, nullable, unique via `uq_users_username`)
+- `email_verified` (Boolean, NOT NULL, default false)
+- `last_login_at` (DateTime TZ, nullable)
+- `timezone` (String 64, nullable — IANA identifier)
+- `locale` (String 35, nullable — BCP 47 tag)
+
+### Change: F-015 Gap Closure — UserRepository Methods
+
+Four new repository methods:
+- `get_by_username(username)` — lookup by unique handle
+- `username_exists(username, exclude_id=None)` — SELECT EXISTS uniqueness check
+- `search_users(query, limit, cursor)` — ILIKE search across email/username/display_name
+- `update_last_login(user_id)` — targeted bulk UPDATE; sets last_login_at and updated_at
+- `count_by_status(status)` — count by any UserStatus value
+
+### Change: F-016 Gap Closure — Validators
+
+Three new validators in `app/core/validators.py`:
+- `validate_username()` — 3-50 chars, alphanumeric + underscore + hyphen, start/end with alnum
+- `validate_locale()` — BCP 47 regex check
+- `validate_timezone()` — membership check against `zoneinfo.available_timezones()` (cached)
+
+### Migration: `c3d4e5f6a7b8`
+
+Additive migration over `b1c2d3e4f5a6`. Data migration converts existing `is_active`
+values to `status` before dropping the boolean column. Downgrade reverses all steps.
+
+### Reason
+Post-merge verification of EP-04 identified 21 gaps across the User entity, repository,
+validators, and documentation. EP-04.1 closes all gaps before EP-05 begins.
+
+### Impact
+- **Breaking for any EP-04 code that reads `user.status`:** status is now the canonical
+  field; `is_active` is a compatibility property only
+- **`list_active()` filter changed:** previously `is_active == True`; now `status == ACTIVE`
+  (INVITED users are no longer returned from list_active)
+- **Service layer action required:** validate username, locale, and timezone before persisting
+- No changes to the Membership table or any EP-03 entities
+
+### Related Documents
+- docs/knowledge/EP-04-Knowledge-Transfer.md
+- EP-04 Verification Report (conversation)
+
+---
+
+*This changelog is maintained by the engineering team. All architectural changes
+must be recorded here before the corresponding Epic is marked complete.*

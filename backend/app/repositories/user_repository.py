@@ -1,18 +1,20 @@
 """
-UserRepository — data access for User entities (EP-04, F-015).
+UserRepository - data access for User entities (EP-04 / EP-04.1).
 
-Only data-access logic belongs here. Business rules (e.g., "a deactivated
+Only data-access logic belongs here. Business rules (e.g., "a disabled
 user cannot create new memberships") belong in the service layer (EP-05+).
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
-from sqlalchemy import exists, literal, select
+from sqlalchemy import exists, func, literal, or_, select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
+from app.models.user import User, UserStatus
 from app.repositories.base_repository import BaseRepository, CursorPage
 
 
@@ -24,11 +26,21 @@ class UserRepository(BaseRepository[User]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
 
+    # ── Lookups ───────────────────────────────────────────────────────────────
+
     async def get_by_email(self, email: str) -> User | None:
-        """Return the active User with the given email address, or None."""
+        """Return the active (non-deleted) User with the given email, or None."""
         stmt = self._active_query().where(User.email == email)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_by_username(self, username: str) -> User | None:
+        """Return the active (non-deleted) User with the given username, or None."""
+        stmt = self._active_query().where(User.username == username)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # ── Existence checks ──────────────────────────────────────────────────────
 
     async def email_exists(self, email: str, *, exclude_id: uuid.UUID | None = None) -> bool:
         """
@@ -41,16 +53,33 @@ class UserRepository(BaseRepository[User]):
         inner = (
             select(literal(1))
             .select_from(User)
-            .where(
-                User.deleted_at.is_(None),
-                User.email == email,
-            )
+            .where(User.deleted_at.is_(None), User.email == email)
         )
         if exclude_id is not None:
             inner = inner.where(User.id != exclude_id)
         stmt = select(exists(inner))
         result = await self._session.execute(stmt)
         return bool(result.scalar_one())
+
+    async def username_exists(self, username: str, *, exclude_id: uuid.UUID | None = None) -> bool:
+        """
+        Return True if the username is already taken by another active User.
+
+        Pass ``exclude_id`` when checking during profile updates so the user's
+        own current username is not treated as a collision.
+        """
+        inner = (
+            select(literal(1))
+            .select_from(User)
+            .where(User.deleted_at.is_(None), User.username == username)
+        )
+        if exclude_id is not None:
+            inner = inner.where(User.id != exclude_id)
+        stmt = select(exists(inner))
+        result = await self._session.execute(stmt)
+        return bool(result.scalar_one())
+
+    # ── List / Search ─────────────────────────────────────────────────────────
 
     async def list_active(
         self,
@@ -59,14 +88,68 @@ class UserRepository(BaseRepository[User]):
         cursor: str | None = None,
         order: str = "asc",
     ) -> CursorPage[User]:
-        """Return a cursor-paginated page of active (non-deactivated) users."""
+        """Return a cursor-paginated page of ACTIVE users (status == active)."""
         return await self.list_page(
             limit=limit,
             cursor=cursor,
             order=order,
-            extra_filters=User.is_active.is_(True),
+            extra_filters=User.status == UserStatus.ACTIVE,
         )
 
+    async def search_users(
+        self,
+        query: str,
+        *,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> CursorPage[User]:
+        """
+        Case-insensitive substring search across email, username, and display_name.
+
+        Returns non-deleted users regardless of status, ordered by created_at ASC.
+        Intended for administrative user-lookup endpoints.
+        """
+        pattern = f"%{query}%"
+        extra_filter = or_(
+            User.email.ilike(pattern),
+            User.username.ilike(pattern),
+            User.display_name.ilike(pattern),
+        )
+        return await self.list_page(limit=limit, cursor=cursor, extra_filters=extra_filter)
+
+    # ── Counts ────────────────────────────────────────────────────────────────
+
     async def count_active(self) -> int:
-        """Return the count of active (non-deleted, non-deactivated) users."""
-        return await self.count(extra_filters=User.is_active.is_(True))
+        """Return the count of non-deleted ACTIVE users (status == active)."""
+        return await self.count(extra_filters=User.status == UserStatus.ACTIVE)
+
+    # ── Writes ────────────────────────────────────────────────────────────────
+
+    async def update_last_login(self, user_id: uuid.UUID) -> None:
+        """
+        Record the current UTC timestamp as ``last_login_at`` for the given user.
+
+        Uses a targeted UPDATE statement rather than loading the full ORM row
+        to keep the operation cheap in high-traffic authentication flows.
+        Also bumps ``updated_at`` because the ORM ``onupdate`` hook does not
+        fire for bulk-style UPDATE statements.
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            sql_update(User)
+            .where(User.id == user_id, User.deleted_at.is_(None))
+            .values(last_login_at=now, updated_at=now)
+        )
+        await self._session.execute(stmt)
+
+    # ── Aggregates ────────────────────────────────────────────────────────────
+
+    async def count_by_status(self, status: UserStatus) -> int:
+        """Return the count of non-deleted users with the given status."""
+        stmt = (
+            select(func.count())
+            .select_from(User)
+            .where(User.deleted_at.is_(None), User.status == status)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one()

@@ -1,5 +1,59 @@
 # Architecture Changelog
 
+## [0.7.0] — EP-07 OpenAI & Anthropic Provider Integration (2026-06-29)
+
+### Added
+
+- **F-033 Shared HTTP transport** (`app/http/`)
+  - `HttpTransport` ABC + `HttpxTransport` — async httpx client; injectable mock transport for unit tests
+  - `BearerTokenAuth`, `ApiKeyHeaderAuth`, `CompositeAuth` — auth header strategies
+  - `ProviderHttpClient` — wraps transport; adds `X-Request-ID`, `User-Agent`, telemetry; maps HTTP errors
+  - `ExponentialRetryPolicy` — implements EP-06 `RetryPolicy` ABC (FIXED, LINEAR, EXPONENTIAL, JITTER)
+  - `RequestTelemetry` — structured latency logging; never logs auth headers or key values
+- **F-034 OpenAI adapter** (`app/providers/adapters/openai.py`) — full implementation
+  - `verify_auth()` — `GET /v1/models` with Bearer token; raises `AuthenticationError` on 401/403
+  - `check_connection()` — probes API, caches `_healthy` state, returns `ConnectionStatus`
+  - `is_healthy` — returns cached health state (mutable after each `check_connection()`)
+  - `list_models()` — live API call; enriches known model IDs with context windows & capability flags
+  - `check_capability()` — attribute lookup on `_CAPABILITIES`; no network call
+  - `get_provider_info()` — returns `ProviderInfo` with flattened capabilities
+- **F-035 Anthropic adapter** (`app/providers/adapters/anthropic.py`) — same interface as F-034
+  - Auth: `x-api-key` + `anthropic-version: 2023-06-01` via `CompositeAuth`
+  - `anthropic_version` respected from `AnthropicConfig` for future API version pinning
+- **F-036 Credential resolution** (`app/providers/credential.py`)
+  - `SecretResolver.resolve()` — ENV store only (EP-07); Vault/AWS reserved for EP-09+
+  - `CredentialValidator.validate_openai_key()` — prefix (`sk-` / `sk-proj-`) + min-length check
+  - `CredentialValidator.validate_anthropic_key()` — prefix (`sk-ant-`) + min-length check
+  - Key values never included in error messages or logs
+- **F-039 Error mapping** (`map_http_error()` in `app/http/client.py`)
+  - 401/403 → `AuthenticationError` (not retryable)
+  - 429 → `RateLimitError` with `Retry-After` parsing (retryable)
+  - 408/504 → `NetworkError` (retryable)
+  - 500/502/503 → `InternalProviderError` (retryable)
+  - 404 → `InvalidRequestError` (not retryable)
+- **F-040 ProviderInfo model** (`app/providers/info.py`)
+  - Pydantic `BaseModel` with flattened `ProviderCapabilities` fields
+  - `from_capabilities()` classmethod — convenient construction from adapter constants
+- **API endpoints** (`app/api/v1/providers.py`)
+  - `POST /v1/providers/{provider}/test` — live auth + connectivity probe
+  - `GET  /v1/providers/{provider}/models` — model discovery (live API call)
+  - `GET  /v1/providers/{provider}/info` — static metadata + last-known health
+- **Settings** — optional `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` fields added as `SecretStr`
+- **Tests** — 99 new EP-07 tests in `tests/test_ep07.py`; all hermetic (no network); 668 total suite pass
+
+### Security
+
+- API keys are held only in memory for the duration of a single request; never written to logs, configs, or error messages
+- `SecretResolver` reads from env vars only; secret values are never passed to telemetry or logging layers
+- `CredentialValidator` checks format before making any network call; key values are never in error messages
+- All auth headers built by `HttpAuth` strategies — the credential is never passed to `RequestTelemetry`
+
+### Stop conditions
+
+Completion and streaming (`complete()`, `stream()`) deferred to a later EP.
+Usage collection and token counting deferred to EP-08.
+Background workers, WebSocket streaming, continuous polling not implemented.
+
 ## [0.6.5] — EP-06.5 Provider Framework Hardening (2026-06-29)
 
 ### Changed

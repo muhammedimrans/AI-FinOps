@@ -146,7 +146,7 @@ class BaseModel(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
     @classmethod
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
-        if not getattr(cls, "__abstract__", False):
+        if not cls.__dict__.get("__abstract__", False):
             table_name = getattr(cls, "__tablename__", cls.__name__.lower())
             existing: tuple = getattr(cls, "__table_args__", ())
             if isinstance(existing, dict):

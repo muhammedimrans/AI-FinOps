@@ -9,6 +9,7 @@ One email address may hold memberships in multiple organizations (each
 with a potentially different role), enforced by the unique constraint on
 (organization_id, user_email).
 """
+
 from __future__ import annotations
 
 import enum

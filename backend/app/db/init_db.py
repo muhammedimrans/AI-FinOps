@@ -5,6 +5,7 @@ Called once at application startup (via AppContainer.create) to verify
 connectivity and log the database version. Schema creation is managed
 entirely by Alembic — this module never calls Base.metadata.create_all().
 """
+
 from __future__ import annotations
 
 import time

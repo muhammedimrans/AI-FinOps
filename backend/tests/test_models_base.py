@@ -8,6 +8,7 @@ Covers:
   - SoftDeleteMixin: is_deleted property
   - BaseModel: __abstract__, __repr__
 """
+
 from __future__ import annotations
 
 import uuid

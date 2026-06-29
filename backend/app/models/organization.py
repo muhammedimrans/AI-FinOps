@@ -5,6 +5,7 @@ Every other entity in AI FinOps belongs to exactly one Organization.
 Soft-delete is the only supported deletion path for normal operations;
 hard-delete is an admin-only tool (§4.15 / DP-7).
 """
+
 from __future__ import annotations
 
 import enum

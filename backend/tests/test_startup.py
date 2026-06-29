@@ -1,4 +1,5 @@
 """Tests for application startup, factory, and dependency injection."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch

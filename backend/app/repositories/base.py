@@ -4,6 +4,7 @@ Backward-compatibility shim — do not add new code here.
 Repository implementation has moved to app.repositories.base_repository.
 New code should import from there directly.
 """
+
 from __future__ import annotations
 
 from app.repositories.base_repository import (

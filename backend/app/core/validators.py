@@ -10,6 +10,7 @@ Design rules:
   - Validators never mutate their input.
   - Validators are pure functions: no database I/O, no side effects.
 """
+
 from __future__ import annotations
 
 from typing import Any

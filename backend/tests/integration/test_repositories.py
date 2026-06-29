@@ -14,6 +14,7 @@ by testing:
 
 Skipped when DATABASE_URL is not set.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -50,9 +51,7 @@ async def _persist_org(session: AsyncSession, **kwargs: object) -> Organization:
 @requires_db
 @pytest.mark.integration
 class TestOrganizationRepositoryIntegration:
-    async def test_create_and_retrieve(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_create_and_retrieve(self, db_session: AsyncSession, run_migrations: str) -> None:
         org = await _persist_org(db_session, slug="acme-integration")
         repo = OrganizationRepository(db_session)
 
@@ -60,25 +59,19 @@ class TestOrganizationRepositoryIntegration:
         assert found is not None
         assert found.slug == "acme-integration"
 
-    async def test_get_by_slug(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_get_by_slug(self, db_session: AsyncSession, run_migrations: str) -> None:
         await _persist_org(db_session, slug="find-by-slug")
         repo = OrganizationRepository(db_session)
         found = await repo.get_by_slug("find-by-slug")
         assert found is not None
         assert found.name == "Acme Corp"
 
-    async def test_slug_exists_true(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_slug_exists_true(self, db_session: AsyncSession, run_migrations: str) -> None:
         await _persist_org(db_session, slug="taken-slug")
         repo = OrganizationRepository(db_session)
         assert await repo.slug_exists("taken-slug") is True
 
-    async def test_slug_exists_false(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_slug_exists_false(self, db_session: AsyncSession, run_migrations: str) -> None:
         repo = OrganizationRepository(db_session)
         assert await repo.slug_exists("this-slug-does-not-exist-xyz") is False
 
@@ -105,9 +98,7 @@ class TestOrganizationRepositoryIntegration:
         # slug_exists() also filters active only — should return False
         assert await repo.slug_exists("to-soft-delete") is False
 
-    async def test_list_by_status(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_list_by_status(self, db_session: AsyncSession, run_migrations: str) -> None:
         await _persist_org(db_session, slug="active-1", status=OrganizationStatus.ACTIVE)
         await _persist_org(db_session, slug="suspended-1", status=OrganizationStatus.SUSPENDED)
         repo = OrganizationRepository(db_session)
@@ -117,9 +108,7 @@ class TestOrganizationRepositoryIntegration:
         assert "active-1" in slugs
         assert "suspended-1" not in slugs
 
-    async def test_cursor_pagination(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_cursor_pagination(self, db_session: AsyncSession, run_migrations: str) -> None:
         for i in range(5):
             await _persist_org(db_session, slug=f"paginated-{i}")
 
@@ -150,9 +139,7 @@ class TestTransactionIsolation:
         """
         from sqlalchemy.ext.asyncio import async_sessionmaker
 
-        factory = async_sessionmaker(
-            integration_engine, expire_on_commit=False, autoflush=False
-        )
+        factory = async_sessionmaker(integration_engine, expire_on_commit=False, autoflush=False)
 
         slug = f"rollback-test-{uuid.uuid4().hex[:8]}"
 
@@ -167,9 +154,7 @@ class TestTransactionIsolation:
         # Verify it's not visible in a fresh session
         async with factory() as s2:
             async with s2.begin():
-                result = await s2.execute(
-                    select(Organization).where(Organization.slug == slug)
-                )
+                result = await s2.execute(select(Organization).where(Organization.slug == slug))
                 assert result.scalar_one_or_none() is None
 
 
@@ -241,9 +226,7 @@ class TestProjectRepositoryIntegration:
         assert "Alpha" in names
         assert "Beta" in names
 
-    async def test_list_by_org_and_env(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_list_by_org_and_env(self, db_session: AsyncSession, run_migrations: str) -> None:
         org = await _persist_org(db_session, slug="env-filter-org")
         proj_repo = ProjectRepository(db_session)
 
@@ -257,9 +240,7 @@ class TestProjectRepositoryIntegration:
         page = await proj_repo.list_by_org_and_env(org.id, ProjectEnvironment.PRODUCTION)
         assert all(p.environment == ProjectEnvironment.PRODUCTION for p in page.items)
 
-    async def test_count_by_org(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_count_by_org(self, db_session: AsyncSession, run_migrations: str) -> None:
         org = await _persist_org(db_session, slug="count-org")
         proj_repo = ProjectRepository(db_session)
 
@@ -346,9 +327,7 @@ class TestProviderConnectionRepositoryIntegration:
         assert ProviderType.OPENAI in active_types
         assert ProviderType.ANTHROPIC not in active_types
 
-    async def test_list_by_type(
-        self, db_session: AsyncSession, run_migrations: str
-    ) -> None:
+    async def test_list_by_type(self, db_session: AsyncSession, run_migrations: str) -> None:
         org = await _persist_org(db_session, slug="type-filter-org")
         repo = ProviderConnectionRepository(db_session)
 

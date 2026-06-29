@@ -13,6 +13,7 @@ Database setup strategy:
   - The outermost session wraps each test in a SAVEPOINT so nested
     transactions in application code work correctly.
 """
+
 from __future__ import annotations
 
 import os
@@ -74,9 +75,7 @@ async def run_migrations(integration_engine):  # type: ignore[return]
         env={**os.environ, "DATABASE_URL": DATABASE_URL},
     )
     if result.returncode != 0:
-        pytest.fail(
-            f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}"
-        )
+        pytest.fail(f"alembic upgrade head failed:\n{result.stdout}\n{result.stderr}")
     yield result.stdout
 
 

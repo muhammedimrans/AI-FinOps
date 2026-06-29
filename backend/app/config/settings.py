@@ -34,9 +34,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _enforce_secret_in_production(self) -> Settings:
         if self.app_env == "production" and self.app_secret_key.get_secret_value() == _DEV_SECRET:
-            raise ValueError(
-                "APP_SECRET_KEY must be set to a secure random value in production."
-            )
+            raise ValueError("APP_SECRET_KEY must be set to a secure random value in production.")
         return self
 
     # Accepts both LOG_LEVEL and APP_LOG_LEVEL for flexibility.
@@ -86,9 +84,7 @@ class Settings(BaseSettings):
     @property
     def database_url_sync(self) -> str:
         """Synchronous URL used by Alembic migrations."""
-        return self.database_url.replace(
-            "postgresql+asyncpg://", "postgresql+psycopg2://", 1
-        )
+        return self.database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
 
     # ─── ClickHouse ───────────────────────────────────────────────────────────
     clickhouse_host: str = "localhost"

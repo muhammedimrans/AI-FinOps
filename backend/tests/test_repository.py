@@ -9,6 +9,7 @@ Covers:
   - Soft-delete filtering
   - Edge cases: empty result, malformed cursor
 """
+
 from __future__ import annotations
 
 import uuid
@@ -42,9 +43,7 @@ class TestCursorCodec:
 
     def test_token_is_url_safe(self) -> None:
         token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
-        safe_chars = set(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
-        )
+        safe_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=")
         assert all(c in safe_chars for c in token)
 
     def test_invalid_cursor_raises_value_error(self) -> None:
@@ -61,23 +60,17 @@ class TestCursorCodec:
 
 class TestCursorPage:
     def test_has_more_false_for_last_page(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=[], next_cursor=None, has_more=False)
         assert page.has_more is False
         assert page.next_cursor is None
 
     def test_has_more_true_when_next_cursor_present(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=["a"], next_cursor="tok", has_more=True
-        )
+        page: CursorPage[object] = CursorPage(items=["a"], next_cursor="tok", has_more=True)
         assert page.has_more is True
         assert page.next_cursor == "tok"
 
     def test_to_dict_keys(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[1, 2], next_cursor="abc", has_more=True
-        )
+        page: CursorPage[object] = CursorPage(items=[1, 2], next_cursor="abc", has_more=True)
         d = page.to_dict()
         assert set(d.keys()) == {"items", "next_cursor", "has_more"}
 
@@ -183,16 +176,12 @@ class TestBaseRepositoryHardDelete:
 
 class TestCursorPageEdgeCases:
     def test_empty_page(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=[], next_cursor=None, has_more=False)
         assert page.items == []
         assert not page.has_more
 
     def test_single_item_no_more(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=["x"], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=["x"], next_cursor=None, has_more=False)
         assert len(page.items) == 1
         assert not page.has_more
 

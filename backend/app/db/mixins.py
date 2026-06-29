@@ -8,6 +8,7 @@ Provides:
   SoftDeleteMixin — deleted_at + deleted_by (nullable); NULL means active
   BaseModel       — composite abstract base that all entities inherit from
 """
+
 from __future__ import annotations
 
 import os
@@ -158,7 +159,4 @@ class BaseModel(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
             )
 
     def __repr__(self) -> str:
-        return (
-            f"<{self.__class__.__name__} "
-            f"id={self.id} external_id={self.external_id}>"
-        )
+        return f"<{self.__class__.__name__} " f"id={self.id} external_id={self.external_id}>"

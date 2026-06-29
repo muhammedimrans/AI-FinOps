@@ -40,5 +40,5 @@ async def get_redis(
 # Convenience type aliases for use in routers
 ContainerDep = Annotated[AppContainer, Depends(get_container)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
-RedisDep = Annotated[Redis, Depends(get_redis)]  # type: ignore[type-arg]
+RedisDep = Annotated[Redis, Depends(get_redis)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]

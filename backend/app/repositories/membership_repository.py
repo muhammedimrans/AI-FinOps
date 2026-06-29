@@ -4,6 +4,7 @@ MembershipRepository — data access for Membership entities.
 Memberships link a user email to an Organization with an RBAC role.
 One email may hold memberships in multiple organizations.
 """
+
 from __future__ import annotations
 
 import uuid

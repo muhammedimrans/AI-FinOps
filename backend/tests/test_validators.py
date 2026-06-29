@@ -8,6 +8,7 @@ Covers the provider configuration validator (H-002):
   - Multiple violations are reported together
   - Empty and None-equivalent configs are accepted
 """
+
 from __future__ import annotations
 
 import pytest

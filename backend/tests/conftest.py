@@ -10,6 +10,7 @@ Model factory helpers (_make_org, _make_project, etc.) are defined here so
 all test files share a single canonical source of truth for transient ORM
 instances (TD-018).
 """
+
 from __future__ import annotations
 
 import os
@@ -33,6 +34,7 @@ from app.models.provider_connection import ProviderConnection, ProviderType
 
 # ─── Environment isolation ────────────────────────────────────────────────────
 
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_env() -> None:
     """
@@ -52,6 +54,7 @@ def _isolate_env() -> None:
 
 
 # ─── Settings ─────────────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def test_settings() -> Settings:
@@ -73,6 +76,7 @@ def test_settings() -> Settings:
 
 
 # ─── Mock container ───────────────────────────────────────────────────────────
+
 
 def _make_mock_container(
     settings: Settings, db_healthy: bool = True, redis_healthy: bool = True
@@ -106,6 +110,7 @@ def mock_container_degraded(test_settings: Settings) -> AppContainer:
 
 # ─── Application ──────────────────────────────────────────────────────────────
 
+
 @pytest.fixture
 def app(test_settings: Settings, mock_container: AppContainer) -> FastAPI:
     """FastAPI application with settings and container injected — no lifespan IO."""
@@ -136,6 +141,7 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
 # ─── Model Factories ──────────────────────────────────────────────────────────
 # Canonical transient ORM instances for use across all test files.
 # These do NOT hit the database; they are plain Python objects.
+
 
 def make_org(
     *,
@@ -200,6 +206,7 @@ def make_connection(
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def assert_response_shape(body: dict[str, Any], *, ok: bool) -> None:
     """Assert the standard API envelope shape."""

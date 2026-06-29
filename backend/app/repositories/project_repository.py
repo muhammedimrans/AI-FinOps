@@ -4,6 +4,7 @@ ProjectRepository — data access for Project entities.
 Projects are always scoped to an Organization (DP-6); every query method
 accepts an org_id to enforce tenant isolation at the repository level.
 """
+
 from __future__ import annotations
 
 import uuid

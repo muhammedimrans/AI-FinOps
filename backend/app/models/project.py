@@ -4,6 +4,7 @@ Project ORM model — attribution unit for cost tracking (§4.5, DP-6).
 Projects belong to exactly one Organization and serve as the primary
 dimension for cost attribution (every Usage Event resolves to a Project).
 """
+
 from __future__ import annotations
 
 import enum

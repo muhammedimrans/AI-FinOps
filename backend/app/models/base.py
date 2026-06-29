@@ -7,6 +7,7 @@ existing import paths in tests and other modules.
 New code should import from app.db directly:
   from app.db.mixins import uuid7, UUIDMixin, TimestampMixin, ...
 """
+
 from __future__ import annotations
 
 from app.db.mixins import (

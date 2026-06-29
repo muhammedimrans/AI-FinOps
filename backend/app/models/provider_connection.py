@@ -9,6 +9,7 @@ The ``configuration`` JSONB column holds provider-specific, non-sensitive
 metadata (e.g., base URLs, model aliases, rate-limit tiers). Never put API
 keys or secrets here.
 """
+
 from __future__ import annotations
 
 import enum

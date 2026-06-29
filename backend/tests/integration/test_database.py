@@ -10,6 +10,7 @@ These tests verify:
 
 Skipped when DATABASE_URL is not set.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -51,9 +52,7 @@ class TestMigrationSchema:
         self, integration_engine: AsyncEngine, run_migrations: str
     ) -> None:
         async with integration_engine.connect() as conn:
-            result = await conn.run_sync(
-                lambda c: inspect(c).get_table_names()
-            )
+            result = await conn.run_sync(lambda c: inspect(c).get_table_names())
         assert "organizations" in result
 
     async def test_projects_table_exists(
@@ -119,8 +118,6 @@ class TestMigrationSchema:
     ) -> None:
         """The alembic_version table must contain the EP-03 revision."""
         async with integration_engine.connect() as conn:
-            result = await conn.execute(
-                text("SELECT version_num FROM alembic_version")
-            )
+            result = await conn.execute(text("SELECT version_num FROM alembic_version"))
         version = result.scalar_one_or_none()
         assert version == "a3b4c5d6e7f8"

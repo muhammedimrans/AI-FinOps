@@ -8,6 +8,7 @@ without requiring a refactor sweep.
 New code should import from app.db directly:
   from app.db import Base, create_engine, get_session, ...
 """
+
 from __future__ import annotations
 
 from app.db.base import Base as Base

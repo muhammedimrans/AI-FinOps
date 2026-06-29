@@ -14,6 +14,7 @@ Usage in a route::
 In practice the dependency is wired via the AppContainer so routes receive
 a pre-bound partial rather than importing get_session directly.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator

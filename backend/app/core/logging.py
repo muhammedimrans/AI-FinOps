@@ -62,7 +62,7 @@ def configure_logging(log_level: str = "INFO", environment: str = "development")
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Return a named structlog logger."""
-    return structlog.get_logger(name)  # type: ignore[return-value, no-any-return]
+    return structlog.get_logger(name)  # type: ignore[no-any-return]
 
 
 def configure_from_settings(settings: Settings) -> None:

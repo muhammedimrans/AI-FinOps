@@ -4,6 +4,7 @@ OrganizationRepository — data access for Organization entities.
 Only data-access logic belongs here. Business rules (e.g., "an ARCHIVED
 organization cannot be reactivated") belong in the service layer (EP-04+).
 """
+
 from __future__ import annotations
 
 import uuid

@@ -9,6 +9,7 @@ Design:
   - No session management here — callers pass an AsyncSession and manage
     commit/rollback via get_session() or managed_transaction().
 """
+
 from __future__ import annotations
 
 import base64
@@ -113,13 +114,13 @@ class BaseRepository(Generic[T]):  # noqa: UP046
         # Mypy cannot resolve .deleted_at through Generic[T] even though T is
         # bound to BaseModel. The SQLAlchemy plugin resolves it at the concrete
         # class level, not through generics.
-        return select(self.model).where(self.model.deleted_at.is_(None))  # type: ignore[attr-defined]
+        return select(self.model).where(self.model.deleted_at.is_(None))
 
     # ── CRUD ──────────────────────────────────────────────────────────────────
 
     async def get(self, record_id: uuid.UUID) -> T | None:
         """Return the active record with the given primary key, or None."""
-        stmt = self._active_query().where(self.model.id == record_id)  # type: ignore[attr-defined]
+        stmt = self._active_query().where(self.model.id == record_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -127,9 +128,7 @@ class BaseRepository(Generic[T]):  # noqa: UP046
         """Return the active record or raise KeyError."""
         record = await self.get(record_id)
         if record is None:
-            raise KeyError(
-                f"{self.model.__name__} {record_id} not found or has been deleted"
-            )
+            raise KeyError(f"{self.model.__name__} {record_id} not found or has been deleted")
         return record
 
     async def create(self, instance: T) -> T:
@@ -168,7 +167,7 @@ class BaseRepository(Generic[T]):  # noqa: UP046
         Mark the record as deleted. Uses the mixin's soft_delete() method
         which sets deleted_at and deleted_by atomically.
         """
-        instance.soft_delete(deleted_by=deleted_by)  # type: ignore[attr-defined]
+        instance.soft_delete(deleted_by=deleted_by)
         await self._session.flush()
         return instance
 
@@ -212,26 +211,26 @@ class BaseRepository(Generic[T]):  # noqa: UP046
             if is_asc:
                 stmt = stmt.where(
                     or_(
-                        self.model.created_at > pivot_created_at,  # type: ignore[attr-defined]
+                        self.model.created_at > pivot_created_at,
                         and_(
-                            self.model.created_at == pivot_created_at,  # type: ignore[attr-defined]
-                            self.model.id > pivot_id,  # type: ignore[attr-defined]
+                            self.model.created_at == pivot_created_at,
+                            self.model.id > pivot_id,
                         ),
                     )
                 )
             else:
                 stmt = stmt.where(
                     or_(
-                        self.model.created_at < pivot_created_at,  # type: ignore[attr-defined]
+                        self.model.created_at < pivot_created_at,
                         and_(
-                            self.model.created_at == pivot_created_at,  # type: ignore[attr-defined]
-                            self.model.id < pivot_id,  # type: ignore[attr-defined]
+                            self.model.created_at == pivot_created_at,
+                            self.model.id < pivot_id,
                         ),
                     )
                 )
 
-        order_col_ts = self.model.created_at  # type: ignore[attr-defined]
-        order_col_id = self.model.id  # type: ignore[attr-defined]
+        order_col_ts = self.model.created_at
+        order_col_id = self.model.id
         if is_asc:
             stmt = stmt.order_by(asc(order_col_ts), asc(order_col_id))
         else:
@@ -249,15 +248,13 @@ class BaseRepository(Generic[T]):  # noqa: UP046
         next_cursor: str | None = None
         if has_more and rows:
             last = rows[-1]
-            next_cursor = _encode_cursor(last.created_at, last.id)  # type: ignore[attr-defined]
+            next_cursor = _encode_cursor(last.created_at, last.id)
 
         return CursorPage(items=rows, next_cursor=next_cursor, has_more=has_more)
 
     async def count(self, extra_filters: Any = None) -> int:  # noqa: ANN401
         """Return the count of active (non-deleted) records."""
-        stmt = select(func.count()).select_from(self.model).where(
-            self.model.deleted_at.is_(None)  # type: ignore[attr-defined]
-        )
+        stmt = select(func.count()).select_from(self.model).where(self.model.deleted_at.is_(None))
         if extra_filters is not None:
             stmt = stmt.where(extra_filters)
         result = await self._session.execute(stmt)

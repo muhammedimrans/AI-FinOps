@@ -8,6 +8,7 @@ EP-02: BaseRepository, CursorPage
 EP-03: OrganizationRepository, ProjectRepository, MembershipRepository,
        ProviderConnectionRepository
 """
+
 from __future__ import annotations
 
 from app.repositories.base_repository import BaseRepository, CursorPage

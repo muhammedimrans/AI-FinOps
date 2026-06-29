@@ -8,6 +8,7 @@ Covers:
   - Repository improvements: update() key validation, slug_exists() EXISTS query,
     list_by_org_and_role() order parameter
 """
+
 from __future__ import annotations
 
 import uuid
@@ -24,9 +25,7 @@ from tests.conftest import make_connection, make_membership, make_org, make_proj
 
 @pytest.mark.unit
 class TestStartupLifecycle:
-    async def test_container_create_calls_init_db(
-        self, test_settings: Settings
-    ) -> None:
+    async def test_container_create_calls_init_db(self, test_settings: Settings) -> None:
         """AppContainer.create() must call init_db() so DB is verified on startup."""
         mock_engine = AsyncMock()
         mock_engine.dispose = AsyncMock()
@@ -70,10 +69,12 @@ class TestStartupLifecycle:
         mock_result = MagicMock()
         mock_result.scalar_one.return_value = "PostgreSQL 16.1 on x86_64"
         mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_engine.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_engine.connect = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=mock_conn),
+                __aexit__=AsyncMock(return_value=None),
+            )
+        )
 
         # Should not raise — structlog logger must be used
         with patch("app.db.init_db.logger") as mock_logger:
@@ -230,9 +231,7 @@ class TestMembershipRepositoryOrderParam:
         session.execute = AsyncMock(return_value=result_mock)
 
         repo = MembershipRepository(session)
-        page = await repo.list_by_org_and_role(
-            uuid.uuid4(), MembershipRole.OWNER, order="desc"
-        )
+        page = await repo.list_by_org_and_role(uuid.uuid4(), MembershipRole.OWNER, order="desc")
         assert page.items == []
 
 
@@ -251,6 +250,7 @@ class TestConfTestFactories:
 
     def test_make_membership_defaults_to_member_role(self) -> None:
         from app.models.membership import MembershipRole
+
         mem = make_membership()
         assert mem.role == MembershipRole.MEMBER
 

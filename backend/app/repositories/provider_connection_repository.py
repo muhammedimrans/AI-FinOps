@@ -5,6 +5,7 @@ ProviderConnections are always scoped to an Organization (DP-6) and
 optionally to a Project. The repository enforces org-scoped isolation
 on every multi-record query.
 """
+
 from __future__ import annotations
 
 import uuid

@@ -1,5 +1,5 @@
 """
-Tests for EP-03 – Core Domain Models.
+Tests for EP-03 - Core Domain Models.
 
 Covers (without a live database):
   - Model class attributes (tablename, external_id prefix)
@@ -9,10 +9,10 @@ Covers (without a live database):
   - Repository method signatures via mock session
   - Soft-delete inherited behavior on EP-03 models
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,7 +26,6 @@ from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -158,27 +157,19 @@ class TestOrganizationModel:
         assert org.deleted_by == actor
 
     def test_unique_slug_constraint_present(self) -> None:
-        constraint_names = {
-            getattr(c, "name", None) for c in Organization.__table_args__
-        }
+        constraint_names = {getattr(c, "name", None) for c in Organization.__table_args__}
         assert "uq_organizations_slug" in constraint_names
 
     def test_slug_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in Organization.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in Organization.__table_args__}
         assert "ix_organizations_slug" in index_names
 
     def test_cursor_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in Organization.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in Organization.__table_args__}
         assert "ix_organizations_cursor" in index_names
 
     def test_deleted_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in Organization.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in Organization.__table_args__}
         assert "ix_organizations_deleted" in index_names
 
     def test_nullable_fields(self) -> None:
@@ -306,9 +297,7 @@ class TestMembershipModel:
         assert mem.is_deleted is True
 
     def test_unique_org_email_constraint_present(self) -> None:
-        constraint_names = {
-            getattr(c, "name", None) for c in Membership.__table_args__
-        }
+        constraint_names = {getattr(c, "name", None) for c in Membership.__table_args__}
         assert "uq_memberships_org_email" in constraint_names
 
     def test_email_index_present(self) -> None:
@@ -385,27 +374,19 @@ class TestProviderConnectionModel:
         assert conn.is_deleted is True
 
     def test_org_id_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in ProviderConnection.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in ProviderConnection.__table_args__}
         assert "ix_provider_connections_org_id" in index_names
 
     def test_type_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in ProviderConnection.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in ProviderConnection.__table_args__}
         assert "ix_provider_connections_type" in index_names
 
     def test_cursor_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in ProviderConnection.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in ProviderConnection.__table_args__}
         assert "ix_provider_connections_cursor" in index_names
 
     def test_org_active_composite_index_present(self) -> None:
-        index_names = {
-            getattr(i, "name", None) for i in ProviderConnection.__table_args__
-        }
+        index_names = {getattr(i, "name", None) for i in ProviderConnection.__table_args__}
         assert "ix_provider_connections_org_active" in index_names
 
 
@@ -428,9 +409,10 @@ class TestOrganizationRepository:
 
     @pytest.mark.asyncio
     async def test_slug_exists_returns_false_when_none(self) -> None:
+        # slug_exists() now uses SELECT EXISTS(...) → scalar_one() returns False
         session = _make_mock_session()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = None
+        result_mock.scalar_one.return_value = False
         session.execute = AsyncMock(return_value=result_mock)
 
         repo = OrganizationRepository(session)
@@ -440,9 +422,10 @@ class TestOrganizationRepository:
 
     @pytest.mark.asyncio
     async def test_slug_exists_returns_true_when_found(self) -> None:
+        # slug_exists() now uses SELECT EXISTS(...) → scalar_one() returns True
         session = _make_mock_session()
         result_mock = MagicMock()
-        result_mock.scalar_one_or_none.return_value = _make_org()
+        result_mock.scalar_one.return_value = True
         session.execute = AsyncMock(return_value=result_mock)
 
         repo = OrganizationRepository(session)

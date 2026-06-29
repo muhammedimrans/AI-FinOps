@@ -5,6 +5,7 @@ The engine is created once at application startup via AppContainer and held
 for the lifetime of the process. Connection is lazy — no socket is opened
 until the first query.
 """
+
 from __future__ import annotations
 
 import time

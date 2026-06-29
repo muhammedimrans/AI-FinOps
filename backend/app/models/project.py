@@ -4,13 +4,15 @@ Project ORM model — attribution unit for cost tracking (§4.5, DP-6).
 Projects belong to exactly one Organization and serve as the primary
 dimension for cost attribution (every Usage Event resolves to a Project).
 """
+
 from __future__ import annotations
 
 import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SQLEnum, ForeignKey, Index, String, Text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
     from app.models.provider_connection import ProviderConnection
 
 
-class ProjectEnvironment(str, enum.Enum):
+class ProjectEnvironment(enum.StrEnum):
     """Deployment environment of the Project."""
 
     DEVELOPMENT = "development"
@@ -55,16 +57,18 @@ class Project(BaseModel):
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
+    # lazy="raise": accessing without prior selectinload()/joinedload() raises.
+    # See docs/engineering/sqlalchemy-loading-strategy.md for the loading policy.
 
     organization: Mapped[Organization] = relationship(
         "Organization",
         back_populates="projects",
-        lazy="select",
+        lazy="raise",
     )
     provider_connections: Mapped[list[ProviderConnection]] = relationship(
         "ProviderConnection",
         back_populates="project",
-        lazy="select",
+        lazy="raise",
     )
 
     # ── Indexes ───────────────────────────────────────────────────────────────

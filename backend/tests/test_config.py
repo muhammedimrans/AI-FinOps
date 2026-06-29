@@ -1,4 +1,5 @@
 """Tests for configuration loading and Settings validation."""
+
 from __future__ import annotations
 
 import pytest

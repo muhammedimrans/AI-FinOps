@@ -14,6 +14,7 @@ Usage in a route::
 In practice the dependency is wired via the AppContainer so routes receive
 a pre-bound partial rather than importing get_session directly.
 """
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -23,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 async def get_session(
     session_factory: async_sessionmaker[AsyncSession],
-) -> AsyncGenerator[AsyncSession, None]:
+) -> AsyncGenerator[AsyncSession]:
     """
     Async generator that yields a database session.
     Commits on clean exit; rolls back on any exception.

@@ -9,14 +9,17 @@ The ``configuration`` JSONB column holds provider-specific, non-sensitive
 metadata (e.g., base URLs, model aliases, rate-limit tiers). Never put API
 keys or secrets here.
 """
+
 from __future__ import annotations
 
 import enum
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, Enum as SQLEnum, ForeignKey, Index, String, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy import Boolean, ForeignKey, Index, String, text
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -26,7 +29,7 @@ if TYPE_CHECKING:
     from app.models.project import Project
 
 
-class ProviderType(str, enum.Enum):
+class ProviderType(enum.StrEnum):
     """Supported AI provider types."""
 
     OPENAI = "openai"
@@ -90,16 +93,18 @@ class ProviderConnection(BaseModel):
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────
+    # lazy="raise": accessing without prior selectinload()/joinedload() raises.
+    # See docs/engineering/sqlalchemy-loading-strategy.md for the loading policy.
 
     organization: Mapped[Organization] = relationship(
         "Organization",
         back_populates="provider_connections",
-        lazy="select",
+        lazy="raise",
     )
     project: Mapped[Project | None] = relationship(
         "Project",
         back_populates="provider_connections",
-        lazy="select",
+        lazy="raise",
     )
 
     # ── Indexes ───────────────────────────────────────────────────────────────

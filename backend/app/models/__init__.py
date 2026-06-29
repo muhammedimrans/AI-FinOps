@@ -8,13 +8,17 @@ tables.
 
 EP-02: base infrastructure (mixins, abstract BaseModel)
 EP-03: core domain models (Organization, Project, Membership, ProviderConnection)
+EP-04: user identity (User)
 """
 
 import app.db.mixins  # noqa: F401 — registers BaseModel in Base.metadata
 from app.models import base  # noqa: F401 — backward-compat re-export
+from app.models.membership import Membership, MembershipRole  # noqa: F401
 
-# EP-03 – Core domain models (import order: parent before children)
+# EP-03 - Core domain models (import order: parent before children)
 from app.models.organization import Organization, OrganizationStatus  # noqa: F401
 from app.models.project import Project, ProjectEnvironment  # noqa: F401
-from app.models.membership import Membership, MembershipRole  # noqa: F401
 from app.models.provider_connection import ProviderConnection, ProviderType  # noqa: F401
+
+# EP-04 - User must be imported before Membership (FK dependency)
+from app.models.user import User  # noqa: F401

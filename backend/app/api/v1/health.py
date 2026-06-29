@@ -101,11 +101,11 @@ async def metrics() -> Response:
     payload = (
         "# HELP aifinops_up Whether the application is up and running\n"
         "# TYPE aifinops_up gauge\n"
-        f"aifinops_up{{version=\"{APP_VERSION}\"}} 1\n"
+        f'aifinops_up{{version="{APP_VERSION}"}} 1\n'
         "\n"
         "# HELP aifinops_info Static application info\n"
         "# TYPE aifinops_info gauge\n"
-        f"aifinops_info{{version=\"{APP_VERSION}\"}} 1\n"
+        f'aifinops_info{{version="{APP_VERSION}"}} 1\n'
         "\n"
         "# HELP aifinops_http_requests_total Total HTTP requests received\n"
         "# TYPE aifinops_http_requests_total counter\n"
@@ -113,10 +113,10 @@ async def metrics() -> Response:
         "\n"
         "# HELP aifinops_http_request_duration_seconds HTTP request duration\n"
         "# TYPE aifinops_http_request_duration_seconds histogram\n"
-        "aifinops_http_request_duration_seconds_bucket{le=\"0.1\"} 0\n"
-        "aifinops_http_request_duration_seconds_bucket{le=\"0.5\"} 0\n"
-        "aifinops_http_request_duration_seconds_bucket{le=\"1.0\"} 0\n"
-        "aifinops_http_request_duration_seconds_bucket{le=\"+Inf\"} 0\n"
+        'aifinops_http_request_duration_seconds_bucket{le="0.1"} 0\n'
+        'aifinops_http_request_duration_seconds_bucket{le="0.5"} 0\n'
+        'aifinops_http_request_duration_seconds_bucket{le="1.0"} 0\n'
+        'aifinops_http_request_duration_seconds_bucket{le="+Inf"} 0\n'
         "aifinops_http_request_duration_seconds_sum 0\n"
         "aifinops_http_request_duration_seconds_count 0\n"
     )

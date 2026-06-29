@@ -1,11 +1,11 @@
 """Tests for application startup, factory, and dependency injection."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from app.config.settings import Settings
 from app.core.container import AppContainer
@@ -79,8 +79,9 @@ class TestDependencyInjection:
         """Container must be present on app.state after startup."""
         application = create_app(test_settings)
         # Without pre-injecting the container, get_container will fail
-        from app.api.deps import get_container
         from fastapi import Request
+
+        from app.api.deps import get_container
 
         mock_request = MagicMock(spec=Request)
         mock_request.app = application
@@ -91,8 +92,9 @@ class TestDependencyInjection:
     async def test_get_container_returns_container_from_state(
         self, test_settings: Settings, mock_container: AppContainer
     ) -> None:
-        from app.api.deps import get_container
         from fastapi import Request
+
+        from app.api.deps import get_container
 
         application = create_app(test_settings)
         application.state.container = mock_container
@@ -106,8 +108,14 @@ class TestDependencyInjection:
     async def test_health_endpoint_uses_container(self, client: pytest.FixtureRequest) -> None:
         """The /health endpoint must inject the container (smoke test via HTTP)."""
         with (
-            patch("app.core.database.check_database", return_value={"status": "healthy", "latency_ms": 1.0}),
-            patch("app.core.redis.check_redis", return_value={"status": "healthy", "latency_ms": 0.5}),
+            patch(
+                "app.core.database.check_database",
+                return_value={"status": "healthy", "latency_ms": 1.0},
+            ),
+            patch(
+                "app.core.redis.check_redis",
+                return_value={"status": "healthy", "latency_ms": 0.5},
+            ),
         ):
             pass  # Container is pre-injected via conftest fixture
 
@@ -115,8 +123,9 @@ class TestDependencyInjection:
 @pytest.mark.unit
 class TestAppContainer:
     async def test_create_returns_container(self, test_settings: Settings) -> None:
-        """Container.create() must succeed without network IO (lazy connections)."""
-        container = await AppContainer.create(test_settings)
+        """Container.create() must succeed (init_db mocked to avoid network IO)."""
+        with patch("app.core.container.init_db", new_callable=AsyncMock):
+            container = await AppContainer.create(test_settings)
         assert isinstance(container, AppContainer)
         assert container.settings is test_settings
         assert container.engine is not None
@@ -127,9 +136,12 @@ class TestAppContainer:
 
     async def test_close_disposes_resources(self, test_settings: Settings) -> None:
         """Container.close() must not raise."""
-        container = await AppContainer.create(test_settings)
+        with patch("app.core.container.init_db", new_callable=AsyncMock):
+            container = await AppContainer.create(test_settings)
         # Should not raise even if not connected
         await container.close()
 
-    def test_container_holds_settings(self, mock_container: AppContainer, test_settings: Settings) -> None:
+    def test_container_holds_settings(
+        self, mock_container: AppContainer, test_settings: Settings
+    ) -> None:
         assert mock_container.settings is test_settings

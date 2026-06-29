@@ -7,20 +7,29 @@ existing import paths in tests and other modules.
 New code should import from app.db directly:
   from app.db.mixins import uuid7, UUIDMixin, TimestampMixin, ...
 """
+
 from __future__ import annotations
 
 from app.db.mixins import (
     BaseModel as BaseModel,
+)
+from app.db.mixins import (
     SoftDeleteMixin as SoftDeleteMixin,
+)
+from app.db.mixins import (
     TimestampMixin as TimestampMixin,
+)
+from app.db.mixins import (
     UUIDMixin as UUIDMixin,
+)
+from app.db.mixins import (
     uuid7 as uuid7,
 )
 
 __all__ = [
-    "uuid7",
-    "UUIDMixin",
-    "TimestampMixin",
-    "SoftDeleteMixin",
     "BaseModel",
+    "SoftDeleteMixin",
+    "TimestampMixin",
+    "UUIDMixin",
+    "uuid7",
 ]

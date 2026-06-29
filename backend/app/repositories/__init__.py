@@ -7,7 +7,9 @@ to the service layer. They NEVER leak SQLAlchemy ORM objects above this layer.
 EP-02: BaseRepository, CursorPage
 EP-03: OrganizationRepository, ProjectRepository, MembershipRepository,
        ProviderConnectionRepository
+EP-04: UserRepository
 """
+
 from __future__ import annotations
 
 from app.repositories.base_repository import BaseRepository, CursorPage
@@ -15,6 +17,7 @@ from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.project_repository import ProjectRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
+from app.repositories.user_repository import UserRepository
 
 __all__ = [
     "BaseRepository",
@@ -23,4 +26,5 @@ __all__ = [
     "OrganizationRepository",
     "ProjectRepository",
     "ProviderConnectionRepository",
+    "UserRepository",
 ]

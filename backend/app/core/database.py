@@ -8,6 +8,7 @@ without requiring a refactor sweep.
 New code should import from app.db directly:
   from app.db import Base, create_engine, get_session, ...
 """
+
 from __future__ import annotations
 
 from app.db.base import Base as Base
@@ -19,9 +20,9 @@ from app.db.session import managed_transaction as managed_transaction
 
 __all__ = [
     "Base",
+    "check_database",
     "create_engine",
     "create_session_factory",
-    "check_database",
     "get_session",
     "managed_transaction",
 ]

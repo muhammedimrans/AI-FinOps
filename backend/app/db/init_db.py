@@ -5,35 +5,55 @@ Called once at application startup (via AppContainer.create) to verify
 connectivity and log the database version. Schema creation is managed
 entirely by Alembic — this module never calls Base.metadata.create_all().
 """
+
 from __future__ import annotations
 
-import logging
+import time
 
+import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
-async def verify_database(engine: AsyncEngine) -> None:
+async def verify_database(engine: AsyncEngine) -> str:
     """
-    Verify the database is reachable and log its version.
+    Verify the database is reachable and return its version string.
     Raises on failure so the application refuses to start with a bad DB.
     """
     async with engine.connect() as conn:
         result = await conn.execute(text("SELECT version()"))
-        version = result.scalar_one()
-    logger.info("Database connected: %s", version)
+        version: str = result.scalar_one()
+    return version
 
 
 async def init_db(engine: AsyncEngine) -> None:
     """
     Application startup hook for database readiness.
-    In production, Alembic handles all schema changes via `alembic upgrade head`.
-    This function only validates connectivity.
+
+    Verifies connectivity and logs the PostgreSQL version. Raises on any
+    connection failure so the application fails fast rather than starting
+    in a degraded state.
+
+    Schema management is handled entirely by Alembic migrations:
+      alembic upgrade head
+    This function never calls Base.metadata.create_all().
     """
+    start = time.monotonic()
     try:
-        await verify_database(engine)
+        version = await verify_database(engine)
+        elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+        logger.info(
+            "database_connected",
+            pg_version=version.split(",")[0],  # e.g. "PostgreSQL 16.1"
+            latency_ms=elapsed_ms,
+        )
     except Exception as exc:
-        logger.error("Database initialisation failed: %s", exc)
+        elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+        logger.error(
+            "database_connection_failed",
+            error=str(exc),
+            latency_ms=elapsed_ms,
+        )
         raise

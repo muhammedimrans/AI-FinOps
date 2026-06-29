@@ -1,5 +1,5 @@
 """
-Tests for F-008 – Repository Layer.
+Tests for F-008 - Repository Layer.
 
 Covers:
   - CursorPage data structure
@@ -9,11 +9,12 @@ Covers:
   - Soft-delete filtering
   - Edge cases: empty result, malformed cursor
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -24,13 +25,12 @@ from app.repositories.base import (
     _encode_cursor,
 )
 
-
 # ─── Cursor codec ─────────────────────────────────────────────────────────────
 
 
 class TestCursorCodec:
     def test_round_trip(self) -> None:
-        now = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 6, 1, 12, 0, 0, tzinfo=UTC)
         uid = uuid.uuid4()
         token = _encode_cursor(now, uid)
         decoded_dt, decoded_id = _decode_cursor(token)
@@ -38,14 +38,12 @@ class TestCursorCodec:
         assert decoded_id == uid
 
     def test_token_is_string(self) -> None:
-        token = _encode_cursor(datetime.now(tz=timezone.utc), uuid.uuid4())
+        token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
         assert isinstance(token, str)
 
     def test_token_is_url_safe(self) -> None:
-        token = _encode_cursor(datetime.now(tz=timezone.utc), uuid.uuid4())
-        safe_chars = set(
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_="
-        )
+        token = _encode_cursor(datetime.now(tz=UTC), uuid.uuid4())
+        safe_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_=")
         assert all(c in safe_chars for c in token)
 
     def test_invalid_cursor_raises_value_error(self) -> None:
@@ -62,23 +60,17 @@ class TestCursorCodec:
 
 class TestCursorPage:
     def test_has_more_false_for_last_page(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=[], next_cursor=None, has_more=False)
         assert page.has_more is False
         assert page.next_cursor is None
 
     def test_has_more_true_when_next_cursor_present(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=["a"], next_cursor="tok", has_more=True
-        )
+        page: CursorPage[object] = CursorPage(items=["a"], next_cursor="tok", has_more=True)
         assert page.has_more is True
         assert page.next_cursor == "tok"
 
     def test_to_dict_keys(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[1, 2], next_cursor="abc", has_more=True
-        )
+        page: CursorPage[object] = CursorPage(items=[1, 2], next_cursor="abc", has_more=True)
         d = page.to_dict()
         assert set(d.keys()) == {"items", "next_cursor", "has_more"}
 
@@ -109,7 +101,7 @@ class FakeRecord:
         return self.deleted_at is not None
 
     def soft_delete(self, deleted_by: uuid.UUID | None = None) -> None:
-        self.deleted_at = datetime.now(tz=timezone.utc)
+        self.deleted_at = datetime.now(tz=UTC)
         self.deleted_by = deleted_by
 
 
@@ -132,7 +124,7 @@ class TestBaseRepositoryCreate:
     async def test_create_adds_and_flushes(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         result = await repo.create(record)
 
@@ -147,7 +139,7 @@ class TestBaseRepositorySoftDelete:
     async def test_soft_delete_sets_deleted_at(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
         assert record.deleted_at is None
 
         result = await repo.soft_delete(record)
@@ -161,7 +153,7 @@ class TestBaseRepositorySoftDelete:
         session = _make_mock_session()
         repo = FakeRepository(session)
         actor_id = uuid.uuid4()
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         result = await repo.soft_delete(record, deleted_by=actor_id)
 
@@ -174,7 +166,7 @@ class TestBaseRepositoryHardDelete:
     async def test_hard_delete_calls_session_delete(self) -> None:
         session = _make_mock_session()
         repo = FakeRepository(session)
-        record = FakeRecord(uuid.uuid4(), datetime.now(tz=timezone.utc))
+        record = FakeRecord(uuid.uuid4(), datetime.now(tz=UTC))
 
         await repo.hard_delete(record)
 
@@ -184,23 +176,19 @@ class TestBaseRepositoryHardDelete:
 
 class TestCursorPageEdgeCases:
     def test_empty_page(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=[], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=[], next_cursor=None, has_more=False)
         assert page.items == []
         assert not page.has_more
 
     def test_single_item_no_more(self) -> None:
-        page: CursorPage[object] = CursorPage(
-            items=["x"], next_cursor=None, has_more=False
-        )
+        page: CursorPage[object] = CursorPage(items=["x"], next_cursor=None, has_more=False)
         assert len(page.items) == 1
         assert not page.has_more
 
 
 class TestCursorEncodeDecodePreservesTimezone:
     def test_utc_timezone_preserved(self) -> None:
-        now = datetime(2025, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        now = datetime(2025, 1, 15, 10, 30, 0, tzinfo=UTC)
         uid = uuid.uuid4()
         token = _encode_cursor(now, uid)
         decoded_dt, _ = _decode_cursor(token)

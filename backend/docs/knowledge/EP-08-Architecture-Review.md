@@ -13,11 +13,11 @@ EP-08 delivers a well-structured, provider-agnostic usage collection pipeline wi
 
 Five findings are raised. Two are HIGH severity and must be resolved before any production traffic is handled. The remaining three are MEDIUM or LOW and can be resolved in EP-08.5 or tracked as EP-09 prerequisites.
 
-**Score: 7.5 / 10**
+**Score: 7.5 / 10** → **8.5 / 10 (post-hardening)**
 
-**Decision: APPROVED WITH MINOR CHANGES**
+**Decision: APPROVED WITH MINOR CHANGES** → **APPROVED AND FROZEN (post-hardening)**
 
-EP-09 may begin after the two HIGH findings are resolved and confirmed. The three lower-severity findings may be resolved concurrently with EP-09 development but before the first production deployment.
+All five findings were resolved in the EP-08 Release Hardening Sprint. See `docs/knowledge/EP-08-Release-Hardening.md` for the full resolution report.
 
 ---
 
@@ -258,13 +258,15 @@ This is correctly classified as a known limitation, not a bug. However, the cons
 
 ## Required Changes Before EP-09 Production Deployment
 
-| ID | Severity | Action |
-|----|----------|--------|
-| REV-01 | HIGH | Remove `from unittest.mock import MagicMock` from `app/api/v1/usage.py` |
-| REV-02 | HIGH | Add `log.warning(...)` to Anthropic `get_usage()` exception handler |
-| REV-03 | MEDIUM | Return HTTP 501 from stub GET endpoints |
-| REV-04 | MEDIUM | Align migration enum names with ORM-declared names |
-| REV-05 | LOW | Informational — resolved by EP-09 DB session injection |
+All findings resolved in the EP-08 Release Hardening Sprint (2026-06-29).
+
+| ID | Severity | Action | Status |
+|----|----------|--------|--------|
+| REV-01 | HIGH | Remove `from unittest.mock import MagicMock` from `app/api/v1/usage.py` | ✅ RESOLVED |
+| REV-02 | HIGH | Add `log.warning(...)` to Anthropic `get_usage()` exception handler | ✅ RESOLVED |
+| REV-03 | MEDIUM | Return HTTP 501 from stub GET endpoints | ✅ RESOLVED |
+| REV-04 | MEDIUM | Align migration enum names with ORM-declared names | ✅ RESOLVED |
+| REV-05 | LOW | Document EP-09 deferred persistence in `_run_collection_sync` | ✅ RESOLVED |
 
 REV-01 and REV-02 must be resolved before EP-09 begins. REV-03 and REV-04 may be resolved in the first EP-09 iteration.
 

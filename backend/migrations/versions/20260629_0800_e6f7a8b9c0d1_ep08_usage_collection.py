@@ -63,13 +63,13 @@ def upgrade() -> None:
             "status",
             sa.Enum(
                 "pending", "running", "completed", "failed", "cancelled",
-                name="collectionrunstatus",
+                name="collection_run_status",
             ),
             nullable=False,
         ),
         sa.Column(
             "triggered_by",
-            sa.Enum("manual", "scheduled", name="collectiontrigger"),
+            sa.Enum("manual", "scheduled", name="collection_trigger"),
             nullable=False,
         ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
@@ -447,5 +447,5 @@ def downgrade() -> None:
     op.drop_table("usage_events")
     op.drop_table("usage_collection_runs")
     # Drop enums created for usage_collection_runs
-    op.execute("DROP TYPE IF EXISTS collectionrunstatus")
-    op.execute("DROP TYPE IF EXISTS collectiontrigger")
+    op.execute("DROP TYPE IF EXISTS collection_run_status")
+    op.execute("DROP TYPE IF EXISTS collection_trigger")

@@ -6,13 +6,15 @@
 
 ---
 
-## Summary
+## Summary (Updated post-hardening 2026-06-29)
 
-EP-08 is **NOT production-ready in its current state** for the following reasons:
-1. Production code imports `unittest.mock` (REV-01)
-2. Anthropic collection failures are fully silent (REV-02)
-3. POST `/collect` endpoints return success responses while persisting nothing (REV-05)
-4. No JWT authentication on any usage endpoint
+Items REV-01 and REV-02 have been resolved in the EP-08 Release Hardening Sprint. REV-05 is formally documented as an EP-08 stop condition.
+
+EP-08 is **NOT production-ready** for the following remaining reasons:
+1. POST `/collect` endpoints return success responses while persisting nothing to DB (deferred to EP-09)
+2. No JWT authentication on any usage endpoint (deferred to EP-09)
+
+EP-08 IS production-ready for **development and staging** environments. EP-09 must resolve items G-03 and G-04 before any production promotion.
 
 EP-08 IS production-ready for **development and staging** environments where:
 - No real usage data is being collected for billing purposes
@@ -268,11 +270,11 @@ Pydantic v2 validates all request bodies. Invalid `organization_id` (non-UUID) r
 | ID | Severity | Risk | Impact | Mitigation |
 |----|----------|------|--------|-----------|
 | PRR-01 | CRITICAL | No authentication on collection endpoints | Any caller can trigger API key usage | Add JWT authentication before production |
-| PRR-02 | HIGH | `unittest.mock` import in production code | Code quality; may fail security scans | Remove before any deployment |
-| PRR-03 | HIGH | Anthropic failures fully silent | Data loss not detectable | Log exception before returning UsagePage() |
+| PRR-02 | HIGH | `unittest.mock` import in production code | Code quality; may fail security scans | ✅ RESOLVED — removed in hardening sprint |
+| PRR-03 | HIGH | Anthropic failures fully silent | Data loss not detectable | ✅ RESOLVED — log.warning emitted before fallback |
 | PRR-04 | HIGH | Collection does not persist to DB | 200 OK with no data written | EP-09 DB session injection required |
-| PRR-05 | MEDIUM | GET endpoints return empty 200 | Misleading API contract | Return HTTP 501 from stubs |
-| PRR-06 | MEDIUM | Migration enum name mismatch | Future migration failures | Align names in migration |
+| PRR-05 | MEDIUM | GET endpoints return empty 200 | Misleading API contract | ✅ RESOLVED — stubs return HTTP 501 |
+| PRR-06 | MEDIUM | Migration enum name mismatch | Future migration failures | ✅ RESOLVED — names aligned in migration |
 | PRR-07 | MEDIUM | In-flight tasks lost on restart | Incomplete collection runs not recoverable | Mark stale RUNNING runs as FAILED on startup |
 | PRR-08 | MEDIUM | Per-event upsert (no batch) | Performance at scale | Implement batch upsert for EP-09 |
 | PRR-09 | MEDIUM | Connection pool churn in get_usage() | Latency; TCP connection exhaustion | Share ProviderHttpClient across pages |

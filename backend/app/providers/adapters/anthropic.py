@@ -28,6 +28,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+import structlog
 
 from app.http.auth import ApiKeyHeaderAuth, CompositeAuth
 from app.http.client import ProviderHttpClient
@@ -49,6 +50,8 @@ from app.providers.models import (
     UsageData,
     UsagePage,
 )
+
+log = structlog.get_logger(__name__)
 
 _BASE_URL = "https://api.anthropic.com"
 _API_VERSION = "2023-06-01"
@@ -295,7 +298,12 @@ class AnthropicProvider(AIProvider):
         try:
             async with self._build_client(key) as client:
                 raw = await client.get("/v1/usage", params=params)
-        except Exception:
+        except Exception as exc:
+            log.warning(
+                "anthropic_usage_api_unavailable",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             return UsagePage()
 
         items: list[dict[str, Any]] = raw.get("data", [])

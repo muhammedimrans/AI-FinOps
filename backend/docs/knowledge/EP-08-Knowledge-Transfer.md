@@ -250,7 +250,7 @@ class CollectionTrigger(StrEnum):
 
 **Migration enum names:** `collectionrunstatus`, `collectiontrigger` (lowercase, no underscores).
 
-**⚠ Known inconsistency:** The migration creates enum types with names that do not match the ORM's SQLEnum names. In PostgreSQL, the database enum type name is advisory only — Alembic and SQLAlchemy may each manage the name independently. This works at runtime because the ORM does not validate the DB-level enum type name. However, future migrations using `op.get_bind().execute(sa.text("DROP TYPE ..."))` must reference the correct DB-level name (without underscores). See Architecture Review REV-01.
+**Enum type names (aligned in hardening sprint):** The migration and ORM both use `collection_run_status` and `collection_trigger` (with underscores). Future migrations that reference these enum types must use these exact names.
 
 Key columns:
 - `organization_id` — UUID, required (no FK — EP-09 will add org table)
@@ -596,4 +596,4 @@ Test classes and coverage:
 
 7. **Migration enum names**: `collectionrunstatus` / `collectiontrigger` in the migration differ from `collection_run_status` / `collection_trigger` in the ORM. Future migrations that reference these enum types must use the DB-level names (no underscores).
 
-8. **`from unittest.mock import MagicMock` in production code**: Dead import in `app/api/v1/usage.py`'s `_run_collection_sync()`. Must be removed before any production deployment.
+8. **`_run_collection_sync` does not persist to DB**: The API's synchronous collection path counts events but does not persist them. EP-09 must inject the AppContainer DB session to enable real persistence. The function docstring documents this explicitly as an EP-08 stop condition.

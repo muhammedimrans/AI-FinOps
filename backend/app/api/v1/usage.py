@@ -122,9 +122,17 @@ async def collect_provider(
 
 
 async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> object:
-    """Run collection synchronously (no DB session — mock-friendly for tests)."""
-    from unittest.mock import MagicMock
+    """Run collection synchronously and return an in-memory CollectionRun record.
 
+    EP-08 STOP CONDITION: This function calls the provider adapter to count
+    pages and events but does NOT persist anything to the database.  Full
+    DB-backed persistence (via UsageCollectionService and an injected session)
+    is deferred to EP-09, which will also inject the AppContainer session and
+    wire in JWT-derived organization_id.
+
+    The returned UsageCollectionRun is a transient ORM object.  It is not saved
+    to the database and will not appear in any subsequent GET /runs query.
+    """
     from app.providers.config import (
         AnthropicConfig,
         OpenAIConfig,
@@ -212,8 +220,13 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
 @router.get(
     "/events",
     response_model=UsageEventListResponse,
-    summary="List usage events",
-    description="Returns a paginated list of usage events for an organization.",
+    summary="List usage events [EP-09]",
+    description=(
+        "**Not yet implemented — EP-09.**  "
+        "Will return a paginated list of usage events for an organization.  "
+        "Returns HTTP 501 until the AppContainer DB session is injected in EP-09."
+    ),
+    responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_events(
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
@@ -224,11 +237,9 @@ async def list_events(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
 ) -> UsageEventListResponse:
-    return UsageEventListResponse(
-        items=[],
-        next_cursor=None,
-        has_more=False,
-        count=0,
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="GET /usage/events is not yet implemented. Database query endpoints are available in EP-09.",
     )
 
 
@@ -253,7 +264,13 @@ async def get_event(
 @router.get(
     "/runs",
     response_model=CollectionRunListResponse,
-    summary="List collection runs",
+    summary="List collection runs [EP-09]",
+    description=(
+        "**Not yet implemented — EP-09.**  "
+        "Will return a paginated list of collection runs for an organization.  "
+        "Returns HTTP 501 until the AppContainer DB session is injected in EP-09."
+    ),
+    responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_runs(
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
@@ -262,11 +279,9 @@ async def list_runs(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
 ) -> CollectionRunListResponse:
-    return CollectionRunListResponse(
-        items=[],
-        next_cursor=None,
-        has_more=False,
-        count=0,
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="GET /usage/runs is not yet implemented. Database query endpoints are available in EP-09.",
     )
 
 
@@ -291,7 +306,13 @@ async def get_run(
 @router.get(
     "/checkpoints",
     response_model=CheckpointListResponse,
-    summary="List collection checkpoints",
+    summary="List collection checkpoints [EP-09]",
+    description=(
+        "**Not yet implemented — EP-09.**  "
+        "Will return a paginated list of collection checkpoints for an organization.  "
+        "Returns HTTP 501 until the AppContainer DB session is injected in EP-09."
+    ),
+    responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_checkpoints(
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
@@ -299,11 +320,9 @@ async def list_checkpoints(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query()] = None,
 ) -> CheckpointListResponse:
-    return CheckpointListResponse(
-        items=[],
-        next_cursor=None,
-        has_more=False,
-        count=0,
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail="GET /usage/checkpoints is not yet implemented. Database query endpoints are available in EP-09.",
     )
 
 
@@ -313,23 +332,21 @@ async def list_checkpoints(
 @router.get(
     "/providers/{provider}/status",
     response_model=ProviderCollectionStatusResponse,
-    summary="Get provider collection status",
+    summary="Get provider collection status [EP-09]",
     description=(
-        "Returns the last known collection state for a provider, "
-        "including the most recent checkpoint and run status."
+        "**Not yet implemented — EP-09.**  "
+        "Will return the last known collection state for a provider, "
+        "including the most recent checkpoint and run status.  "
+        "Returns HTTP 501 until the AppContainer DB session is injected in EP-09."
     ),
+    responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def get_provider_status(
     provider: str,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> ProviderCollectionStatusResponse:
     _require_collection_provider(provider)
-    return ProviderCollectionStatusResponse(
-        provider=provider,
-        organization_id=organization_id,
-        last_collected_at=None,
-        last_run_status=None,
-        last_run_id=None,
-        events_total=0,
-        has_checkpoint=False,
+    raise HTTPException(
+        status_code=status.HTTP_501_NOT_IMPLEMENTED,
+        detail=f"GET /usage/providers/{provider}/status is not yet implemented. Database query endpoints are available in EP-09.",
     )

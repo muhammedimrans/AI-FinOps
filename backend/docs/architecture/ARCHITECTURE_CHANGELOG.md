@@ -1,5 +1,33 @@
 # Architecture Changelog
 
+## [0.8.2] — EP-08 Release Hardening (2026-06-29)
+
+### Changes
+
+All five EP-08 Engineering Review findings resolved. EP-08 is now approved and frozen.
+
+| Finding | Severity | Resolution |
+|---------|----------|-----------|
+| REV-01 | HIGH | Removed `from unittest.mock import MagicMock` dead import from `app/api/v1/usage.py` |
+| REV-02 | HIGH | Added `log.warning("anthropic_usage_api_unavailable", ...)` before `return UsagePage()` in Anthropic adapter |
+| REV-03 | MEDIUM | Stub GET endpoints (`/events`, `/runs`, `/checkpoints`, `/providers/{p}/status`) now return HTTP 501 with EP-09 detail message |
+| REV-04 | MEDIUM | Migration enum names aligned: `collection_run_status`, `collection_trigger` (with underscores) |
+| REV-05 | LOW | `_run_collection_sync()` docstring documents EP-09 deferred persistence |
+
+### Test Results
+
+775 passed, 30 skipped (DB integration), 0 failed. 1 new test added: `TestAnthropicAdapterGetUsage::test_get_usage_logs_warning_on_api_error`.
+
+### Documents Created
+
+- `docs/knowledge/EP-08-Release-Hardening.md` — full sprint report
+
+### Stop Condition
+
+**EP-08 is approved and frozen. The project is ready to begin EP-09 (Cost & Analytics Engine).**
+
+---
+
 ## [0.8.1] — EP-08 Engineering Review (2026-06-29)
 
 ### Review Outcome

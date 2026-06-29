@@ -1,5 +1,72 @@
 # Architecture Changelog
 
+## [0.9.0] — EP-09 Cost & Analytics Engine (2026-06-29)
+
+### Changes
+
+EP-09 introduces the Cost & Analytics Engine: versioned pricing, deterministic cost
+calculation, cost attribution, analytics queries, and pre-aggregated daily summaries.
+
+### New Tables
+
+| Table | Description |
+|-------|-------------|
+| `model_pricing` | Versioned pricing per (provider, model) with date ranges |
+| `usage_cost_records` | Computed cost record per usage event (1:1 FK) |
+| `daily_cost_summaries` | Pre-aggregated daily cost totals for analytics |
+
+### New Packages
+
+| Package | Description |
+|---------|-------------|
+| `app/pricing/` | `PricingEngine` + `PricingValidator` |
+| `app/analytics/` | `AnalyticsService` + `AggregationService` |
+
+### New API Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `POST /v1/pricing/calculate` | Calculate cost for token counts |
+| `GET /v1/pricing/models` | List model pricing records |
+| `GET /v1/pricing/providers` | List providers with active pricing |
+| `POST /v1/pricing/models` | Create pricing record |
+| `GET /v1/analytics/usage` | Usage summary |
+| `GET /v1/analytics/cost` | Cost summary |
+| `GET /v1/analytics/providers` | Per-provider breakdown |
+| `GET /v1/analytics/models` | Per-model breakdown |
+| `GET /v1/analytics/projects` | Per-project breakdown |
+| `GET /v1/analytics/organizations/{id}/summary` | Org summary |
+
+### Key Architecture Decisions
+
+- All monetary values use `decimal.Decimal`; never `float`
+- Price-per-token: `Numeric(20,10)`; computed costs: `Numeric(20,8)`
+- API serializes Decimal as strings to avoid JSON float precision loss
+- `ROUND_HALF_UP` at 8 decimal places for all cost calculations
+- Historical pricing resolution via `effective_from`/`effective_to` date ranges
+- Upsert pattern (ON CONFLICT DO UPDATE) for cost records and daily summaries
+- JWT auth required; org membership verification deferred to EP-10
+
+### Test Results
+
+135 new tests in `tests/test_ep09.py`. Full suite: 910 passed, 30 skipped, 0 failed.
+
+### Migration
+
+`f7a8b9c0d1e2` — creates `model_pricing`, `usage_cost_records`, `daily_cost_summaries`
+
+### Documents Created
+
+- `docs/knowledge/EP-09-Knowledge-Transfer.md`
+- `docs/engineering/EP-09-Completion-Report.md`
+- `docs/architecture/Cost-Analytics-Architecture.md`
+
+### Stop Condition
+
+**EP-09 is complete. All 135 tests pass. Ready for EP-10.**
+
+---
+
 ## [0.8.2] — EP-08 Release Hardening (2026-06-29)
 
 ### Changes

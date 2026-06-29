@@ -43,3 +43,8 @@ from app.models.usage_collection_run import (  # noqa: F401
 from app.models.usage_event import UsageEvent  # noqa: F401
 from app.models.usage_collection_checkpoint import UsageCollectionCheckpoint  # noqa: F401
 from app.models.provider_usage_summary import ProviderUsageSummary  # noqa: F401
+
+# EP-09 - Cost & Analytics Engine (import after UsageEvent and ProviderConnection; FK dependency)
+from app.models.model_pricing import ModelPricing  # noqa: F401
+from app.models.usage_cost_record import UsageCostRecord  # noqa: F401
+from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401

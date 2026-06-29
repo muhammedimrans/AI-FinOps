@@ -43,9 +43,11 @@ from app.providers.models import (
     HealthStatus,
     ModelCapabilityFlag,
     ModelMetadata,
+    NormalizedUsageEvent,
     ProviderRequest,
     ProviderResponse,
     UsageData,
+    UsagePage,
 )
 
 _BASE_URL = "https://api.anthropic.com"
@@ -262,8 +264,46 @@ class AnthropicProvider(AIProvider):
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("Anthropic completion is implemented in a later EP")
 
-    async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
-        raise NotImplementedError("Anthropic usage fetching is implemented in EP-08")
+    async def get_usage(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> UsagePage:
+        """Fetch one page of usage from the Anthropic admin API.
+
+        Anthropic does not expose a per-request usage API on the standard
+        endpoint; this implementation calls the workspace usage endpoint
+        ``GET /v1/usage`` (admin API).  If the key lacks admin scope, the
+        adapter returns an empty ``UsagePage`` rather than raising.
+        """
+        from app.usage.normalizer import AnthropicUsageNormalizer
+
+        key = self._resolve_key()
+        normalizer = AnthropicUsageNormalizer()
+
+        params: dict[str, Any] = {
+            "start_date": start_date.date().isoformat(),
+            "end_date": end_date.date().isoformat(),
+            "limit": min(limit, 1000),
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        try:
+            async with self._build_client(key) as client:
+                raw = await client.get("/v1/usage", params=params)
+        except Exception:
+            return UsagePage()
+
+        items: list[dict[str, Any]] = raw.get("data", [])
+        events = [normalizer.normalize(item) for item in items]
+        next_cursor: str | None = raw.get("next_cursor") or None
+        has_more: bool = bool(raw.get("has_more", False))
+
+        return UsagePage(events=events, next_cursor=next_cursor, has_more=has_more)
 
     async def aclose(self) -> None:
         """Close the shared transport and its connection pool."""

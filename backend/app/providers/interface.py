@@ -16,6 +16,7 @@ from app.providers.models import (
     ProviderRequest,
     ProviderResponse,
     UsageData,
+    UsagePage,
 )
 
 
@@ -68,12 +69,17 @@ class AIProvider(HealthCheckInterface):
         self,
         start_date: datetime,
         end_date: datetime,
-    ) -> list[UsageData]:
-        """Fetch historical usage from the provider's billing API.
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> UsagePage:
+        """Fetch one page of historical usage from the provider's billing API.
 
-        Implemented in EP-08.  Adapters for providers that do not expose a
-        usage API (e.g. Ollama) should raise ``NotImplementedError`` with an
-        explanatory message.
+        ``cursor`` resumes pagination from a previous call's ``next_cursor``.
+        ``limit`` caps the page size (provider may return fewer records).
+
+        Adapters for providers that do not expose a usage API (e.g. Ollama)
+        should return an empty ``UsagePage`` with ``has_more=False``.
         """
         ...
 

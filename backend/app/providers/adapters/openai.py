@@ -1,24 +1,14 @@
-"""OpenAI provider adapter — F-034 (EP-07).
+"""OpenAI provider adapter — F-034 (EP-07) / F-042 (EP-08).
 
 Implements verify_auth, check_connection, is_healthy, list_models,
-check_capability, and get_provider_info.  Completion and usage are
-deferred to EP-07+ and EP-08 respectively.
+check_capability, get_provider_info, and get_usage.
 
-Authentication
---------------
-Authorization: Bearer <api_key>
-
-Live API calls
---------------
-GET /v1/models — model discovery (requires valid key)
-GET /v1/models — also serves as the auth-verification endpoint
-
-Connection lifecycle (PH-01)
-----------------------------
-A single ``HttpxTransport`` is created at construction time and reused across
-all method calls.  The underlying ``httpx.AsyncClient`` connection pool persists
-for the lifetime of the adapter, avoiding repeated TLS handshakes.  Call
-``await provider.aclose()`` (or use as async context manager) to close the pool.
+Usage collection (EP-08)
+------------------------
+``get_usage()`` calls ``GET /v1/organization/usage/completions`` with
+``start_time`` / ``end_time`` UNIX timestamps and a ``page`` cursor.
+Each response item is normalized by ``OpenAIUsageNormalizer`` into a
+provider-agnostic ``NormalizedUsageEvent``.
 """
 
 from __future__ import annotations
@@ -43,9 +33,11 @@ from app.providers.models import (
     HealthStatus,
     ModelCapabilityFlag,
     ModelMetadata,
+    NormalizedUsageEvent,
     ProviderRequest,
     ProviderResponse,
     UsageData,
+    UsagePage,
 )
 
 _BASE_URL = "https://api.openai.com"
@@ -251,8 +243,43 @@ class OpenAIProvider(AIProvider):
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("OpenAI completion is implemented in a later EP")
 
-    async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
-        raise NotImplementedError("OpenAI usage fetching is implemented in EP-08")
+    async def get_usage(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> UsagePage:
+        """Fetch one page of usage from GET /v1/organization/usage/completions.
+
+        Response shape (per item in ``data``):
+            {"start_time": int, "model": str, "input_tokens": int,
+             "output_tokens": int, "num_model_requests": int}
+        ``has_more`` and ``next_page`` control pagination.
+        """
+        from app.usage.normalizer import OpenAIUsageNormalizer
+
+        key = self._resolve_key()
+        normalizer = OpenAIUsageNormalizer()
+
+        params: dict[str, Any] = {
+            "start_time": int(start_date.timestamp()),
+            "end_time": int(end_date.timestamp()),
+            "limit": min(limit, 1000),
+        }
+        if cursor:
+            params["page"] = cursor
+
+        async with self._build_client(key) as client:
+            raw = await client.get("/v1/organization/usage/completions", params=params)
+
+        items: list[dict[str, Any]] = raw.get("data", [])
+        events = [normalizer.normalize(item) for item in items]
+        next_cursor: str | None = raw.get("next_page") or None
+        has_more: bool = bool(raw.get("has_more", False))
+
+        return UsagePage(events=events, next_cursor=next_cursor, has_more=has_more)
 
     async def aclose(self) -> None:
         """Close the shared transport and its connection pool."""

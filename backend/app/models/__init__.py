@@ -12,6 +12,8 @@ EP-04: user identity (User, UserStatus)
 EP-04.1: gap closure - UserStatus enum, username, status, email_verified,
          last_login_at, timezone, locale
 EP-05: authentication — Session, VerificationToken, PasswordResetToken, password_hash
+EP-08: usage collection — UsageEvent, UsageCollectionRun, UsageCollectionCheckpoint,
+       ProviderUsageSummary
 """
 
 import app.db.mixins  # noqa: F401 - registers BaseModel in Base.metadata
@@ -30,3 +32,14 @@ from app.models.session import Session  # noqa: F401
 # EP-04 / EP-04.1 - User must be imported before Membership (FK dependency)
 from app.models.user import User, UserStatus  # noqa: F401
 from app.models.verification_token import VerificationToken  # noqa: F401
+
+# EP-08 - Usage collection (import after ProviderConnection; FK dependency)
+# UsageCollectionRun must come before UsageEvent and UsageCollectionCheckpoint (FK).
+from app.models.usage_collection_run import (  # noqa: F401
+    CollectionRunStatus,
+    CollectionTrigger,
+    UsageCollectionRun,
+)
+from app.models.usage_event import UsageEvent  # noqa: F401
+from app.models.usage_collection_checkpoint import UsageCollectionCheckpoint  # noqa: F401
+from app.models.provider_usage_summary import ProviderUsageSummary  # noqa: F401

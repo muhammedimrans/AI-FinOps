@@ -1379,65 +1379,90 @@ class TestHealthInterface:
 
 
 class TestGetUsage:
+    """EP-08 updated: get_usage() is now implemented for all adapters.
+
+    - OpenAI/Anthropic: raise AuthenticationError when no api_key_ref configured.
+    - Stub providers (Grok, Google, Azure, OpenRouter, Ollama): return empty UsagePage.
+    """
+
     from datetime import datetime
 
     _START = datetime(2025, 1, 1, tzinfo=UTC)
     _END = datetime(2025, 1, 31, tzinfo=UTC)
 
     @pytest.mark.asyncio
-    async def test_openai_get_usage_not_implemented(self) -> None:
+    async def test_openai_get_usage_requires_api_key(self) -> None:
         from datetime import datetime
+
+        from app.providers.errors import AuthenticationError
 
         p = OpenAIProvider(OpenAIConfig(display_name="OpenAI"))
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
 
     @pytest.mark.asyncio
-    async def test_anthropic_get_usage_not_implemented(self) -> None:
+    async def test_anthropic_get_usage_requires_api_key(self) -> None:
         from datetime import datetime
+
+        from app.providers.errors import AuthenticationError
 
         p = AnthropicProvider(AnthropicConfig(display_name="Anthropic"))
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
 
     @pytest.mark.asyncio
-    async def test_grok_get_usage_not_implemented(self) -> None:
+    async def test_grok_get_usage_returns_empty_page(self) -> None:
         from datetime import datetime
+
+        from app.providers.models import UsagePage
 
         p = GrokProvider(GrokConfig(display_name="Grok"))
-        with pytest.raises(NotImplementedError):
-            await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        assert isinstance(page, UsagePage)
+        assert page.events == []
 
     @pytest.mark.asyncio
-    async def test_google_get_usage_not_implemented(self) -> None:
+    async def test_google_get_usage_returns_empty_page(self) -> None:
         from datetime import datetime
+
+        from app.providers.models import UsagePage
 
         p = GoogleProvider(GoogleConfig(display_name="Google"))
-        with pytest.raises(NotImplementedError):
-            await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        assert isinstance(page, UsagePage)
+        assert page.events == []
 
     @pytest.mark.asyncio
-    async def test_azure_get_usage_not_implemented(self) -> None:
+    async def test_azure_get_usage_returns_empty_page(self) -> None:
         from datetime import datetime
+
+        from app.providers.models import UsagePage
 
         p = AzureOpenAIProvider(
             AzureOpenAIConfig(display_name="Azure", azure_endpoint="https://x.openai.azure.com")
         )
-        with pytest.raises(NotImplementedError):
-            await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        assert isinstance(page, UsagePage)
+        assert page.events == []
 
     @pytest.mark.asyncio
-    async def test_openrouter_get_usage_not_implemented(self) -> None:
+    async def test_openrouter_get_usage_returns_empty_page(self) -> None:
         from datetime import datetime
+
+        from app.providers.models import UsagePage
 
         p = OpenRouterProvider(OpenRouterConfig(display_name="OpenRouter"))
-        with pytest.raises(NotImplementedError):
-            await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        assert isinstance(page, UsagePage)
+        assert page.events == []
 
     @pytest.mark.asyncio
-    async def test_ollama_get_usage_raises_with_self_hosted_message(self) -> None:
+    async def test_ollama_get_usage_returns_empty_page(self) -> None:
         from datetime import datetime
 
+        from app.providers.models import UsagePage
+
         p = OllamaProvider(OllamaConfig(display_name="Ollama"))
-        with pytest.raises(NotImplementedError, match="self-hosted"):
-            await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        assert isinstance(page, UsagePage)
+        assert page.events == []

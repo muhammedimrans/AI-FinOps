@@ -132,8 +132,16 @@ class GoogleProvider(AIProvider):
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("Google completion is implemented in EP-07")
 
-    async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
-        raise NotImplementedError("Google usage fetching is implemented in EP-08")
+    async def get_usage(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> UsagePage:
+        from app.providers.models import UsagePage
+        return UsagePage()
 
     def get_provider_info(self, health: HealthStatus | None = None) -> ProviderInfo:
         from app.providers.info import ProviderInfo

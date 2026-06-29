@@ -55,6 +55,14 @@ from app.providers.models import (
 )
 from app.providers.retry import BackoffStrategy, RetryConfig
 
+# ── Test helpers ──────────────────────────────────────────────────────────────
+
+
+def _no_retry_policy() -> ExponentialRetryPolicy:
+    """Return a retry policy that never retries (max_attempts=1)."""
+    return ExponentialRetryPolicy(RetryConfig(max_attempts=1))
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 _VALID_OPENAI_KEY = "sk-" + "a" * 30
@@ -304,6 +312,7 @@ class TestProviderHttpClient:
             auth=BearerTokenAuth("sk-test"),
             provider_type="openai",
             mock_transport=transport,
+            retry_policy=_no_retry_policy(),
         ) as client:
             with pytest.raises(RateLimitError):
                 await client.get("/v1/models")
@@ -331,6 +340,7 @@ class TestProviderHttpClient:
             auth=BearerTokenAuth("sk-test"),
             provider_type="openai",
             mock_transport=httpx.MockTransport(handler=handler),
+            retry_policy=_no_retry_policy(),
         ) as client:
             with pytest.raises(NetworkError):
                 await client.get("/v1/test")
@@ -345,6 +355,7 @@ class TestProviderHttpClient:
             auth=BearerTokenAuth("sk-test"),
             provider_type="openai",
             mock_transport=httpx.MockTransport(handler=handler),
+            retry_policy=_no_retry_policy(),
         ) as client:
             with pytest.raises(NetworkError):
                 await client.get("/v1/test")
@@ -961,3 +972,247 @@ class TestProvidersAPI:
     async def test_models_endpoint_unsupported_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
         resp = await client.get("/v1/providers/fakeprovider/models")
         assert resp.status_code == 404
+
+
+# ── PH-01: Shared HTTP transport ──────────────────────────────────────────────
+
+
+class TestSharedTransport:
+    """PH-01: adapter creates one HttpxTransport, ProviderHttpClient doesn't own it."""
+
+    def test_openai_adapter_creates_transport_on_init(self) -> None:
+        from app.providers.adapters.openai import OpenAIProvider
+
+        cfg = OpenAIConfig(provider_type="openai", display_name="OpenAI")
+        provider = OpenAIProvider(cfg)
+        assert hasattr(provider, "_transport")
+        assert isinstance(provider._transport, HttpxTransport)
+
+    def test_anthropic_adapter_creates_transport_on_init(self) -> None:
+        from app.providers.adapters.anthropic import AnthropicProvider
+
+        cfg = AnthropicConfig(provider_type="anthropic", display_name="Anthropic")
+        provider = AnthropicProvider(cfg)
+        assert hasattr(provider, "_transport")
+        assert isinstance(provider._transport, HttpxTransport)
+
+    @pytest.mark.asyncio
+    async def test_openai_adapter_aclose_closes_transport(self) -> None:
+        from app.providers.adapters.openai import OpenAIProvider
+
+        mock = _mock_transport([_make_response(200, {"data": []})])
+        cfg = OpenAIConfig(provider_type="openai", display_name="OpenAI")
+        provider = OpenAIProvider(cfg, http_transport=mock)
+        await provider.aclose()
+
+    @pytest.mark.asyncio
+    async def test_openai_adapter_context_manager(self) -> None:
+        from app.providers.adapters.openai import OpenAIProvider
+
+        cfg = OpenAIConfig(provider_type="openai", display_name="OpenAI")
+        async with OpenAIProvider(cfg) as provider:
+            assert isinstance(provider, OpenAIProvider)
+
+    @pytest.mark.asyncio
+    async def test_anthropic_adapter_context_manager(self) -> None:
+        from app.providers.adapters.anthropic import AnthropicProvider
+
+        cfg = AnthropicConfig(provider_type="anthropic", display_name="Anthropic")
+        async with AnthropicProvider(cfg) as provider:
+            assert isinstance(provider, AnthropicProvider)
+
+    @pytest.mark.asyncio
+    async def test_client_does_not_own_shared_transport(self) -> None:
+        transport = HttpxTransport(base_url="https://api.openai.com")
+        client = ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+            transport=transport,
+        )
+        assert client._owns_transport is False
+        await client.aclose()
+        await transport.aclose()
+
+    def test_client_owns_transport_when_none_provided(self) -> None:
+        client = ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+        )
+        assert client._owns_transport is True
+
+
+# ── PH-02: Retry integration ──────────────────────────────────────────────────
+
+
+class TestProviderHttpClientRetry:
+    """PH-02: retry loop wired into ProviderHttpClient."""
+
+    @pytest.mark.asyncio
+    async def test_retries_on_503_then_succeeds(self) -> None:
+        responses = [
+            _make_response(503),
+            _make_response(200, {"data": []}),
+        ]
+        transport = _mock_transport(responses)
+        policy = ExponentialRetryPolicy(
+            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
+        )
+        async with ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+            mock_transport=transport,
+            retry_policy=policy,
+        ) as client:
+            result = await client.get("/v1/models")
+        assert result == {"data": []}
+
+    @pytest.mark.asyncio
+    async def test_exhausts_retry_budget_on_repeated_503(self) -> None:
+        from app.providers.errors import InternalProviderError
+
+        responses = [_make_response(503)] * 4
+        transport = _mock_transport(responses)
+        policy = ExponentialRetryPolicy(
+            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
+        )
+        async with ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+            mock_transport=transport,
+            retry_policy=policy,
+        ) as client:
+            with pytest.raises(ProviderError):
+                await client.get("/v1/models")
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_401(self) -> None:
+        responses = [_make_response(401), _make_response(200, {"data": []})]
+        transport = _mock_transport(responses)
+        policy = ExponentialRetryPolicy(
+            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
+        )
+        async with ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-bad"),
+            provider_type="openai",
+            mock_transport=transport,
+            retry_policy=policy,
+        ) as client:
+            with pytest.raises(AuthenticationError):
+                await client.get("/v1/models")
+
+    @pytest.mark.asyncio
+    async def test_no_retry_on_404(self) -> None:
+        responses = [_make_response(404), _make_response(200, {"data": []})]
+        transport = _mock_transport(responses)
+        policy = ExponentialRetryPolicy(
+            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
+        )
+        async with ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+            mock_transport=transport,
+            retry_policy=policy,
+        ) as client:
+            with pytest.raises(InvalidRequestError):
+                await client.get("/v1/missing")
+
+    @pytest.mark.asyncio
+    async def test_retries_on_429_with_retry_after(self) -> None:
+        responses = [
+            _make_response(429, headers={"Retry-After": "0"}),
+            _make_response(200, {"data": []}),
+        ]
+        transport = _mock_transport(responses)
+        policy = ExponentialRetryPolicy(
+            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
+        )
+        async with ProviderHttpClient(
+            base_url="https://api.openai.com",
+            auth=BearerTokenAuth("sk-test"),
+            provider_type="openai",
+            mock_transport=transport,
+            retry_policy=policy,
+        ) as client:
+            result = await client.get("/v1/models")
+        assert result == {"data": []}
+
+
+# ── PH-03: Factory enforcement ────────────────────────────────────────────────
+
+
+class TestFactoryEnforcement:
+    """PH-03: adapters always created via ProviderFactory(registry).create(config)."""
+
+    def test_factory_creates_openai_adapter(self) -> None:
+        from app.providers.adapters.openai import OpenAIProvider
+        from app.providers.factory import ProviderFactory
+        from app.providers.registry import get_registry
+
+        cfg = OpenAIConfig(provider_type="openai", display_name="OpenAI")
+        adapter = ProviderFactory(get_registry()).create(cfg)
+        assert isinstance(adapter, OpenAIProvider)
+
+    def test_factory_creates_anthropic_adapter(self) -> None:
+        from app.providers.adapters.anthropic import AnthropicProvider
+        from app.providers.factory import ProviderFactory
+        from app.providers.registry import get_registry
+
+        cfg = AnthropicConfig(provider_type="anthropic", display_name="Anthropic")
+        adapter = ProviderFactory(get_registry()).create(cfg)
+        assert isinstance(adapter, AnthropicProvider)
+
+    def test_factory_raises_on_type_mismatch(self) -> None:
+        from app.providers.errors import ProviderConfigurationError
+        from app.providers.factory import ProviderFactory
+        from app.providers.registry import ProviderRegistry
+
+        from app.providers.adapters.anthropic import AnthropicProvider
+
+        registry = ProviderRegistry()
+        registry.register("openai", AnthropicProvider)
+
+        cfg = OpenAIConfig(provider_type="openai", display_name="OpenAI")
+        with pytest.raises(ProviderConfigurationError):
+            ProviderFactory(registry).create(cfg)
+
+
+# ── PH-05/06: Hardened API endpoints ─────────────────────────────────────────
+
+
+class TestProvidersAPIHardened:
+    """PH-05: grok/azure_openai are known ProviderType values but not production-ready.
+    PH-06: missing API key returns 401, not 200 with auth_valid=false.
+    """
+
+    @pytest.mark.asyncio
+    async def test_grok_info_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
+        resp = await client.get("/v1/providers/grok/info")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_azure_openai_info_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
+        resp = await client.get("/v1/providers/azure_openai/info")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_grok_test_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
+        resp = await client.post("/v1/providers/grok/test")
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_openai_test_without_key_returns_401(self, client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        resp = await client.post("/v1/providers/openai/test")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_anthropic_test_without_key_returns_401(self, client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        resp = await client.post("/v1/providers/anthropic/test")
+        assert resp.status_code == 401

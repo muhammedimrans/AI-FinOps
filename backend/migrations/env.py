@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Ensure the backend/ directory is on sys.path so `app` is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import app.db.mixins
+import app.models  # noqa: F401 — future business models register here
 from app.config.settings import get_settings
 from app.db.base import Base
-import app.db.mixins  # noqa: F401 — registers BaseModel in Base.metadata
-import app.models  # noqa: F401 — future business models register here
 
 # Alembic Config object provides access to .ini values
 config = context.config

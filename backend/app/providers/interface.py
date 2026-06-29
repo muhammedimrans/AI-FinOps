@@ -2,19 +2,42 @@
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
+from datetime import datetime
 
 from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
 from app.providers.config import ProviderConfig
-from app.providers.models import ConnectionStatus, ModelMetadata, ProviderRequest, ProviderResponse
+from app.providers.health import HealthCheckInterface
+from app.providers.models import (
+    ModelMetadata,
+    ProviderRequest,
+    ProviderResponse,
+    UsageData,
+)
 
 
-class AIProvider(ABC):
-    """Abstract base class for all AI provider adapters."""
+class AIProvider(HealthCheckInterface):
+    """Abstract base class for all AI provider adapters.
+
+    Design note (EP-06.5 / REC-01)
+    --------------------------------
+    ``AIProvider`` now inherits from ``HealthCheckInterface`` rather than
+    duplicating its method signatures.  This eliminates the orphaned ABC and
+    makes the health contract explicit: every adapter that implements
+    ``AIProvider`` automatically satisfies ``HealthCheckInterface``, so a
+    generic health-dashboard component can depend on the smaller interface
+    without taking a dependency on the full adapter.
+
+    ``check_connection`` and ``verify_auth`` are inherited as abstract methods
+    from ``HealthCheckInterface``.  ``check_capability`` and ``is_healthy`` are
+    also inherited; adapters must implement them.
+    """
 
     def __init__(self, config: ProviderConfig) -> None:
         self._config = config
+
+    # ── Identity ──────────────────────────────────────────────────────────────
 
     @property
     @abstractmethod
@@ -24,10 +47,7 @@ class AIProvider(ABC):
     @abstractmethod
     def capabilities(self) -> ProviderCapabilities: ...
 
-    @abstractmethod
-    async def check_connection(self) -> ConnectionStatus:
-        """Test connectivity and return connection status. No side-effects."""
-        ...
+    # ── Core operations ───────────────────────────────────────────────────────
 
     @abstractmethod
     async def list_models(self) -> list[ModelMetadata]:
@@ -39,10 +59,23 @@ class AIProvider(ABC):
         """Submit a completion request. EP-07+ implements actual API calls."""
         ...
 
+    # ── Usage (EP-08) ─────────────────────────────────────────────────────────
+
     @abstractmethod
-    async def verify_auth(self) -> bool:
-        """Verify that the configured credentials are valid."""
+    async def get_usage(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[UsageData]:
+        """Fetch historical usage from the provider's billing API.
+
+        Implemented in EP-08.  Adapters for providers that do not expose a
+        usage API (e.g. Ollama) should raise ``NotImplementedError`` with an
+        explanatory message.
+        """
         ...
+
+    # ── Concrete helpers ──────────────────────────────────────────────────────
 
     @property
     def config(self) -> ProviderConfig:

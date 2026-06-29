@@ -73,3 +73,14 @@ class InternalProviderError(ProviderError):
         provider_type: str | None = None,
     ) -> None:
         super().__init__(message, provider_type, retryable=True)
+
+
+class ProviderConfigurationError(ProviderError):
+    """Raised when an adapter's reported provider_type disagrees with the registry entry."""
+
+    def __init__(
+        self,
+        message: str = "Provider configuration error",
+        provider_type: str | None = None,
+    ) -> None:
+        super().__init__(message, provider_type, retryable=False)

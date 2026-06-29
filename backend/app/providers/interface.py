@@ -9,7 +9,9 @@ from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
 from app.providers.config import ProviderConfig
 from app.providers.health import HealthCheckInterface
+from app.providers.info import ProviderInfo
 from app.providers.models import (
+    HealthStatus,
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
@@ -73,6 +75,13 @@ class AIProvider(HealthCheckInterface):
         usage API (e.g. Ollama) should raise ``NotImplementedError`` with an
         explanatory message.
         """
+        ...
+
+    # ── Provider metadata (PH-04) ─────────────────────────────────────────────
+
+    @abstractmethod
+    def get_provider_info(self, health: HealthStatus | None = None) -> ProviderInfo:
+        """Return a serialisable snapshot of the provider's identity and capabilities."""
         ...
 
     # ── Concrete helpers ──────────────────────────────────────────────────────

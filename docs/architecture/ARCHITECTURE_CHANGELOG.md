@@ -382,5 +382,214 @@ EP-05 provides the authentication primitives required before any user-facing res
 
 ---
 
+## [0.6.0] — EP-06 — 2026-06-29
+
+### Change
+
+Provider framework established. Introduces the abstract provider layer that
+decouples AI API integrations from the rest of the platform.
+
+New modules:
+
+- `app/providers/interface.py` — `AIProvider` ABC with abstract methods:
+  `verify_auth()`, `check_connection()`, `list_models()`, `complete()`,
+  `get_usage()`, `check_capability()`, `get_provider_info()`
+- `app/providers/registry.py` — `ProviderRegistry` maps `provider_type` strings
+  to adapter classes; `get_registry()` returns the application singleton
+- `app/providers/factory.py` — `ProviderFactory.create(config)` resolves config
+  discriminator → adapter class, validates provider_type cross-check, instantiates
+- `app/providers/config.py` — Pydantic discriminated union configs:
+  `OpenAIConfig`, `AnthropicConfig`, `AzureOpenAIConfig`, `OllamaConfig`,
+  `OpenRouterConfig`, `GoogleConfig`, `GrokConfig`; `SecretReference` + `SecretStoreType`
+- `app/providers/errors.py` — `ProviderError` hierarchy:
+  `AuthenticationError`, `RateLimitError`, `QuotaExceededError`,
+  `NetworkError`, `InvalidRequestError`, `InternalProviderError`,
+  `ProviderConfigurationError`; `retryable` flag on each subclass
+- `app/providers/capabilities.py` — `ProviderCapabilities` dataclass
+- `app/providers/models.py` — `ModelMetadata`, `ConnectionStatus`, `HealthStatus`,
+  `ModelCapabilityFlag`, `ProviderRequest`, `ProviderResponse`, `UsageData`
+- `app/providers/retry.py` — `RetryPolicy` ABC, `RetryConfig`, `BackoffStrategy`
+- `app/providers/info.py` — `ProviderInfo` Pydantic model with
+  `ProviderInfo.from_capabilities()` factory
+- `app/providers/credential.py` — `SecretResolver`, `CredentialValidator`
+- Seven adapter stubs in `app/providers/adapters/`:
+  `openai.py`, `anthropic.py`, `azure_openai.py`, `google.py`, `grok.py`,
+  `ollama.py`, `openrouter.py`
+
+### Reason
+
+The SDD requires a multi-provider AI gateway. EP-06 establishes the abstraction
+boundary so every upstream adapter can be implemented, tested, and swapped
+independently without touching the API or service layers.
+
+### Impact
+
+- `ProviderType` enum in `app/models/provider_connection.py` is the canonical
+  list of all supported providers; adapter registration matches it.
+- All adapters are stubs at EP-06; live implementations begin at EP-07.
+- `ProviderFactory.create()` enforces that the config's `provider_type` matches
+  the registered adapter class — mismatches raise `ProviderConfigurationError`.
+
+### Related Documents
+
+- docs/knowledge/EP-06-Architecture-Review.md
+
+---
+
+## [0.6.5] — EP-06.5 — 2026-06-29
+
+### Change
+
+Provider framework hardening sprint. Closes validation and registration gaps
+identified in the EP-06 architecture review.
+
+Key changes:
+
+- `ProviderFactory.create()` now cross-checks `config.provider_type` against the
+  registered adapter's `provider_type` property; raises `ProviderConfigurationError`
+  on mismatch
+- `ProviderRegistry` validates adapter class membership in `ProviderType` enum
+  at registration time
+- All seven adapter stubs updated so `provider_type` property returns the correct
+  `ProviderType` enum member
+
+### Reason
+
+The EP-06 architecture review identified that a misconfigured registry could
+silently create an adapter with the wrong provider type. The cross-check makes
+this a hard error at factory time.
+
+### Impact
+
+- Any code that calls `ProviderFactory.create()` with a mismatched config will
+  receive a `ProviderConfigurationError` instead of a silently wrong adapter.
+- No breaking changes to the public `AIProvider` interface.
+
+### Related Documents
+
+- docs/knowledge/EP-06-Architecture-Review.md
+
+---
+
+## [0.7.0] — EP-07 — 2026-06-29
+
+### Change
+
+OpenAI and Anthropic provider integrations implemented. The HTTP transport layer
+is fully built out.
+
+New modules:
+
+- `app/http/transport.py` — `HttpxTransport` wraps `httpx.AsyncClient`; accepts
+  `mock_transport` for hermetic testing without network calls
+- `app/http/auth.py` — `BearerTokenAuth`, `ApiKeyHeaderAuth`, `CompositeAuth`
+  strategy objects
+- `app/http/client.py` — `ProviderHttpClient` wraps `HttpxTransport`; adds
+  auth headers, `X-Request-ID`, `User-Agent`, telemetry, error normalisation
+- `app/http/telemetry.py` — `RequestTelemetry` context manager; emits structured
+  log entries via `structlog`
+- `app/http/retry.py` — `ExponentialRetryPolicy` concrete implementation of
+  `RetryPolicy` ABC
+- `app/http/error_map.py` — `map_http_error()` maps HTTP status codes to the
+  `ProviderError` hierarchy; normalises `Retry-After` header on 429 responses
+- `app/providers/adapters/openai.py` — live OpenAI adapter: `verify_auth()`,
+  `check_connection()`, `list_models()`, `complete()`, `get_provider_info()`
+- `app/providers/adapters/anthropic.py` — live Anthropic adapter: same methods
+- `app/api/v1/providers.py` — three REST endpoints:
+  `POST /providers/{provider}/test`,
+  `GET /providers/{provider}/models`,
+  `GET /providers/{provider}/info`
+- `app/schemas/providers.py` — `TestConnectionResponse`, `ModelsResponse`
+
+### Reason
+
+EP-07 delivers the first production-ready provider integrations. The HTTP layer
+is designed for reuse across all future adapters.
+
+### Impact
+
+- `POST /providers/{provider}/test` returns HTTP 401 on authentication failure
+  (not HTTP 200 with `auth_valid=false`).
+- Provider enumeration is controlled by `_PRODUCTION_PROVIDERS: frozenset[ProviderType]`
+  in `app/api/v1/providers.py`; non-production providers return HTTP 404.
+- All tests are hermetic — `httpx.MockTransport` is injected via
+  `http_transport` constructor kwarg; no real network calls in CI.
+
+### Related Documents
+
+- docs/knowledge/EP-07-Knowledge-Transfer.md
+- docs/knowledge/EP-07-Architecture-Review.md
+- docs/knowledge/EP-07-Production-Readiness-Review.md
+
+---
+
+## [0.7.5] — EP-07.5 — 2026-06-29
+
+### Change
+
+EP-07 production hardening sprint (PH-01 through PH-07). Closes all findings
+from the combined architecture and production-readiness review before EP-08 begins.
+
+#### PH-01: Shared HTTP Client
+
+`HttpxTransport` is now created once per adapter in `__init__` and stored as
+`self._transport`. `ProviderHttpClient` accepts a `transport: HttpxTransport | None`
+parameter. When provided, `_owns_transport = False` and `aclose()` is a no-op.
+OpenAI and Anthropic adapters expose `async def aclose()`, `__aenter__`, `__aexit__`.
+
+#### PH-02: Retry Integration
+
+`ProviderHttpClient._request()` implements a `while True` retry loop driven by
+`RetryPolicy.should_retry(attempt, error)`. `ExponentialRetryPolicy` retries
+only `ProviderError` subclasses where `retryable is True` (429, 5xx,
+`NetworkError`, `InternalProviderError`). Non-retryable errors (401, 403, 404,
+validation) exit immediately. `RateLimitError` honours the `Retry-After` header.
+Default: `max_attempts=3`, `initial_delay_seconds=1.0`, `backoff_multiplier=2.0`.
+
+#### PH-03: Factory Usage
+
+`app/api/v1/providers.py` creates all adapters exclusively via
+`ProviderFactory(get_registry()).create(config)`. No direct adapter instantiation
+remains in any API handler.
+
+#### PH-04: AIProvider Interface Completion
+
+`get_provider_info()` promoted to abstract method in `AIProvider` ABC. All seven
+adapter stubs implement it via `ProviderInfo.from_capabilities()`.
+
+#### PH-05: Provider Enumeration
+
+`_PRODUCTION_PROVIDERS: frozenset[ProviderType]` — typed frozenset of enum members.
+Non-production `ProviderType` values (e.g. `grok`, `azure_openai`) return HTTP 404.
+
+#### PH-06: HTTP Status Consistency
+
+`POST /providers/{provider}/test` calls `adapter.verify_auth()` directly.
+`AuthenticationError` → HTTP 401. `ProviderError` → HTTP 502. No more HTTP 200
+with `auth_valid=false`.
+
+#### PH-07: Transport Improvements
+
+`X-Request-ID` UUID header, `User-Agent: ai-finops/<provider_type>`, `post()`
+convenience method, correct `aclose()` ownership chain, all logging via `structlog`.
+
+### Reason
+
+Six production risks identified in the EP-07 review. All closed before EP-08
+(usage collection) to ensure the HTTP client used by EP-08 is stable.
+
+### Impact
+
+- **Retry delays in tests**: pass `retry_policy=ExponentialRetryPolicy(RetryConfig(max_attempts=1))`
+  to disable retries in single-attempt test scenarios.
+- **`async with adapter:` pattern** available for OpenAI and Anthropic adapters.
+- 688 tests passing, 30 skipped (DB integration).
+
+### Related Documents
+
+- docs/knowledge/EP-07-Release-Hardening.md
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

@@ -12,6 +12,13 @@ Live API calls
 --------------
 GET /v1/models — model discovery (requires valid key)
 GET /v1/models — also serves as the auth-verification endpoint
+
+Connection lifecycle (PH-01)
+----------------------------
+A single ``HttpxTransport`` is created at construction time and reused across
+all method calls.  The underlying ``httpx.AsyncClient`` connection pool persists
+for the lifetime of the adapter, avoiding repeated TLS handshakes.  Call
+``await provider.aclose()`` (or use as async context manager) to close the pool.
 """
 
 from __future__ import annotations
@@ -24,6 +31,7 @@ import httpx
 
 from app.http.auth import BearerTokenAuth
 from app.http.client import ProviderHttpClient
+from app.http.transport import HttpxTransport
 from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
 from app.providers.config import ProviderConfig
@@ -118,7 +126,11 @@ def _enrich_model(model_id: str) -> ModelMetadata:
 
 
 class OpenAIProvider(AIProvider):
-    """Production OpenAI provider adapter (EP-07)."""
+    """Production OpenAI provider adapter (EP-07).
+
+    Maintains a shared ``HttpxTransport`` so the httpx connection pool is reused
+    across ``verify_auth``, ``list_models``, and ``check_connection`` calls.
+    """
 
     def __init__(
         self,
@@ -130,6 +142,12 @@ class OpenAIProvider(AIProvider):
         self._http_transport = http_transport
         self._healthy: bool = False
         self._last_checked: datetime | None = None
+        # Shared transport — one httpx.AsyncClient per adapter instance (PH-01).
+        self._transport = HttpxTransport(
+            base_url=config.base_url or _BASE_URL,
+            verify=True,
+            mock_transport=http_transport,
+        )
 
     @property
     def provider_type(self) -> ProviderType:
@@ -144,12 +162,13 @@ class OpenAIProvider(AIProvider):
         return self._healthy
 
     def _build_client(self, api_key: str) -> ProviderHttpClient:
+        """Return a ProviderHttpClient backed by the shared transport."""
         return ProviderHttpClient(
             base_url=self._config.base_url or _BASE_URL,
             auth=BearerTokenAuth(api_key),
             provider_type="openai",
             timeout=self._config.timeout_seconds,
-            mock_transport=self._http_transport,
+            transport=self._transport,  # shared; aclose() is a no-op on this client
         )
 
     def _resolve_key(self) -> str:
@@ -234,3 +253,13 @@ class OpenAIProvider(AIProvider):
 
     async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
         raise NotImplementedError("OpenAI usage fetching is implemented in EP-08")
+
+    async def aclose(self) -> None:
+        """Close the shared transport and its connection pool."""
+        await self._transport.aclose()
+
+    async def __aenter__(self) -> OpenAIProvider:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.aclose()

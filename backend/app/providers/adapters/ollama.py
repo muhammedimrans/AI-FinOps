@@ -138,3 +138,13 @@ class OllamaProvider(AIProvider):
 
     async def get_usage(self, start_date: datetime, end_date: datetime) -> list[UsageData]:
         raise NotImplementedError("Ollama is self-hosted and does not expose a usage API")
+
+    def get_provider_info(self, health: HealthStatus | None = None) -> ProviderInfo:
+        from app.providers.info import ProviderInfo
+
+        return ProviderInfo.from_capabilities(
+            provider=self.provider_type.value,
+            display_name=self._config.display_name,
+            capabilities=_CAPABILITIES,
+            health=health if health is not None else HealthStatus.UNKNOWN,
+        )

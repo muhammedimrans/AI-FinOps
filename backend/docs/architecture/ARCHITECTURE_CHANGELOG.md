@@ -1,5 +1,39 @@
 # Architecture Changelog
 
+## [0.8.0] — EP-08 Usage Collection Engine (2026-06-29)
+
+### Added
+
+- `app/providers/models.py` — `NormalizedUsageEvent`, `UsagePage` Pydantic models (F-041, F-042)
+- `app/providers/interface.py` — `get_usage()` abstract method returning `UsagePage` with cursor/limit pagination (F-042)
+- `app/providers/adapters/openai.py` — `get_usage()` via `GET /v1/organization/usage/completions` (F-042)
+- `app/providers/adapters/anthropic.py` — `get_usage()` via `GET /v1/usage` with graceful fallback (F-042)
+- `app/providers/adapters/` (5 stubs) — `get_usage()` returns empty `UsagePage()` (F-042)
+- `app/usage/` — new package: normalizer, validator, service, background (F-042–F-047)
+- `app/models/usage_collection_run.py` — `UsageCollectionRun`, `CollectionRunStatus`, `CollectionTrigger` (F-043)
+- `app/models/usage_event.py` — `UsageEvent` with `uq_usage_events_dedup` constraint (F-044)
+- `app/models/usage_collection_checkpoint.py` — `UsageCollectionCheckpoint` with DEFERRABLE unique constraint (F-045)
+- `app/models/provider_usage_summary.py` — `ProviderUsageSummary` (F-045)
+- `app/repositories/usage_event_repository.py` — CRUD, upsert, multi-dim filtering (F-043)
+- `app/repositories/usage_collection_run_repository.py` — run lifecycle tracking (F-043)
+- `app/repositories/usage_collection_checkpoint_repository.py` — incremental state management (F-044)
+- `app/repositories/provider_usage_summary_repository.py` — aggregated token summaries (F-045)
+- `app/api/v1/usage.py` — 8 REST endpoints at `/v1/usage` (F-049)
+- `migrations/versions/20260629_0800_e6f7a8b9c0d1_ep08_usage_collection.py` — Alembic migration
+- `tests/test_ep08.py` — 86 unit tests (F-049)
+
+### Design notes
+
+- `UsageEvent.metadata` DB column mapped to `event_metadata` Python attribute (SQLAlchemy `metadata` reservation); upsert uses `UsageEvent.__table__` for table-level INSERT
+- Anthropic `get_usage()` silently returns empty page on any error (optional API feature)
+- `UsageCollectionService` lazily imports repositories inside `collect()` to avoid circular imports
+- Checkpoint constraint is `DEFERRABLE INITIALLY DEFERRED` to support within-transaction upserts
+- `get_usage()` interface: old stubs raised `NotImplementedError`; all 7 adapters now satisfy the interface
+
+### Stop condition
+
+EP-08 is complete. Architecture review required before EP-09 (pricing engine).
+
 ## [0.7.1] — EP-07 Engineering Review (2026-06-29)
 
 ### Review Outcome

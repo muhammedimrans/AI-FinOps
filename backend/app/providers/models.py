@@ -1,4 +1,4 @@
-"""Common provider request/response models — F-032."""
+"""Common provider request/response models — F-032 / F-042 (EP-08)."""
 
 from __future__ import annotations
 
@@ -45,6 +45,47 @@ class UsageData(BaseModel):
     completion_tokens: int = 0
     total_tokens: int = 0
     cached_tokens: int | None = None
+
+
+# ── EP-08: Normalized usage events ────────────────────────────────────────────
+
+
+class NormalizedUsageEvent(BaseModel):
+    """Provider-agnostic usage event produced by a UsageNormalizer (F-042).
+
+    ``provider_request_id`` is the stable identifier used for deduplication —
+    either the provider's own request ID or a deterministic hash derived from
+    the aggregation key (date + model + org).
+    """
+
+    model_config = {"frozen": True}
+
+    provider_request_id: str
+    provider: str
+    model: str
+    timestamp: datetime
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    cached_tokens: int | None = None
+    request_count: int = 1
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    raw_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class UsagePage(BaseModel):
+    """One page of usage events returned by a provider adapter.
+
+    ``next_cursor`` is an opaque string passed back on the next call to
+    ``get_usage()`` to resume pagination.  ``has_more=False`` signals that
+    the caller has received all events in the requested date range.
+    """
+
+    model_config = {"frozen": True}
+
+    events: list[NormalizedUsageEvent] = Field(default_factory=list)
+    next_cursor: str | None = None
+    has_more: bool = False
 
 
 # ── Health / connectivity ─────────────────────────────────────────────────────

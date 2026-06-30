@@ -12,6 +12,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Frontend source lib/ must not be caught by the lib/ pattern above
+!frontend/src/lib/
 parts/
 sdist/
 var/
@@ -98,6 +100,8 @@ dist-ssr/
 .env.*
 !.env.example
 !.env.*.example
+# .env.development contains no secrets (only VITE_ENABLE_MOCKS and API URL)
+!frontend/.env.development
 *.pem
 *.key
 *.crt

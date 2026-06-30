@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.config.settings import Settings, get_settings
+from app.config.settings import Settings, _normalize_asyncpg_url, get_settings
 
 
 @pytest.mark.unit
@@ -112,49 +112,128 @@ class TestSettings:
 
 
 @pytest.mark.unit
-class TestDatabaseUrlNormalization:
+class TestNormalizeAsyncpgUrl:
+    """Unit tests for the _normalize_asyncpg_url helper (no Settings involved)."""
+
+    # ── scheme rewriting ──────────────────────────────────────────────────────
+
+    def test_postgres_scheme_rewritten(self) -> None:
+        assert _normalize_asyncpg_url("postgres://u:p@host/db").startswith(
+            "postgresql+asyncpg://"
+        )
+
+    def test_postgresql_scheme_rewritten(self) -> None:
+        assert _normalize_asyncpg_url("postgresql://u:p@host/db").startswith(
+            "postgresql+asyncpg://"
+        )
+
+    def test_asyncpg_scheme_preserved(self) -> None:
+        url = "postgresql+asyncpg://u:p@host/db"
+        assert _normalize_asyncpg_url(url) == url
+
+    # ── sslmode translation ───────────────────────────────────────────────────
+
+    def test_sslmode_require_translated(self) -> None:
+        out = _normalize_asyncpg_url("postgres://u:p@host/db?sslmode=require")
+        assert "ssl=require" in out
+        assert "sslmode" not in out
+
+    def test_sslmode_translated_for_postgresql_scheme(self) -> None:
+        out = _normalize_asyncpg_url("postgresql://u:p@host/db?sslmode=require")
+        assert "ssl=require" in out
+        assert "sslmode" not in out
+
+    def test_sslmode_translated_for_asyncpg_scheme(self) -> None:
+        out = _normalize_asyncpg_url("postgresql+asyncpg://u:p@host/db?sslmode=require")
+        assert "ssl=require" in out
+        assert "sslmode" not in out
+
+    def test_ssl_already_present_not_duplicated(self) -> None:
+        out = _normalize_asyncpg_url("postgresql+asyncpg://u:p@host/db?ssl=require")
+        assert out.count("ssl=require") == 1
+
+    # ── unsupported libpq parameter removal ──────────────────────────────────
+
+    def test_channel_binding_removed(self) -> None:
+        out = _normalize_asyncpg_url(
+            "postgres://u:p@host/db?sslmode=require&channel_binding=require"
+        )
+        assert "channel_binding" not in out
+        assert "ssl=require" in out
+
+    def test_gssencmode_removed(self) -> None:
+        out = _normalize_asyncpg_url("postgres://u:p@host/db?gssencmode=disable")
+        assert "gssencmode" not in out
+
+    def test_target_session_attrs_removed(self) -> None:
+        out = _normalize_asyncpg_url(
+            "postgres://u:p@host/db?target_session_attrs=read-write"
+        )
+        assert "target_session_attrs" not in out
+
+    def test_all_unsupported_params_removed_together(self) -> None:
+        raw = (
+            "postgres://u:p@host/db"
+            "?sslmode=require"
+            "&channel_binding=require"
+            "&gssencmode=disable"
+            "&target_session_attrs=read-write"
+        )
+        out = _normalize_asyncpg_url(raw)
+        assert "channel_binding" not in out
+        assert "gssencmode" not in out
+        assert "target_session_attrs" not in out
+        assert "ssl=require" in out
+        assert out.startswith("postgresql+asyncpg://")
+
+    # ── supported parameters preserved ───────────────────────────────────────
+
+    def test_connect_timeout_preserved(self) -> None:
+        out = _normalize_asyncpg_url(
+            "postgres://u:p@host/db?sslmode=require&connect_timeout=10"
+        )
+        assert "connect_timeout=10" in out
+
+    def test_no_query_params_unchanged(self) -> None:
+        out = _normalize_asyncpg_url("postgresql+asyncpg://u:p@host/db")
+        assert "?" not in out
+
+    # ── Neon/Render real-world URL shape ─────────────────────────────────────
+
+    def test_neon_url_fully_normalized(self) -> None:
+        neon = (
+            "postgresql://user:pass@ep-xyz.us-east-1.aws.neon.tech/neondb"
+            "?sslmode=require&channel_binding=require"
+        )
+        out = _normalize_asyncpg_url(neon)
+        assert out.startswith("postgresql+asyncpg://")
+        assert "ssl=require" in out
+        assert "sslmode" not in out
+        assert "channel_binding" not in out
+
+
+@pytest.mark.unit
+class TestDatabaseUrlNormalizationViaSettings:
+    """Smoke-tests that Settings.database_url delegates to the normalizer."""
+
     BASE = "a" * 32
 
     def _url(self, raw: str) -> str:
         return Settings(app_secret_key=self.BASE, DATABASE_URL=raw).database_url
 
-    def test_postgres_scheme_rewritten_to_asyncpg(self) -> None:
+    def test_postgres_scheme_via_settings(self) -> None:
         assert self._url("postgres://u:p@host/db").startswith("postgresql+asyncpg://")
 
-    def test_postgresql_scheme_rewritten_to_asyncpg(self) -> None:
-        assert self._url("postgresql://u:p@host/db").startswith("postgresql+asyncpg://")
-
-    def test_asyncpg_scheme_left_unchanged(self) -> None:
-        url = self._url("postgresql+asyncpg://u:p@host/db")
-        assert url.startswith("postgresql+asyncpg://")
-
-    def test_sslmode_require_converted_for_postgres_scheme(self) -> None:
+    def test_sslmode_via_settings(self) -> None:
         url = self._url("postgres://u:p@host/db?sslmode=require")
         assert "ssl=require" in url
-        assert "sslmode=" not in url
+        assert "sslmode" not in url
 
-    def test_sslmode_require_converted_for_postgresql_scheme(self) -> None:
-        url = self._url("postgresql://u:p@host/db?sslmode=require")
-        assert "ssl=require" in url
-        assert "sslmode=" not in url
-
-    def test_sslmode_require_converted_for_asyncpg_scheme(self) -> None:
-        url = self._url("postgresql+asyncpg://u:p@host/db?sslmode=require")
-        assert "ssl=require" in url
-        assert "sslmode=" not in url
-
-    def test_url_without_ssl_params_unchanged(self) -> None:
-        url = self._url("postgresql+asyncpg://u:p@host/db")
-        assert "ssl" not in url
-
-    def test_ssl_require_already_present_not_doubled(self) -> None:
-        url = self._url("postgresql+asyncpg://u:p@host/db?ssl=require")
-        assert url.count("ssl=require") == 1
-
-    def test_other_query_params_preserved(self) -> None:
-        url = self._url("postgres://u:p@host/db?sslmode=require&connect_timeout=10")
-        assert "connect_timeout=10" in url
-        assert "ssl=require" in url
+    def test_channel_binding_stripped_via_settings(self) -> None:
+        url = self._url(
+            "postgres://u:p@host/db?sslmode=require&channel_binding=require"
+        )
+        assert "channel_binding" not in url
 
 
 @pytest.mark.unit

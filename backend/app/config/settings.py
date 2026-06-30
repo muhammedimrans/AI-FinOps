@@ -2,9 +2,47 @@ from __future__ import annotations
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import AliasChoices, Field, SecretStr, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# libpq connection parameters that asyncpg does not understand.
+_ASYNCPG_UNSUPPORTED_PARAMS = frozenset(
+    {"channel_binding", "gssencmode", "target_session_attrs"}
+)
+
+
+def _normalize_asyncpg_url(url: str) -> str:
+    """
+    Normalize a PostgreSQL connection URL for asyncpg:
+      - Rewrites postgres:// and postgresql:// schemes to postgresql+asyncpg
+      - Translates sslmode=<val> to ssl=<val>
+      - Strips libpq-only parameters asyncpg does not accept
+    URLs already using postgresql+asyncpg:// pass through unchanged except
+    for the parameter normalization above.
+    """
+    parsed = urlparse(url)
+
+    # Rewrite scheme
+    scheme = parsed.scheme
+    if scheme in ("postgres", "postgresql"):
+        scheme = "postgresql+asyncpg"
+
+    # Normalize query parameters
+    params: list[tuple[str, str]] = []
+    for key, value in parse_qsl(parsed.query, keep_blank_values=True):
+        if key in _ASYNCPG_UNSUPPORTED_PARAMS:
+            continue
+        if key == "sslmode":
+            params.append(("ssl", value))
+        else:
+            params.append((key, value))
+
+    normalized = urlunparse(
+        (scheme, parsed.netloc, parsed.path, parsed.params, urlencode(params), parsed.fragment)
+    )
+    return normalized
 
 # Sentinel used when APP_SECRET_KEY is not set; rejected in production.
 _DEV_SECRET = "CHANGE-ME-IN-PRODUCTION-THIS-IS-NOT-SECURE!!"  # noqa: S105
@@ -93,17 +131,7 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         if self.database_url_override:
-            url = self.database_url_override
-            # Render/Heroku supply postgres:// or postgresql:// without a driver
-            # specifier. SQLAlchemy defaults to psycopg2 (sync) for these schemes,
-            # which is not installed. Rewrite to the asyncpg async dialect.
-            if url.startswith("postgres://"):
-                url = "postgresql+asyncpg://" + url[len("postgres://"):]
-            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
-                url = "postgresql+asyncpg://" + url[len("postgresql://"):]
-            # asyncpg does not accept sslmode=; translate to ssl=
-            url = url.replace("sslmode=", "ssl=")
-            return url
+            return _normalize_asyncpg_url(self.database_url_override)
         pw = self.postgres_password.get_secret_value()
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{pw}"

@@ -14,8 +14,10 @@ Creates on first startup only:
 
 from __future__ import annotations
 
+import asyncpg
 import structlog
 from sqlalchemy import and_, select
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.auth.password import hash_password
@@ -119,6 +121,26 @@ async def seed_demo_data(session: AsyncSession) -> None:
 
 
 async def seed_startup_data(session_factory: async_sessionmaker[AsyncSession]) -> None:
-    """Open a session and run seed_demo_data. Called from AppContainer.create()."""
-    async with session_factory() as session:
-        await seed_demo_data(session)
+    """
+    Open a session and run seed_demo_data. Called from AppContainer.create().
+
+    If the schema has not been migrated yet (UndefinedTableError / relation does
+    not exist), logs a warning and returns so the application can still start.
+    All other database errors are re-raised — they indicate a genuine problem
+    that should abort startup.
+
+    Production deployment order:
+      1. alembic upgrade head   — apply schema migrations
+      2. start uvicorn          — this function seeds on first boot
+    """
+    try:
+        async with session_factory() as session:
+            await seed_demo_data(session)
+    except ProgrammingError as exc:
+        if isinstance(exc.__cause__, asyncpg.exceptions.UndefinedTableError):
+            log.warning(
+                "seed_skipped_database_not_initialized",
+                hint="Run 'alembic upgrade head' before starting the application.",
+            )
+        else:
+            raise

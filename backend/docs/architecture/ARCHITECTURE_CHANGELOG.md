@@ -1,5 +1,97 @@
 # Architecture Changelog
 
+## [0.10.1] — EP-10 Engineering Review (2026-06-30)
+
+### Review Outcome
+
+**APPROVED WITH MINOR CHANGES** — EP-10 is deployable to development and staging immediately. Two MEDIUM findings (REV-01, REV-02) should be resolved before React dashboard integration in EP-11. Five LOW findings may be resolved within EP-11 without blocking feature development. No findings block merging.
+
+### Architecture Score: 8.7 / 10
+
+| Category | Score |
+|----------|-------|
+| API Layer Design | 9/10 |
+| Service Layer (DashboardService) | 9/10 |
+| DTO Design | 9/10 |
+| Authentication / Authorization | 7/10 |
+| Performance | 8/10 |
+| Test Coverage | 9/10 |
+| Code Quality | 8/10 |
+| **Overall** | **8.7/10** |
+
+### Architecture Findings
+
+| ID | Severity | Finding |
+|----|----------|---------|
+| REV-01 | MEDIUM | Invalid `granularity` value (typo, wrong case) silently degrades to daily format with no 422 error — `granularity` parameter should be typed as `Literal["daily", "weekly", "monthly"]` |
+| REV-02 | MEDIUM | No `start_date <= end_date` validation — inverted date ranges produce silently empty results rather than 422 errors |
+| REV-03 | LOW | `from datetime import timedelta` imported inside `get_organization_dashboard()` function body — should be module-level import |
+| REV-04 | LOW | `/organization` composite endpoint has no `response_model` — OpenAPI spec is untyped for this endpoint, blocking TypeScript client generation |
+| REV-05 | LOW | Composite endpoint issues ~10 sequential DB queries — `asyncio.gather()` would parallelize the 4 independent breakdown calls |
+| REV-06 | LOW | Breakdown `total_cost` (in providers, models, projects responses) sums across currencies — produces incorrect cross-currency aggregate in multi-currency deployments |
+| REV-07 | LOW | No `start_date <= end_date` validation in `/organization` when both dates explicitly provided (covered by REV-02) |
+
+### Security Findings
+
+| ID | Assessment | Finding |
+|----|------------|---------|
+| SEC-01 | PASS | JWT authentication enforced on all 7 endpoints via `CurrentUser` dependency |
+| SEC-02 | PARTIAL | `organization_id` accepted from query string without org membership verification — deferred to EP-11 |
+| SEC-03 | FAIL (Known) | `BILLING_READ` RBAC permission not checked — deferred to EP-11 |
+| SEC-04 | PARTIAL | Financial data accessible to any authenticated user across all organizations — blocked by SEC-02/SEC-03 |
+| SEC-05 | PARTIAL | UUID and date format validated; granularity and date range ordering not validated |
+
+### Review Documents Created
+
+- `docs/knowledge/EP-10-Knowledge-Transfer.md` — comprehensive implementation reference (11 sections, 40 engineering concepts), overwrites prior stub
+- `docs/knowledge/EP-10-Architecture-Review.md` — architecture score 8.7/10; findings REV-01 through REV-07; 4 ADRs reviewed
+- `docs/knowledge/EP-10-Production-Readiness.md` — production risk register (PRR-01 through PRR-10); 10-item gap analysis; EP-10.5 sprint recommendation
+
+### Architecture Strengths Documented
+
+- S-01: Genuine zero-logic orchestration — DashboardService contains no business logic; all computation delegated to EP-09
+- S-02: Correct Decimal→str serialization at DTO boundary with safe-null pattern (`str(v) if v is not None else None`)
+- S-03: SQL LIMIT correctly pushed through 4 layers to the repository (resolves EP-09 REV-07)
+- S-04: Empty-200 contract consistently enforced across all 7 list endpoints with dedicated tests
+- S-05: JWT authentication on all 7 endpoints verified by `TestDashboardAuthGuards`
+- S-06: Composite `/organization` endpoint reduces React dashboard page-load from 5 round-trips to 1
+- S-07: Lazy import pattern consistent with EP-08/EP-09 project convention
+- S-08: Division-by-zero protection on all arithmetic in DashboardService
+
+### Production Risk Register Summary
+
+| Risk | Severity | Mitigation |
+|------|----------|-----------|
+| No org membership verification | HIGH | EP-11: verify from JWT claims or DB |
+| No RBAC `BILLING_READ` check | HIGH | EP-11: add `RequirePermission(BILLING_READ)` |
+| Invalid granularity silent fallback | MEDIUM | EP-11 Sprint 1 or EP-10.5 |
+| No date range ordering validation | MEDIUM | EP-11 Sprint 1 or EP-10.5 |
+| Composite endpoint ~10 sequential queries | LOW | EP-11: `asyncio.gather()` |
+| No Redis caching | LOW | EP-11 Sprint 2 |
+| `/organization` untyped OpenAPI response | LOW | EP-11 Sprint 1 |
+
+### EP-10.5 Recommendation
+
+A brief EP-10.5 hardening sprint (~2 hours total) is recommended before React dashboard development:
+1. Fix REV-01: `granularity` → `Literal` type, 422 for invalid values (30 min)
+2. Fix REV-02: shared `start_date <= end_date` validator (1 hour)
+3. Fix REV-03: move `timedelta` to module-level import (2 min)
+
+These changes prevent frontend integration confusion without affecting EP-11 feature scope.
+
+### EP-11 Prerequisites
+
+1. Org membership verification — verify authenticated user belongs to requested organization
+2. RBAC enforcement — check `BILLING_READ` before returning financial data
+3. JWT-derived org_id — derive organization from JWT claims, not query parameter
+4. `OrganizationDashboardResponse` typed schema — complete OpenAPI spec for composite endpoint
+5. `asyncio.gather()` for composite endpoint — parallelize 4 independent breakdown queries
+6. Redis caching — `/overview` and `/organization` (TTL 60–300s)
+7. Date range validation — `start_date <= end_date` enforcement
+8. Granularity strict validation — `Literal` type or `Enum` parameter
+
+---
+
 ## [0.10.0] — EP-10 Dashboard API (2026-06-30)
 
 ### Summary

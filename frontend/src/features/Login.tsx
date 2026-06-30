@@ -2,13 +2,15 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { DollarSign, Loader2, AlertCircle } from "lucide-react";
-import { login } from "../lib/api";
+import { login, getOrganizations } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
+import { useOrgStore } from "../stores/org";
 import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
 
 export default function Login() {
   const { isAuthenticated, setLogin } = useAuthStore();
+  const { setOrganization } = useOrgStore();
   const { theme } = useUIStore();
   const navigate = useNavigate();
 
@@ -36,6 +38,17 @@ export default function Login() {
         status: data.user.status,
         email_verified: data.user.email_verified,
       });
+      // Auto-select org when the user belongs to exactly one.
+      // For multi-org or zero-org cases, OrgSelector handles it after redirect.
+      try {
+        const orgsData = await getOrganizations();
+        if (orgsData.organizations.length === 1) {
+          const only = orgsData.organizations[0]!;
+          setOrganization(only.id, only.name);
+        }
+      } catch {
+        // Non-fatal — OrgSelector will recover on the next render.
+      }
       navigate("/dashboard", { replace: true });
     } catch (err) {
       if (err instanceof Error && err.message.includes("401")) {

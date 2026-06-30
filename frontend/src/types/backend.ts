@@ -186,6 +186,19 @@ export interface BackendProjectBreakdownResponse {
   period_end: string;
 }
 
+// ── EP-12.1 Organizations ─────────────────────────────────────────────────────
+
+export interface BackendOrgMembershipItem {
+  id: string;   // org external_id e.g. "org_<hex>"
+  name: string;
+  slug: string;
+  role: string; // "owner" | "admin" | "member" | "viewer"
+}
+
+export interface BackendOrganizationsResponse {
+  organizations: BackendOrgMembershipItem[];
+}
+
 // ── F-066 KPIs ────────────────────────────────────────────────────────────────
 // NOTE: named fields, not a generic KPIItem array like the frontend type
 

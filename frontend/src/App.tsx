@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./layouts/AppLayout";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ProtectedRoute from "./components/ProtectedRoute";
-import OrgPrompt from "./components/OrgPrompt";
+import OrgSelector from "./components/OrgSelector";
 import { useOrgStore } from "./stores/org";
 
 const Login        = lazy(() => import("./features/Login"));
@@ -41,7 +41,7 @@ function Page({ children }: { children: React.ReactNode }) {
 // Guards the entire app shell: authenticated + organization context present.
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { organizationId } = useOrgStore();
-  if (!organizationId) return <OrgPrompt />;
+  if (!organizationId) return <OrgSelector />;
   return <>{children}</>;
 }
 

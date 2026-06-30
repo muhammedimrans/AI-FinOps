@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import analytics, auth, dashboard, health, pricing, providers, usage
+from app.api.v1 import analytics, auth, dashboard, health, organizations, pricing, providers, usage
 
 api_router = APIRouter()
 
@@ -19,3 +19,6 @@ api_router.include_router(analytics.router, prefix="/v1")
 
 # EP-10 — Dashboard API & Executive Analytics Layer
 api_router.include_router(dashboard.router, prefix="/v1")
+
+# EP-12.1 — Organization Context
+api_router.include_router(organizations.router, prefix="/v1")

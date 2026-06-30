@@ -93,7 +93,15 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         if self.database_url_override:
-            return self.database_url_override
+            url = self.database_url_override
+            # Render/Heroku supply postgres:// or postgresql:// without a driver
+            # specifier. SQLAlchemy defaults to psycopg2 (sync) for these schemes,
+            # which is not installed. Rewrite to the asyncpg async dialect.
+            if url.startswith("postgres://"):
+                url = "postgresql+asyncpg://" + url[len("postgres://"):]
+            elif url.startswith("postgresql://"):
+                url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            return url
         pw = self.postgres_password.get_secret_value()
         return (
             f"postgresql+asyncpg://{self.postgres_user}:{pw}"

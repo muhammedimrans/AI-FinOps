@@ -39,13 +39,40 @@ def _has_tables(conn: AsyncConnection) -> bool:  # called via run_sync
     return bool(inspector.get_table_names(schema="public"))
 
 
+def _drop_stale_enum_types(conn: AsyncConnection) -> None:  # called via run_sync
+    """
+    Drop any PostgreSQL enum types that were left behind by a previously
+    failed create_all() run.  Safe to call only when no tables exist, because
+    no column can reference these types at that point.
+
+    Prior to the values_callable fix, SQLAlchemy created enums using
+    member names (e.g. 'ACTIVE') rather than member values ('active').
+    Those stale uppercase types would cause the corrected create_all() to
+    skip re-creating them (checkfirst) and then fail when server_default
+    values or INSERT data used the lowercase form.
+    """
+    result = conn.execute(
+        text(
+            "SELECT typname FROM pg_type "
+            "JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace "
+            "WHERE pg_type.typtype = 'e' AND pg_namespace.nspname = 'public'"
+        )
+    )
+    enum_names = [row[0] for row in result]
+    for name in enum_names:
+        conn.execute(text(f'DROP TYPE IF EXISTS "{name}" CASCADE'))  # noqa: S608
+        logger.info("schema_dropped_stale_enum", enum=name)
+
+
 async def create_schema_if_empty(engine: AsyncEngine) -> None:
     """
     Create all ORM tables on an empty database.
 
-    Uses checkfirst=True so existing tables are never dropped or modified.
-    Imports app.models to ensure every model is registered in Base.metadata
-    before create_all runs.
+    When the database has no tables, any pre-existing enum types are dropped
+    first (they may have been created with incorrect uppercase values by an
+    earlier failed run) so create_all() recreates them correctly.
+
+    On a database that already has tables, this function is a no-op.
     """
     import app.models  # noqa: F401 — registers all ORM models in Base.metadata
     from app.db.base import Base
@@ -55,6 +82,9 @@ async def create_schema_if_empty(engine: AsyncEngine) -> None:
         if has_tables:
             logger.debug("schema_exists", hint="skipping create_all")
             return
+
+        # Drop any stale enum types from a previous failed create_all() run.
+        await conn.run_sync(_drop_stale_enum_types)
 
         logger.info("schema_creating", hint="empty database — running Base.metadata.create_all()")
         await conn.run_sync(Base.metadata.create_all)

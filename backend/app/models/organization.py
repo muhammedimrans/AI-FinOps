@@ -49,7 +49,7 @@ class Organization(BaseModel):
     logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True, default=None)
     billing_email: Mapped[str | None] = mapped_column(String(320), nullable=True, default=None)
     status: Mapped[OrganizationStatus] = mapped_column(
-        SQLEnum(OrganizationStatus, name="organization_status", create_type=True),
+        SQLEnum(OrganizationStatus, name="organization_status", create_type=True, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=OrganizationStatus.ACTIVE,
         server_default=OrganizationStatus.ACTIVE.value,

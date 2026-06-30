@@ -59,7 +59,7 @@ class User(BaseModel):
     username: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[UserStatus] = mapped_column(
-        SQLEnum(UserStatus, name="user_status", create_type=False),
+        SQLEnum(UserStatus, name="user_status", create_type=False, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=UserStatus.ACTIVE,
         server_default=UserStatus.ACTIVE.value,

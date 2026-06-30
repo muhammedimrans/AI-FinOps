@@ -486,11 +486,13 @@ class TestUsageCostRecordRepository:
         assert session.execute.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_get_totals_by_org(self) -> None:
+    async def test_get_totals_by_org_returns_list(self) -> None:
+        """get_totals_by_org returns list[dict], one entry per currency (RH-01)."""
         from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
+        mock_row.currency = "USD"
         mock_row.total_cost = Decimal("100.00")
         mock_row.total_tokens = 5000
         mock_row.total_prompt_tokens = 2500
@@ -498,13 +500,70 @@ class TestUsageCostRecordRepository:
         mock_row.record_count = 10
 
         mock_result = MagicMock()
-        mock_result.one.return_value = mock_row
+        mock_result.all.return_value = [mock_row]
         session.execute = AsyncMock(return_value=mock_result)
 
         result = await repo.get_totals_by_org(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30))
-        assert result["total_cost"] == Decimal("100.00")
-        assert result["total_tokens"] == 5000
-        assert result["record_count"] == 10
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0]["currency"] == "USD"
+        assert result[0]["total_cost"] == Decimal("100.00")
+        assert result[0]["total_tokens"] == 5000
+        assert result[0]["record_count"] == 10
+
+    @pytest.mark.asyncio
+    async def test_get_totals_by_org_multi_currency_separate(self) -> None:
+        """RH-01: USD and EUR totals are returned as separate list entries, never summed."""
+        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+        repo, session = self._make_repo()
+
+        mock_usd = MagicMock()
+        mock_usd.currency = "USD"
+        mock_usd.total_cost = Decimal("123.45")
+        mock_usd.total_tokens = 1000
+        mock_usd.total_prompt_tokens = 500
+        mock_usd.total_completion_tokens = 500
+        mock_usd.record_count = 5
+
+        mock_eur = MagicMock()
+        mock_eur.currency = "EUR"
+        mock_eur.total_cost = Decimal("50.00")
+        mock_eur.total_tokens = 500
+        mock_eur.total_prompt_tokens = 250
+        mock_eur.total_completion_tokens = 250
+        mock_eur.record_count = 2
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [mock_usd, mock_eur]
+        session.execute = AsyncMock(return_value=mock_result)
+
+        result = await repo.get_totals_by_org(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30))
+        assert len(result) == 2
+
+        currencies = {r["currency"] for r in result}
+        assert currencies == {"USD", "EUR"}
+
+        usd = next(r for r in result if r["currency"] == "USD")
+        eur = next(r for r in result if r["currency"] == "EUR")
+
+        # USD total must NOT include EUR amount
+        assert usd["total_cost"] == Decimal("123.45")
+        assert eur["total_cost"] == Decimal("50.00")
+        # They are separate — never mixed
+        assert usd["total_cost"] != usd["total_cost"] + eur["total_cost"]
+
+    @pytest.mark.asyncio
+    async def test_get_totals_by_org_empty_returns_empty_list(self) -> None:
+        """RH-01: No records → empty list, not an error."""
+        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+        repo, session = self._make_repo()
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = []
+        session.execute = AsyncMock(return_value=mock_result)
+
+        result = await repo.get_totals_by_org(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30))
+        assert result == []
 
     @pytest.mark.asyncio
     async def test_get_totals_by_provider(self) -> None:
@@ -1076,7 +1135,7 @@ class TestAnalyticsService:
 
     def _make_service(
         self,
-        totals: dict | None = None,
+        org_totals: list | None = None,
         provider_totals: list | None = None,
         model_totals: list | None = None,
         project_totals: list | None = None,
@@ -1085,14 +1144,18 @@ class TestAnalyticsService:
         cost_repo = AsyncMock()
         daily_repo = AsyncMock()
 
-        default_totals = {
-            "total_cost": Decimal("100.00"),
-            "total_tokens": 5000,
-            "total_prompt_tokens": 2500,
-            "total_completion_tokens": 2500,
-            "record_count": 10,
-        }
-        cost_repo.get_totals_by_org = AsyncMock(return_value=totals or default_totals)
+        # Default: single-currency USD totals (list of one entry — RH-01 shape)
+        default_org_totals = [
+            {
+                "currency": "USD",
+                "total_cost": Decimal("100.00"),
+                "total_tokens": 5000,
+                "total_prompt_tokens": 2500,
+                "total_completion_tokens": 2500,
+                "record_count": 10,
+            }
+        ]
+        cost_repo.get_totals_by_org = AsyncMock(return_value=org_totals or default_org_totals)
         cost_repo.get_totals_by_provider = AsyncMock(return_value=provider_totals or [])
         cost_repo.get_totals_by_model = AsyncMock(return_value=model_totals or [])
         cost_repo.get_totals_by_project = AsyncMock(return_value=project_totals or [])
@@ -1112,8 +1175,43 @@ class TestAnalyticsService:
     async def test_get_cost_summary(self) -> None:
         service = self._make_service()
         result = await service.get_cost_summary(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30))
+        # RH-01: cost_by_currency is a list
+        assert "cost_by_currency" in result
+        assert len(result["cost_by_currency"]) == 1
+        assert result["cost_by_currency"][0]["currency"] == "USD"
         assert result["total_cost"] == Decimal("100.00")
         assert result["record_count"] == 10
+
+    @pytest.mark.asyncio
+    async def test_get_cost_summary_multi_currency(self) -> None:
+        """RH-01: Cost summary returns separate entries per currency."""
+        multi_currency_totals = [
+            {
+                "currency": "USD",
+                "total_cost": Decimal("200.00"),
+                "total_tokens": 8000,
+                "total_prompt_tokens": 4000,
+                "total_completion_tokens": 4000,
+                "record_count": 15,
+            },
+            {
+                "currency": "EUR",
+                "total_cost": Decimal("75.00"),
+                "total_tokens": 3000,
+                "total_prompt_tokens": 1500,
+                "total_completion_tokens": 1500,
+                "record_count": 5,
+            },
+        ]
+        service = self._make_service(org_totals=multi_currency_totals)
+        result = await service.get_cost_summary(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30))
+        assert len(result["cost_by_currency"]) == 2
+        currencies = {c["currency"] for c in result["cost_by_currency"]}
+        assert currencies == {"USD", "EUR"}
+        # total_cost convenience field is the first currency (USD)
+        assert result["total_cost"] == Decimal("200.00")
+        # record_count is the sum across both currencies
+        assert result["record_count"] == 20
 
     @pytest.mark.asyncio
     async def test_get_provider_breakdown(self) -> None:
@@ -1192,6 +1290,8 @@ class TestAnalyticsService:
 
     @pytest.mark.asyncio
     async def test_get_top_models_limit(self) -> None:
+        """RH-05: SQL LIMIT is applied in the repository, not Python-side slicing."""
+        # Mock returns exactly limit items (simulating SQL LIMIT applied in DB)
         model_data = [
             {
                 "provider": "openai",
@@ -1205,15 +1305,40 @@ class TestAnalyticsService:
                 "total_completion_tokens": 50,
                 "record_count": 1,
             }
-            for i in range(15)
+            for i in range(5)  # DB already applied LIMIT 5
         ]
-        service = self._make_service(model_totals=model_data)
+
+        cost_repo = AsyncMock()
+        daily_repo = AsyncMock()
+        default_org_totals = [
+            {
+                "currency": "USD",
+                "total_cost": Decimal("100.00"),
+                "total_tokens": 5000,
+                "total_prompt_tokens": 2500,
+                "total_completion_tokens": 2500,
+                "record_count": 10,
+            }
+        ]
+        cost_repo.get_totals_by_org = AsyncMock(return_value=default_org_totals)
+        # Return exactly 5 rows (simulating SQL LIMIT)
+        cost_repo.get_totals_by_model = AsyncMock(return_value=model_data)
+        cost_repo.get_totals_by_project = AsyncMock(return_value=[])
+        cost_repo.get_daily_trend = AsyncMock(return_value=[])
+        cost_repo.get_totals_by_provider = AsyncMock(return_value=[])
+
+        service = AnalyticsService(cost_repo, daily_repo)
         result = await service.get_top_models(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=5)
+        # Verify limit was passed to repository
+        cost_repo.get_totals_by_model.assert_called_once_with(
+            _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=5
+        )
         assert len(result) == 5
         assert result[0]["model"] == "model-0"  # highest cost
 
     @pytest.mark.asyncio
     async def test_get_top_projects_limit(self) -> None:
+        """RH-05: SQL LIMIT passed through to repository for project breakdown."""
         project_data = [
             {
                 "project_id": uuid.uuid4(),
@@ -1222,10 +1347,32 @@ class TestAnalyticsService:
                 "total_tokens": 100,
                 "record_count": 1,
             }
-            for i in range(15)
+            for i in range(3)  # DB already applied LIMIT 3
         ]
-        service = self._make_service(project_totals=project_data)
+
+        cost_repo = AsyncMock()
+        daily_repo = AsyncMock()
+        default_org_totals = [
+            {
+                "currency": "USD",
+                "total_cost": Decimal("100.00"),
+                "total_tokens": 5000,
+                "total_prompt_tokens": 2500,
+                "total_completion_tokens": 2500,
+                "record_count": 10,
+            }
+        ]
+        cost_repo.get_totals_by_org = AsyncMock(return_value=default_org_totals)
+        cost_repo.get_totals_by_model = AsyncMock(return_value=[])
+        cost_repo.get_totals_by_project = AsyncMock(return_value=project_data)
+        cost_repo.get_daily_trend = AsyncMock(return_value=[])
+        cost_repo.get_totals_by_provider = AsyncMock(return_value=[])
+
+        service = AnalyticsService(cost_repo, daily_repo)
         result = await service.get_top_projects(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3)
+        cost_repo.get_totals_by_project.assert_called_once_with(
+            _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3
+        )
         assert len(result) == 3
 
     @pytest.mark.asyncio
@@ -1727,13 +1874,14 @@ class TestAnalyticsAPI:
 
         mock_session = AsyncMock()
         mock_row = MagicMock()
+        mock_row.currency = "USD"
         mock_row.total_cost = Decimal("100.00")
         mock_row.total_tokens = 5000
         mock_row.total_prompt_tokens = 2500
         mock_row.total_completion_tokens = 2500
         mock_row.record_count = 10
         mock_result = MagicMock()
-        mock_result.one.return_value = mock_row
+        mock_result.all.return_value = [mock_row]
         mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.commit = AsyncMock()
         mock_session.rollback = AsyncMock()

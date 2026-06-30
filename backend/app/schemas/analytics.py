@@ -41,10 +41,29 @@ class UsageSummaryResponse(BaseModel):
 # ── Cost summary ──────────────────────────────────────────────────────────────
 
 
-class CostSummaryResponse(BaseModel):
-    """Total cost for an org in a date range.
+class CostByCurrencyItem(BaseModel):
+    """Cost totals for a single currency within an org summary.
 
-    total_cost is serialized as a string to avoid JSON float precision loss.
+    Prevents cross-currency aggregation: USD and EUR totals are always
+    returned as separate items, never summed together.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    currency: str
+    total_cost: str  # Decimal serialized as str
+    total_tokens: int
+    record_count: int
+
+
+class CostSummaryResponse(BaseModel):
+    """Total cost for an org in a date range, broken down by currency.
+
+    cost_by_currency contains one entry per currency. In single-currency
+    deployments this list has exactly one element. total_cost is the cost
+    for the first (or only) currency — provided for backward compatibility
+    with single-currency consumers. Multi-currency consumers should read
+    cost_by_currency instead.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -52,7 +71,8 @@ class CostSummaryResponse(BaseModel):
     organization_id: str
     start_date: str
     end_date: str
-    total_cost: str  # Decimal serialized as str
+    cost_by_currency: list[CostByCurrencyItem] = Field(default_factory=list)
+    total_cost: str  # Decimal serialized as str — first currency or "0"
     total_tokens: int
     record_count: int
 
@@ -136,5 +156,6 @@ class OrgSummaryResponse(BaseModel):
     total_completion_tokens: int
     total_requests: int
     event_count: int
-    # Cost
-    total_cost: str  # Decimal as str
+    # Cost — per-currency breakdown
+    cost_by_currency: list[CostByCurrencyItem] = Field(default_factory=list)
+    total_cost: str  # Decimal as str — first currency or "0"

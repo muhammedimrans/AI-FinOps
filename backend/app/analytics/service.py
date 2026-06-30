@@ -41,17 +41,25 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
     ) -> dict:
-        """Total tokens, requests, events for org in date range."""
-        totals = await self._cost_repo.get_totals_by_org(organization_id, start_date, end_date)
+        """Total tokens, requests, events for org in date range.
+
+        Token counts are currency-agnostic (tokens are not monetary), so we
+        sum across all currencies returned by get_totals_by_org().
+        """
+        rows = await self._cost_repo.get_totals_by_org(organization_id, start_date, end_date)
+        total_tokens = sum(r["total_tokens"] for r in rows)
+        total_prompt_tokens = sum(r["total_prompt_tokens"] for r in rows)
+        total_completion_tokens = sum(r["total_completion_tokens"] for r in rows)
+        record_count = sum(r["record_count"] for r in rows)
         return {
             "organization_id": str(organization_id),
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
-            "total_tokens": totals.get("total_tokens", 0),
-            "total_prompt_tokens": totals.get("total_prompt_tokens", 0),
-            "total_completion_tokens": totals.get("total_completion_tokens", 0),
-            "total_requests": totals.get("record_count", 0),
-            "event_count": totals.get("record_count", 0),
+            "total_tokens": total_tokens,
+            "total_prompt_tokens": total_prompt_tokens,
+            "total_completion_tokens": total_completion_tokens,
+            "total_requests": record_count,
+            "event_count": record_count,
         }
 
     async def get_cost_summary(
@@ -60,15 +68,29 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
     ) -> dict:
-        """Total costs by currency for org in date range."""
-        totals = await self._cost_repo.get_totals_by_org(organization_id, start_date, end_date)
+        """Total costs by currency for org in date range.
+
+        Returns a list of per-currency totals so that USD and EUR costs are
+        never summed together. Callers should present each currency separately.
+        """
+        rows = await self._cost_repo.get_totals_by_org(organization_id, start_date, end_date)
         return {
             "organization_id": str(organization_id),
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
-            "total_cost": totals.get("total_cost", Decimal(0)),
-            "total_tokens": totals.get("total_tokens", 0),
-            "record_count": totals.get("record_count", 0),
+            "cost_by_currency": [
+                {
+                    "currency": r["currency"],
+                    "total_cost": r["total_cost"],
+                    "total_tokens": r["total_tokens"],
+                    "record_count": r["record_count"],
+                }
+                for r in rows
+            ],
+            # Convenience fields for single-currency deployments (first currency or zero)
+            "total_cost": rows[0]["total_cost"] if rows else Decimal(0),
+            "total_tokens": sum(r["total_tokens"] for r in rows),
+            "record_count": sum(r["record_count"] for r in rows),
         }
 
     async def get_provider_breakdown(
@@ -114,10 +136,10 @@ class AnalyticsService:
         end_date: date,
         limit: int = 10,
     ) -> list[dict]:
-        """Top N models by total cost."""
-        all_models = await self._cost_repo.get_totals_by_model(organization_id, start_date, end_date)
-        # Already sorted by total_cost desc from the repository
-        return all_models[:limit]
+        """Top N models by total cost. SQL LIMIT applied in the repository."""
+        return await self._cost_repo.get_totals_by_model(
+            organization_id, start_date, end_date, limit=limit
+        )
 
     async def get_top_projects(
         self,
@@ -126,7 +148,7 @@ class AnalyticsService:
         end_date: date,
         limit: int = 10,
     ) -> list[dict]:
-        """Top N projects by total cost."""
-        all_projects = await self._cost_repo.get_totals_by_project(organization_id, start_date, end_date)
-        # Already sorted by total_cost desc from the repository
-        return all_projects[:limit]
+        """Top N projects by total cost. SQL LIMIT applied in the repository."""
+        return await self._cost_repo.get_totals_by_project(
+            organization_id, start_date, end_date, limit=limit
+        )

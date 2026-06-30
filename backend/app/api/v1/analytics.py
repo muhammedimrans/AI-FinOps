@@ -32,6 +32,7 @@ from app.analytics.service import AnalyticsService
 from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
 from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
 from app.schemas.analytics import (
+    CostByCurrencyItem,
     CostSummaryResponse,
     DailyTrendItem,
     ModelBreakdownItem,
@@ -104,6 +105,15 @@ async def get_cost_summary(
         organization_id=summary["organization_id"],
         start_date=summary["start_date"],
         end_date=summary["end_date"],
+        cost_by_currency=[
+            CostByCurrencyItem(
+                currency=c["currency"],
+                total_cost=str(c["total_cost"]),
+                total_tokens=c["total_tokens"],
+                record_count=c["record_count"],
+            )
+            for c in summary["cost_by_currency"]
+        ],
         total_cost=str(summary["total_cost"]),
         total_tokens=summary["total_tokens"],
         record_count=summary["record_count"],
@@ -254,5 +264,14 @@ async def get_org_summary(
         total_completion_tokens=usage["total_completion_tokens"],
         total_requests=usage["total_requests"],
         event_count=usage["event_count"],
+        cost_by_currency=[
+            CostByCurrencyItem(
+                currency=c["currency"],
+                total_cost=str(c["total_cost"]),
+                total_tokens=c["total_tokens"],
+                record_count=c["record_count"],
+            )
+            for c in cost["cost_by_currency"]
+        ],
         total_cost=str(cost["total_cost"]),
     )

@@ -17,7 +17,7 @@ organization_id query/body parameter.
 from __future__ import annotations
 
 import uuid
-from datetime import date, UTC
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 import structlog
@@ -67,7 +67,7 @@ async def calculate_price(
     pricing_repo = ModelPricingRepository(db)
     engine = PricingEngine(pricing_repo)
 
-    usage_date = body.usage_date or date.today()
+    usage_date = body.usage_date or datetime.now(tz=UTC).date()
 
     try:
         pricing = await engine.get_pricing_for_event(body.provider, body.model, usage_date)
@@ -154,13 +154,17 @@ async def list_model_pricing(
     "/providers",
     response_model=list[str],
     summary="List providers with active pricing",
-    description="Returns distinct provider names that have at least one active pricing record.",
+    description=(
+        "Returns distinct provider names that have at least one active pricing record. "
+        "Provider pricing is platform-wide in EP-09 — this endpoint returns all providers "
+        "regardless of organization. Per-organization pricing scope is deferred to EP-10."
+    ),
 )
 async def list_pricing_providers(
     db: DbDep,
     _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
-    organization_id: Annotated[uuid.UUID, Query(description="Organization ID (required)")],
+    # NOTE: org membership verification and per-org pricing scope deferred to EP-10.
+    # The organization_id parameter was removed (it was accepted but silently ignored).
 ) -> list[str]:
     """Return distinct provider names with active pricing."""
     from sqlalchemy import distinct, select
@@ -201,8 +205,6 @@ async def create_model_pricing(
     # In EP-09 we validate the JWT (CurrentUser) only.
 ) -> ModelPricingResponse:
     """Create a new pricing record."""
-    from datetime import datetime
-
     pricing_repo = ModelPricingRepository(db)
     validator = PricingValidator()
 

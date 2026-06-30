@@ -15,10 +15,10 @@ EP-09 is **production-ready for development and staging environments** where:
 - Operators understand that `organization_id` is not verified against the authenticated user's org membership
 
 EP-09 is **NOT production-ready** for the following reasons:
-1. `UsageCostRecord` table is empty — the pricing engine is not wired into the usage collection pipeline (deferred to EP-10)
+1. ~~`UsageCostRecord` table is empty — the pricing engine is not wired into the usage collection pipeline (deferred to EP-10)~~ **RESOLVED in EP-09 Release Hardening (RH-02):** PricingEngine is now wired into `UsageCollectionService._process_page()` with best-effort cost attribution
 2. No org membership verification — any authenticated user can query any organization's cost data by supplying an `organization_id` query parameter
 3. No RBAC enforcement — `BILLING_READ`, `BILLING_WRITE`, `USAGE_READ` permissions are not checked
-4. The `GET /pricing/providers` endpoint silently ignores its `organization_id` parameter
+4. ~~The `GET /pricing/providers` endpoint silently ignores its `organization_id` parameter~~ **RESOLVED in EP-09 Release Hardening (RH-03):** Dead parameter removed; endpoint documented as platform-wide
 
 These are the same class of auth gaps that existed in EP-08 and are documented as EP-10 prerequisites.
 
@@ -357,13 +357,13 @@ All request bodies use typed Pydantic models with field-level validators:
 | PRR-01 | HIGH | No org membership verification — any authenticated user can access any org's cost data | Horizontal privilege escalation in multi-tenant deployment | MUST BE RESOLVED in EP-10 before production |
 | PRR-02 | HIGH | No RBAC on pricing write endpoints — any authenticated user can create pricing records | Pricing misconfiguration by non-admin users affecting all cost calculations | MUST BE RESOLVED in EP-10 before production |
 | PRR-03 | HIGH | `usage_cost_records` is empty — all analytics return zero | No observable value from analytics endpoints until EP-10 wires the pipeline | Known EP-09 stop condition; resolve in EP-10 |
-| PRR-04 | MEDIUM | `GET /pricing/providers` ignores `organization_id` — returns all platform providers | Users see providers they shouldn't know about | Low impact in single-tenant mode; fix in EP-10 |
-| PRR-05 | MEDIUM | Multi-currency cost summary aggregates across currencies | Incorrect total costs in multi-currency deployments | Not currently triggered (USD-only); fix before enabling multi-currency pricing |
+| PRR-04 | MEDIUM | ~~`GET /pricing/providers` ignores `organization_id`~~ | ~~Users see providers they shouldn't know about~~ | ✅ RESOLVED (RH-03) — dead parameter removed |
+| PRR-05 | MEDIUM | ~~Multi-currency cost summary aggregates across currencies~~ | ~~Incorrect total costs in multi-currency deployments~~ | ✅ RESOLVED (RH-01) — `get_totals_by_org` now groups by currency |
 | PRR-06 | MEDIUM | No aggregation job scheduled — `daily_cost_summaries` not populated | Analytics queries scan `usage_cost_records` directly — performance degrades at scale | Schedule aggregation job in EP-10 |
 | PRR-07 | LOW | No Prometheus/OpenTelemetry metrics on pricing calculations | Reduced operational visibility into cost calculation health | Add metrics in EP-10 or later |
 | PRR-08 | LOW | Cursor pagination not propagated in filtered pricing list path | API clients cannot page through provider-specific pricing lists | Fix in EP-10 before building admin UI |
-| PRR-09 | LOW | `get_top_models`/`get_top_projects` fetch all results and slice in Python | Performance degradation if organization uses many models | Add LIMIT to SQL queries in EP-10 |
-| PRR-10 | LOW | Import inside for loop in `AggregationService` | No runtime impact (Python caches imports); code style concern | Fix in EP-10 housekeeping |
+| PRR-09 | LOW | ~~`get_top_models`/`get_top_projects` fetch all results and slice in Python~~ | ~~Performance degradation if organization uses many models~~ | ✅ RESOLVED (RH-05) — SQL LIMIT applied in repository |
+| PRR-10 | LOW | ~~Import inside for loop in `AggregationService`~~ | ~~Code style concern~~ | ✅ RESOLVED (RH-07) — moved to module top level |
 
 ---
 
@@ -373,16 +373,16 @@ All request bodies use typed Pydantic models with field-level validators:
 |----|----------|------|-------|
 | G-01 | YES | Org membership verification on all analytics and pricing endpoints | EP-10 Auth |
 | G-02 | YES | RBAC enforcement: `BILLING_READ`, `BILLING_WRITE`, `USAGE_READ` | EP-10 Auth |
-| G-03 | YES | Wire `PricingEngine.calculate_event_cost()` into `UsageCollectionService.collect()` | EP-10 Collection Pipeline |
+| G-03 | ~~YES~~ NO | ~~Wire `PricingEngine.calculate_event_cost()` into `UsageCollectionService.collect()`~~ ✅ RESOLVED (RH-02) — wired in EP-09 Release Hardening | EP-09 Done |
 | G-04 | YES | Derive `organization_id` from JWT claims rather than query parameter | EP-10 Auth |
-| G-05 | NO | Resolve `GET /pricing/providers` ignoring `organization_id` (REV-05) | EP-10 Housekeeping |
-| G-06 | NO | Fix multi-currency aggregation in `get_totals_by_org()` (REV-02) | EP-10 Housekeeping |
+| G-05 | NO | ~~Resolve `GET /pricing/providers` ignoring `organization_id` (REV-05)~~ ✅ RESOLVED (RH-03) | EP-09 Done |
+| G-06 | NO | ~~Fix multi-currency aggregation in `get_totals_by_org()` (REV-02)~~ ✅ RESOLVED (RH-01) | EP-09 Done |
 | G-07 | NO | Schedule `AggregationService.rebuild_range()` as nightly cron job | EP-10 Scheduling |
 | G-08 | NO | Pricing cascade recalculation on pricing record update | EP-10 Repricing |
 | G-09 | NO | Propagate cursor in filtered `/pricing/models` path (REV-01) | EP-10 API |
 | G-10 | NO | Add Prometheus/OpenTelemetry metrics for pricing calculations | EP-10 Observability |
-| G-11 | NO | Add LIMIT parameter to `get_top_models`/`get_top_projects` SQL queries (REV-07) | EP-10 Housekeeping |
-| G-12 | NO | Move import inside loop in `AggregationService` to module top level (REV-06) | EP-10 Housekeeping |
+| G-11 | NO | ~~Add LIMIT parameter to `get_top_models`/`get_top_projects` SQL queries (REV-07)~~ ✅ RESOLVED (RH-05) | EP-09 Done |
+| G-12 | NO | ~~Move import inside loop in `AggregationService` to module top level (REV-06)~~ ✅ RESOLVED (RH-07) | EP-09 Done |
 
 Items G-01 through G-04 are blocking: EP-10 cannot be deployed to production without them.
 
@@ -392,12 +392,13 @@ Items G-01 through G-04 are blocking: EP-10 cannot be deployed to production wit
 
 **EP-09 is APPROVED for development and staging environments.**
 
-**EP-09 is NOT approved for production** pending resolution of G-01 through G-04:
+**EP-09 is NOT approved for production** pending resolution of G-01, G-02, G-04:
 - G-01: Org membership verification
 - G-02: RBAC enforcement
-- G-03: PricingEngine wiring into collection pipeline
 - G-04: JWT org binding
 
-The financial accuracy and reliability of the cost calculation engine are production-grade. The security gaps are known, documented, and fully addressable in EP-10. No findings require changes to the EP-09 code before EP-10 begins — all blocking items are new work in EP-10.
+~~G-03: PricingEngine wiring into collection pipeline~~ **RESOLVED in EP-09 Release Hardening (RH-02)**
 
-EP-09 may be merged and deployed to development and staging immediately.
+The financial accuracy and reliability of the cost calculation engine are production-grade. The security gaps are known, documented, and fully addressable in EP-10. No EP-09 code changes are required before EP-10 begins — the remaining blocking items are new work in EP-10.
+
+EP-09 is frozen and cleared for EP-10 development to begin.

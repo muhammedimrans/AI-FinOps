@@ -215,9 +215,6 @@ minor items before EP-04 begins.
 
 ---
 
-*This changelog is maintained by the engineering team. All architectural changes
-must be recorded here before the corresponding Epic is marked complete.*
-
 ## [0.4.0] — EP-04 — 2026-06-29
 
 ### Change: F-013 — User Entity (initial)
@@ -588,6 +585,102 @@ Six production risks identified in the EP-07 review. All closed before EP-08
 ### Related Documents
 
 - docs/knowledge/EP-07-Release-Hardening.md
+
+---
+
+## [0.11.0] — EP-11 — 2026-06-30
+
+### Change: React SPA Frontend — AI FinOps Enterprise Dashboard
+
+The complete frontend SPA for the AI FinOps platform. A production-grade React 18 application
+that visualizes AI API spending across providers, models, projects, and departments.
+
+**Stack:**
+- React 18.3 + TypeScript 5.5 (strict: `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`,
+  `noPropertyAccessFromIndexSignature`)
+- Vite 5.4 (build) + Vitest 2.1 (tests)
+- React Router DOM 6.26 (client-side routing, `BrowserRouter`)
+- TanStack Query 5.56 (server state, 5-min staleTime, 3x exponential backoff)
+- TanStack Table 8.20 (sortable, filterable, paginated data tables)
+- Zustand 5.0 with `persist` middleware (UI state: theme, currency, date range, sidebar)
+- Framer Motion 11.11 (page transitions, sidebar collapse, staggered card entry)
+- Recharts 2.12 (AreaChart, BarChart, PieChart, ScatterChart)
+- Tailwind CSS 3.4 with full design system extension
+- React Hook Form 7.53 + Zod 3.23 (settings form validation)
+- Lucide React 0.462 (icon set)
+
+**Pages delivered (7):**
+1. `/dashboard` — Overview: KPI cards, spend trend AreaChart, provider PieChart, top models
+   BarChart, live activity table (60s auto-refresh)
+2. `/dashboard/analytics` — Cost Analytics: summary stats, stacked provider AreaChart, TanStack
+   Table with sort/filter/search/CSV export/pagination
+3. `/dashboard/providers` — Providers: provider card grid with animated cost-share bar,
+   comparison BarChart with cost/requests/tokens toggle
+4. `/dashboard/models` — Models: medal leaderboard table, efficiency badge by percentile rank,
+   ScatterChart performance matrix (cost vs. volume)
+5. `/dashboard/projects` — Projects: budget alert banner, project card grid with BudgetBar and
+   trend sparklines
+6. `/dashboard/organization` — Organization: org-level budget bar, sortable department table
+7. `/settings` — Settings: tabbed form (API / Display / Notifications / Data) with Zod validation
+
+**Admin routes (5 placeholder stubs):** `/users`, `/rbac`, `/api-keys`, `/connections`,
+`/audit-logs` — show coming-soon UI; backend implementations exist in EP-05 through EP-10.
+
+**Design system:** Dark-first (`#0A0A0F` background, `#4F46E5` Deep Indigo primary).
+Glass-morphism cards (`backdrop-filter: blur(12px)`), gradient MetricCard variants, shimmer
+loading skeletons, animated sidebar collapse.
+
+**Mock data layer:** `src/lib/mock-data.ts` — seeded RNG (`seed=42`), 90-day daily data,
+4 providers, 10 models, 6 projects, 5 departments. Gated by `import.meta.env.DEV` (compile-time
+boolean); tree-shaken from production bundles.
+
+**API client:** `src/lib/api.ts` — `VITE_API_BASE_URL` driven, `AbortSignal.timeout(10_000)`,
+throws on non-2xx. All monetary values typed as `string` (matching Python Decimal serialization).
+
+**Build output:** `dist/` with `manualChunks` splitting React/router/DOM (vendor), TanStack Query
+(query), and app shell (index) into separate browser-cached chunks. Source maps enabled. All seven
+feature pages code-split as lazy chunks.
+
+**Known bugs in EP-11 (to be fixed in EP-11.5):**
+- BUG-001: `AppLayout.tsx:37` — `key={location.pathname}` uses `window.location` (global) instead
+  of `useLocation()` hook — page transition animations never fire
+- BUG-002: `Analytics.tsx:119` — Pagination state frozen at `pageIndex: 0`, no
+  `onPaginationChange` handler — pagination buttons non-functional
+- BUG-003: `Analytics.tsx:44` — Granularity local state not synced to Zustand store — chart
+  does not re-fetch when granularity tabs are changed in Analytics page
+- BUG-004: `Models.tsx:229` — `r` prop on Recharts `Cell` has no effect in ScatterChart —
+  bubble sizing non-functional; requires `<ZAxis>` component
+
+### Reason
+
+The EP-11 design brief specified a React 18 enterprise dashboard as the observation and cost
+intelligence layer before live backend integration (EP-12). The frontend is built directly in the
+repository (Lovable was out of workspace credits) using the same tooling as the original design
+brief.
+
+TypeScript strict mode with the workspace's `noUncheckedIndexedAccess` and
+`exactOptionalPropertyTypes` flags required non-trivial accommodations: bracket notation for
+`import.meta.env` access, non-null assertions after array index access with null coalescing
+fallbacks, and explicit `number | undefined` in optional prop types.
+
+### Impact
+
+- **No backend schema changes.** EP-11 is frontend-only.
+- **No new API endpoints.** All data flows through the existing EP-09/EP-10 dashboard endpoints.
+- **Mock mode:** `pnpm dev` in `frontend/` runs the full dashboard with seeded mock data.
+  No backend required for frontend development.
+- **Production mode:** Set `VITE_API_BASE_URL` to the backend URL, run `pnpm build`. Mock code is
+  tree-shaken out. SPA routing requires server/CDN to serve `index.html` for all routes.
+- **EP-12 prerequisite:** BUG-001 through BUG-004 must be fixed before EP-12 connects live data.
+- **EP-13 prerequisite:** All routes currently bypass authentication. EP-13 (Authentication UI)
+  must add protected route wrappers before the dashboard is deployed to real users.
+
+### Related Documents
+
+- docs/knowledge/EP-11-Knowledge-Transfer.md
+- docs/knowledge/EP-11-Architecture-Review.md
+- docs/knowledge/EP-11-UIUX-Review.md
+- docs/knowledge/EP-11-Production-Readiness.md
 
 ---
 

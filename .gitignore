@@ -100,8 +100,9 @@ dist-ssr/
 .env.*
 !.env.example
 !.env.*.example
-# .env.development contains no secrets (only VITE_ENABLE_MOCKS and API URL)
+# .env.development / .env.production contain no secrets (only VITE_ENABLE_MOCKS and API URL)
 !frontend/.env.development
+!frontend/.env.production
 *.pem
 *.key
 *.crt

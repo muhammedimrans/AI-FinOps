@@ -30,7 +30,7 @@ async def list_my_organizations(
     return OrganizationsResponse(
         organizations=[
             OrgMembershipItem(
-                id=m.organization.external_id,
+                id=str(m.organization.id),
                 name=m.organization.name,
                 slug=m.organization.slug,
                 role=m.role.value,

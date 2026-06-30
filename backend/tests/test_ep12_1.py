@@ -269,8 +269,8 @@ class TestOrganizationsEndpoint:
             org_slug="zero-protocol",
             role=MembershipRole.OWNER,
         )
-        # Patch external_id on the org object
-        mem.organization.id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        org_uuid = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        mem.organization.id = org_uuid
 
         _override_auth_and_db(app, user_email="admin@0protocol.net", memberships=[mem])
         try:
@@ -283,7 +283,8 @@ class TestOrganizationsEndpoint:
             assert orgs[0]["name"] == "Zero Protocol"
             assert orgs[0]["slug"] == "zero-protocol"
             assert orgs[0]["role"] == "owner"
-            assert orgs[0]["id"].startswith("org_")
+            # id must be the plain UUID string — consumed by dashboard endpoints
+            assert orgs[0]["id"] == str(org_uuid)
         finally:
             app.dependency_overrides.clear()
 

@@ -112,7 +112,11 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8000, ge=1, le=65535)
     api_workers: int = Field(default=1, ge=1)
     api_reload: bool = False
-    api_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    api_cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://op.0protocol.net",
+    ]
 
     # ─── PostgreSQL ───────────────────────────────────────────────────────────
     # DATABASE_URL takes priority when set (e.g. Neon, Railway, Render).

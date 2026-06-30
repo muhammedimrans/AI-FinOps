@@ -8,7 +8,7 @@ from pydantic import BaseModel
 class OrgMembershipItem(BaseModel):
     """One organization the authenticated user belongs to."""
 
-    id: str  # org external_id — "org_<hex>"
+    id: str  # organization UUID (hyphenated) — consumed directly by dashboard endpoints
     name: str
     slug: str
     role: str  # MembershipRole value: owner | admin | member | viewer

@@ -99,8 +99,10 @@ class Settings(BaseSettings):
             # which is not installed. Rewrite to the asyncpg async dialect.
             if url.startswith("postgres://"):
                 url = "postgresql+asyncpg://" + url[len("postgres://"):]
-            elif url.startswith("postgresql://"):
+            elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
                 url = "postgresql+asyncpg://" + url[len("postgresql://"):]
+            # asyncpg does not accept sslmode=; translate to ssl=
+            url = url.replace("sslmode=", "ssl=")
             return url
         pw = self.postgres_password.get_secret_value()
         return (

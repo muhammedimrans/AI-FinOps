@@ -23,9 +23,19 @@
     "@ai-finops/error-codes": "workspace:*",
     "@tanstack/react-query": "^5.56.0",
     "@tanstack/react-query-devtools": "^5.56.0",
+    "@tanstack/react-table": "^8.20.5",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^11.11.0",
+    "lucide-react": "^0.462.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.2"
+    "react-hook-form": "^7.53.0",
+    "react-router-dom": "^6.26.2",
+    "recharts": "^2.12.7",
+    "tailwind-merge": "^2.5.4",
+    "zod": "^3.23.8",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.9.1",

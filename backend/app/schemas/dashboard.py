@@ -151,3 +151,94 @@ class KPIResponse(BaseModel):
     period_start: str
     period_end: str
     currency: str
+
+
+# ── F-064 — Organization composite ────────────────────────────────────────────
+
+
+class OrganizationOverviewBlock(BaseModel):
+    """Overview block nested inside OrganizationDashboardResponse."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    total_spend: str
+    today_spend: str
+    month_spend: str
+    total_tokens: int
+    total_requests: int
+    active_providers: int
+    active_models: int
+    collection_status: str | None
+    last_collection_at: str | None     # ISO datetime string or null
+
+
+class OrganizationProviderItem(BaseModel):
+    """Single provider entry inside OrganizationDashboardResponse."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    total_cost: str
+    total_tokens: int
+    total_requests: int
+    avg_cost_per_request: str
+    currency: str
+
+
+class OrganizationModelItem(BaseModel):
+    """Single model entry inside OrganizationDashboardResponse."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: str
+    model: str
+    total_cost: str
+    total_tokens: int
+    total_requests: int
+    avg_cost_per_request: str
+    currency: str
+
+
+class OrganizationProjectItem(BaseModel):
+    """Single project entry inside OrganizationDashboardResponse."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    project_id: str | None
+    total_cost: str
+    total_tokens: int
+    total_requests: int
+    currency: str
+
+
+class OrganizationTrendPoint(BaseModel):
+    """Single daily trend point inside OrganizationDashboardResponse."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    date: str
+    cost: str
+    tokens: int
+    requests: int
+    currency: str
+
+
+class OrganizationDashboardResponse(BaseModel):
+    """Composite organization dashboard — F-064.
+
+    Returned by GET /v1/dashboard/organization. Aggregates overview,
+    provider breakdown, top models, project breakdown, and 30-day daily
+    trend in a single response.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    organization_id: str
+    period_start: str
+    period_end: str
+    currency: str
+    overview: OrganizationOverviewBlock
+    provider_breakdown: list[OrganizationProviderItem] = Field(default_factory=list)
+    top_models: list[OrganizationModelItem] = Field(default_factory=list)
+    project_breakdown: list[OrganizationProjectItem] = Field(default_factory=list)
+    daily_trend: list[OrganizationTrendPoint] = Field(default_factory=list)

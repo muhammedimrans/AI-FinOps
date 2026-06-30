@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Lovable__create_project",
+      "mcp__Lovable__send_message",
+      "mcp__Lovable__render_project_widget",
+      "mcp__Lovable__get_me",
+      "mcp__Lovable__list_workspaces",
+      "mcp__Lovable__get_project",
+      "mcp__Lovable__list_messages",
+      "mcp__Lovable__get_message",
+      "mcp__Lovable__get_diff",
+      "mcp__Lovable__list_files",
+      "mcp__Lovable__read_file",
+      "mcp__Lovable__set_project_knowledge",
+      "mcp__Lovable__get_project_knowledge"
+    ]
+  }
+}

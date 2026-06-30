@@ -17,7 +17,7 @@ The architecture is sound and the implementation is production-ready for develop
 
 **Overall Score: 8.5 / 10**
 
-**Final Decision: APPROVED WITH MINOR CHANGES**
+**Final Decision: APPROVED AND FROZEN** *(updated after EP-09 Release Hardening Sprint, 2026-06-30)*
 
 ---
 
@@ -357,15 +357,15 @@ The risk is that org membership and RBAC gaps are known security limitations tha
 
 | ID | Severity | Finding | Status |
 |----|----------|---------|--------|
-| REV-01 | LOW | Cursor pagination not propagated in filtered `/pricing/models` list path | OPEN |
-| REV-02 | MEDIUM | `get_totals_by_org()` sums across currencies — incorrect in multi-currency deployments | OPEN |
-| REV-03 | LOW | Soft-delete filter applied manually in aggregation queries (maintainability) | OPEN |
-| REV-04 | LOW | `usage_date` defaults to server's local date, not UTC | OPEN |
-| REV-05 | MEDIUM | `GET /pricing/providers` accepts but ignores `organization_id` parameter | OPEN |
-| REV-06 | LOW | Import inside for loop in `AggregationService.build_daily_summaries` | OPEN |
-| REV-07 | LOW | `get_top_models/projects` fetch all rows and slice in Python | OPEN |
+| REV-01 | LOW | Cursor pagination not propagated in filtered `/pricing/models` list path | DEFERRED TO EP-10 |
+| REV-02 | MEDIUM | `get_totals_by_org()` sums across currencies — incorrect in multi-currency deployments | ✅ RESOLVED (RH-01) |
+| REV-03 | LOW | Soft-delete filter applied manually in aggregation queries (maintainability) | ✅ ASSESSED — no change needed |
+| REV-04 | LOW | `usage_date` defaults to server's local date, not UTC | ✅ RESOLVED (RH-06) |
+| REV-05 | MEDIUM | `GET /pricing/providers` accepts but ignores `organization_id` parameter | ✅ RESOLVED (RH-03) |
+| REV-06 | LOW | Import inside for loop in `AggregationService.build_daily_summaries` | ✅ RESOLVED (RH-07) |
+| REV-07 | LOW | `get_top_models/projects` fetch all rows and slice in Python | ✅ RESOLVED (RH-05) |
 
-REV-02 and REV-05 should be resolved before EP-10 begins, as they affect API contract correctness.
+All MEDIUM findings resolved. REV-01 (LOW) deferred to EP-10 by design — filtered list pagination is not a blocking concern for EP-10 start.
 
 ---
 
@@ -393,6 +393,8 @@ The following items are explicitly deferred from EP-09 and must be addressed in 
 
 ## Final Decision
 
-**APPROVED WITH MINOR CHANGES**
+**APPROVED AND FROZEN** *(updated 2026-06-30 after Release Hardening Sprint)*
 
-EP-09 is architecturally sound and may proceed to EP-10. The two MEDIUM findings (REV-02, REV-05) should be resolved at the start of EP-10 before new features are built on top of these endpoints. The LOW findings may be resolved in EP-10 or tracked as backlog items. No findings prevent the code from being merged and deployed to development/staging.
+All MEDIUM findings (REV-02, REV-05) were resolved during the EP-09 Release Hardening Sprint. LOW findings REV-03, REV-04, REV-06, REV-07 were also addressed. REV-01 (cursor pagination in filtered list) is deferred to EP-10 as a non-blocking backlog item.
+
+EP-09 is production-ready for development/staging. The project is cleared to begin EP-10.

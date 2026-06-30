@@ -1,5 +1,66 @@
 # Architecture Changelog
 
+## [0.9.2] — EP-09 Release Hardening (2026-06-30)
+
+### Summary
+
+EP-09 Release Hardening Sprint resolves all approved findings from the [0.9.1] Engineering Review and freezes EP-09 before EP-10 begins.
+
+**Outcome:** APPROVED AND FROZEN — EP-09 is cleared for EP-10 development.
+
+### Findings Resolved
+
+| ID | Severity | Finding | Resolution |
+|----|----------|---------|------------|
+| RH-01 (REV-02) | MEDIUM | `get_totals_by_org()` sums across currencies | Fixed: now groups by currency, returns `list[dict]`; `CostSummaryResponse` gains `cost_by_currency` field |
+| RH-02 | HIGH | PricingEngine not wired into usage collection | Fixed: best-effort cost attribution added to `UsageCollectionService._process_page()` after each event upsert |
+| RH-03 (REV-05) | MEDIUM | `GET /pricing/providers` silently ignored `organization_id` | Fixed: dead parameter removed; endpoint documented as platform-wide |
+| RH-04 (REV-03) | MEDIUM | Soft-delete filter assessment | Assessed: no code change needed — all five aggregation methods already apply the filter correctly |
+| RH-05 (REV-07) | MEDIUM | Python-side slicing in `get_top_models/projects` | Fixed: `limit` parameter added to repository; SQL LIMIT applied before fetch |
+| RH-06 (REV-04) | MEDIUM | `date.today()` in pricing calculation (UTC-unsafe) | Fixed: changed to `datetime.now(tz=UTC).date()` |
+| RH-07 (REV-06) | LOW | Import inside for loop in `AggregationService` | Fixed: moved to module top level |
+
+### Schema Changes
+
+- `CostSummaryResponse` gained `cost_by_currency: list[CostByCurrencyItem]` (default `[]`)
+- `OrgSummaryResponse` gained `cost_by_currency: list[CostByCurrencyItem]` (default `[]`)
+- New type `CostByCurrencyItem` added to `app/schemas/analytics.py`
+
+### API Contract Changes
+
+- `GET /pricing/providers` no longer accepts `organization_id` query parameter (was accepted but silently ignored)
+- `GET /analytics/cost` and `GET /analytics/organizations/{id}/summary` now include `cost_by_currency` field in response
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `app/repositories/usage_cost_record_repository.py` | `get_totals_by_org()` → list[dict] by currency; `limit` on model/project queries |
+| `app/analytics/service.py` | Consume list from `get_totals_by_org()`; pass limit to repo |
+| `app/schemas/analytics.py` | Added `CostByCurrencyItem`; `cost_by_currency` on cost and org summary |
+| `app/api/v1/analytics.py` | Build `cost_by_currency` in cost and org summary endpoints |
+| `app/api/v1/pricing.py` | Removed dead `organization_id`; UTC-safe date default |
+| `app/usage/service.py` | Best-effort cost attribution wired after event upsert |
+| `app/analytics/aggregation.py` | Module-level datetime import |
+| `tests/test_ep09.py` | 7 new/rewritten regression tests; mock fixes for `.all()` return |
+
+### Test Results
+
+138 passed, 0 failed.
+
+### Remaining EP-10 Prerequisites
+
+| ID | Item |
+|----|------|
+| G-01 | Org membership verification on all endpoints |
+| G-02 | RBAC enforcement (`BILLING_READ`, `BILLING_WRITE`, `USAGE_READ`) |
+| G-04 | Derive `organization_id` from JWT claims (not query parameter) |
+| G-07 | Schedule `AggregationService.rebuild_range()` as nightly cron |
+| G-08 | Pricing cascade recalculation on pricing record update |
+| G-09 | Propagate cursor in filtered `/pricing/models` path (REV-01) |
+
+---
+
 ## [0.9.1] — EP-09 Engineering Review (2026-06-29)
 
 ### Review Outcome

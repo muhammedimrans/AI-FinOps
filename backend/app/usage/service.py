@@ -290,6 +290,60 @@ class UsageCollectionService:
             await event_repo.upsert(orm_event)
             created += 1
 
+            # Best-effort cost attribution — pricing may not exist for all models
+            try:
+                from app.pricing.engine import PricingEngine, PricingNotFoundError
+                from app.repositories.model_pricing_repository import ModelPricingRepository
+                from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+                from app.models.usage_cost_record import UsageCostRecord as UsageCostRecordModel
+                from app.db.mixins import uuid7 as _uuid7
+
+                pricing_repo = ModelPricingRepository(self._session)
+                cost_repo = UsageCostRecordRepository(self._session)
+                engine = PricingEngine(pricing_repo)
+
+                usage_date = norm_event.timestamp.date()
+                cost_result = await engine.calculate_event_cost(orm_event, usage_date)
+
+                now = datetime.now(UTC)
+                cost_record = UsageCostRecordModel()
+                cost_record.id = _uuid7()
+                cost_record.created_at = now
+                cost_record.updated_at = now
+                cost_record.usage_event_id = orm_event.id
+                cost_record.organization_id = organization_id
+                cost_record.project_id = project_id
+                cost_record.provider_connection_id = provider_connection_id
+                cost_record.model_pricing_id = cost_result["model_pricing_id"]
+                cost_record.provider = orm_event.provider
+                cost_record.model = orm_event.model
+                cost_record.currency = cost_result["currency"]
+                cost_record.usage_date = usage_date
+                cost_record.prompt_tokens = orm_event.prompt_tokens
+                cost_record.completion_tokens = orm_event.completion_tokens
+                cost_record.cached_tokens = orm_event.cached_tokens
+                cost_record.total_tokens = orm_event.total_tokens
+                cost_record.prompt_cost = cost_result["prompt_cost"]
+                cost_record.completion_cost = cost_result["completion_cost"]
+                cost_record.cached_cost = cost_result["cached_cost"]
+                cost_record.total_cost = cost_result["total_cost"]
+                cost_record.calculation_version = cost_result["calculation_version"]
+
+                await cost_repo.upsert(cost_record)
+            except PricingNotFoundError:
+                log.debug(
+                    "no_pricing_for_model",
+                    provider=orm_event.provider,
+                    model=orm_event.model,
+                )
+            except Exception as exc:
+                log.warning(
+                    "cost_attribution_failed",
+                    error=str(exc),
+                    provider=orm_event.provider,
+                    model=orm_event.model,
+                )
+
         return created, failed
 
 

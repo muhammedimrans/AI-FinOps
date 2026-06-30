@@ -7,9 +7,8 @@ Supports both single-day builds and multi-day range rebuilds.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
 
 import structlog
 from sqlalchemy import and_, func, select
@@ -19,9 +18,6 @@ from app.db.mixins import uuid7
 from app.models.daily_cost_summary import DailyCostSummary
 from app.models.usage_cost_record import UsageCostRecord
 from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
-
-if TYPE_CHECKING:
-    pass
 
 log = structlog.get_logger(__name__)
 
@@ -93,7 +89,6 @@ class AggregationService:
 
         summaries: list[DailyCostSummary] = []
         for row in rows:
-            from datetime import datetime, UTC
             now = datetime.now(UTC)
 
             summary = DailyCostSummary()

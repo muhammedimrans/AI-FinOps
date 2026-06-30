@@ -100,10 +100,16 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> dict:
-        """Sum total_cost, total_tokens, request count for org + date range."""
+    ) -> list[dict]:
+        """Sum total_cost, total_tokens, request count for org + date range.
+
+        Groups by currency so that USD and EUR totals are never summed together.
+        Returns one dict per currency. An empty list is returned when there are
+        no cost records for the given org and date range.
+        """
         stmt = (
             select(
+                UsageCostRecord.currency,
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
                 func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
@@ -118,16 +124,21 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.deleted_at.is_(None),
                 )
             )
+            .group_by(UsageCostRecord.currency)
+            .order_by(UsageCostRecord.currency)
         )
         result = await self._session.execute(stmt)
-        row = result.one()
-        return {
-            "total_cost": row.total_cost or Decimal(0),
-            "total_tokens": row.total_tokens or 0,
-            "total_prompt_tokens": row.total_prompt_tokens or 0,
-            "total_completion_tokens": row.total_completion_tokens or 0,
-            "record_count": row.record_count or 0,
-        }
+        return [
+            {
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "total_prompt_tokens": row.total_prompt_tokens or 0,
+                "total_completion_tokens": row.total_completion_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
 
     async def get_totals_by_provider(
         self,
@@ -180,8 +191,13 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        limit: int | None = None,
     ) -> list[dict]:
-        """Group by model, sum costs and tokens."""
+        """Group by model, sum costs and tokens.
+
+        If ``limit`` is provided the query applies SQL LIMIT, avoiding the
+        need for Python-side slicing in callers such as ``get_top_models``.
+        """
         stmt = (
             select(
                 UsageCostRecord.provider,
@@ -206,6 +222,8 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
             .group_by(UsageCostRecord.provider, UsageCostRecord.model, UsageCostRecord.currency)
             .order_by(func.sum(UsageCostRecord.total_cost).desc())
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return [
             {
@@ -228,8 +246,13 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        limit: int | None = None,
     ) -> list[dict]:
-        """Group by project_id, sum costs and tokens."""
+        """Group by project_id, sum costs and tokens.
+
+        If ``limit`` is provided the query applies SQL LIMIT, avoiding the
+        need for Python-side slicing in callers such as ``get_top_projects``.
+        """
         stmt = (
             select(
                 UsageCostRecord.project_id,
@@ -249,6 +272,8 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
             .group_by(UsageCostRecord.project_id, UsageCostRecord.currency)
             .order_by(func.sum(UsageCostRecord.total_cost).desc())
         )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return [
             {

@@ -50,10 +50,12 @@ class AppContainer:
         session_factory = create_session_factory(engine)
         redis = create_redis(settings.redis_url)
 
-        # Verify DB connectivity — raises on failure so the process exits cleanly.
+        # Verify connectivity and create schema if the database is empty.
+        # create_schema_if_empty() uses Base.metadata.create_all(checkfirst=True)
+        # so it is a no-op when tables already exist.
         await init_db(engine)
 
-        # Seed demo data on first startup; no-op on subsequent starts.
+        # Seed demo data on first startup; single-SELECT no-op on subsequent starts.
         await seed_startup_data(session_factory)
 
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)

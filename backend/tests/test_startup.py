@@ -123,8 +123,11 @@ class TestDependencyInjection:
 @pytest.mark.unit
 class TestAppContainer:
     async def test_create_returns_container(self, test_settings: Settings) -> None:
-        """Container.create() must succeed (init_db mocked to avoid network IO)."""
-        with patch("app.core.container.init_db", new_callable=AsyncMock):
+        """Container.create() must succeed (DB calls mocked to avoid network IO)."""
+        with (
+            patch("app.core.container.init_db", new_callable=AsyncMock),
+            patch("app.core.container.seed_startup_data", new_callable=AsyncMock),
+        ):
             container = await AppContainer.create(test_settings)
         assert isinstance(container, AppContainer)
         assert container.settings is test_settings
@@ -136,7 +139,10 @@ class TestAppContainer:
 
     async def test_close_disposes_resources(self, test_settings: Settings) -> None:
         """Container.close() must not raise."""
-        with patch("app.core.container.init_db", new_callable=AsyncMock):
+        with (
+            patch("app.core.container.init_db", new_callable=AsyncMock),
+            patch("app.core.container.seed_startup_data", new_callable=AsyncMock),
+        ):
             container = await AppContainer.create(test_settings)
         # Should not raise even if not connected
         await container.close()

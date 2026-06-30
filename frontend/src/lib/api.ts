@@ -20,6 +20,7 @@ import type {
   BackendKPIResponse,
   BackendLoginResponse,
   BackendTokenResponse,
+  BackendOrganizationsResponse,
 } from "../types/backend";
 import {
   mapOverview,
@@ -187,6 +188,12 @@ export async function logout(): Promise<void> {
   } finally {
     getAuthStore().clearAuth();
   }
+}
+
+// ── Organizations endpoint (EP-12.1) ──────────────────────────────────────────
+
+export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
+  return get<BackendOrganizationsResponse>("/v1/organizations");
 }
 
 // ── Dashboard params ──────────────────────────────────────────────────────────

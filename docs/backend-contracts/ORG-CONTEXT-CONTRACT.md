@@ -1,9 +1,9 @@
-# Backend Contract Required: Organization Context
+# Backend Contract: Organization Context
 
-**Status:** MISSING — blocks dashboard queries in production  
+**Status:** IMPLEMENTED — EP-12.1 (2026-06-30)  
+**Endpoint:** `GET /v1/organizations`  
 **Discovered:** EP-12 pre-implementation review (2026-06-30)  
-**Blocking:** All dashboard, analytics, and KPI endpoints  
-**Temporary workaround:** `OrgPrompt` component (manual UUID entry)
+**Temporary workaround:** ~~`OrgPrompt` component (manual UUID entry)~~ (removed)
 
 ---
 
@@ -105,12 +105,14 @@ can be made.
 
 ---
 
-## Temporary Workaround
+## Implementation (EP-12.1)
 
-`frontend/src/components/OrgPrompt.tsx` intercepts the app after login and
-requires the user to paste their organization UUID. The value is stored in
-`useOrgStore` (persisted in `localStorage` as `ai-finops-org`).
+Option B was chosen. `GET /v1/organizations` was added in EP-12.1:
 
-This workaround is safe for internal testing / single-org deployments where
-the admin knows the UUID. It is **not suitable for end-user production
-deployment** and must be replaced before public release.
+- **Endpoint:** `GET /v1/organizations/` (requires `Authorization: Bearer <token>`)
+- **Backend:** `backend/app/api/v1/organizations.py`
+- **Schema:** `backend/app/schemas/organizations.py` — `OrgMembershipItem`, `OrganizationsResponse`
+- **Repository:** `MembershipRepository.list_by_user_email_with_orgs` — eager-loads Organization via `selectinload`, filters to ACTIVE orgs only
+- **Frontend flow:** Login → `getOrganizations()` → if 1 org auto-select → navigate("/dashboard"); else `OrgSelector` component handles multi/empty states
+- **`OrgPrompt` removed.** `OrgSelector` (in `frontend/src/components/OrgSelector.tsx`) replaces it with automatic org discovery.
+- **Seed data:** `backend/scripts/seed_demo.py` creates Org "Zero Protocol" + User `admin@0protocol.net` / `Admin@123`

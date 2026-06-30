@@ -88,6 +88,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN", "S"]
+"scripts/*" = ["T201", "S105"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

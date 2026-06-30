@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.membership import Membership, MembershipRole
+from app.models.organization import OrganizationStatus
 from app.repositories.base_repository import BaseRepository, CursorPage
 
 
@@ -73,6 +75,31 @@ class MembershipRepository(BaseRepository[Membership]):
             order=order,
             extra_filters=Membership.user_email == user_email,
         )
+
+    async def list_by_user_email_with_orgs(self, user_email: str) -> list[Membership]:
+        """
+        Return active Memberships for the given email with Organization eagerly loaded.
+
+        Filters to ACTIVE, non-deleted organizations only.
+        Uses selectinload to satisfy the lazy="raise" constraint on Membership.organization.
+        """
+        stmt = (
+            select(Membership)
+            .options(selectinload(Membership.organization))
+            .where(
+                Membership.deleted_at.is_(None),
+                Membership.user_email == user_email,
+            )
+            .order_by(Membership.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        memberships = list(result.scalars().all())
+        return [
+            m
+            for m in memberships
+            if m.organization.deleted_at is None
+            and m.organization.status == OrganizationStatus.ACTIVE
+        ]
 
     async def list_by_org_and_role(
         self,

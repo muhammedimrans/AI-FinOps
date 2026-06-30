@@ -1,0 +1,14 @@
+# Build outputs
+dist/
+dist-node/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Coverage
+coverage/

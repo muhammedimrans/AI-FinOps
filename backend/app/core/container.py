@@ -12,6 +12,7 @@ from app.config.settings import Settings
 from app.core.database import create_engine, create_session_factory
 from app.core.redis import create_redis
 from app.db.init_db import init_db
+from app.db.seed import seed_startup_data
 
 logger = structlog.get_logger(__name__)
 
@@ -51,6 +52,9 @@ class AppContainer:
 
         # Verify DB connectivity — raises on failure so the process exits cleanly.
         await init_db(engine)
+
+        # Seed demo data on first startup; no-op on subsequent starts.
+        await seed_startup_data(session_factory)
 
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
         logger.info("container_ready", startup_ms=elapsed_ms)

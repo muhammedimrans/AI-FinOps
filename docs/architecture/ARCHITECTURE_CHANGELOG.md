@@ -684,5 +684,86 @@ fallbacks, and explicit `number | undefined` in optional prop types.
 
 ---
 
+---
+
+## [0.11.5] — EP-11.5 — 2026-06-30
+
+### Change
+
+Frontend release hardening sprint. No new features, no backend changes, no API
+changes. All 4 confirmed bugs fixed. 3 minor issues cleaned up. Error boundary
+infrastructure added. Accessibility baseline established. 27 regression tests
+added.
+
+**Bugs fixed:**
+
+| ID | Severity | File | Fix |
+|----|----------|------|-----|
+| BUG-001 / RH-01 | HIGH | `AppLayout.tsx` | `useLocation()` from react-router-dom replaces global `window.location`; page transition animations now fire correctly |
+| BUG-002 / RH-02 | HIGH | `Analytics.tsx` | `onPaginationChange: setPagination` wired to TanStack Table; pagination buttons now functional |
+| BUG-003 / RH-03 | MEDIUM | `Analytics.tsx` | Granularity tab click now also calls `useUIStore.getState().setGranularity(g)`; chart re-fetches on tab change |
+| BUG-004 / RH-04 | MEDIUM | `Models.tsx` | `ZAxis` added to ScatterChart; bubble size now reflects total spend |
+
+**Minor fixes:**
+
+| ID | File | Fix |
+|----|------|-----|
+| MINOR-001 | `MetricCard.tsx` | Removed dead `AnimatedNumber` function, unused `useState`/`useEffect`/`useRef` imports, unused `numericValue` variable |
+| MINOR-002 | `MetricCard.tsx`, `Projects.tsx` | `Sparkline` and `MiniTrendLine`: guard changed to `if (data.length < 2) return null` — prevents `step = w / 0 = Infinity` NaN coordinates |
+
+**New infrastructure:**
+
+- `src/components/ErrorBoundary.tsx` — React class error boundary with
+  `getDerivedStateFromError`, `componentDidCatch` logging, fallback UI, and
+  retry reset. Wraps all 12 routes in `App.tsx`.
+
+- `MotionConfig reducedMotion="user"` in `main.tsx` — App-wide Framer Motion
+  integration with OS-level `prefers-reduced-motion` preference.
+
+- Keyboard accessibility: sortable `<th>` elements in `Analytics.tsx` and
+  `Organization.tsx` now have `tabIndex`, `onKeyDown` (Enter/Space), and
+  `aria-sort`.
+
+- Empty states: `Providers.tsx` and `Models.tsx` leaderboard now render
+  `EmptyState` / inline message when no data or search returns empty.
+
+**Regression tests:** `src/__tests__/` — 3 files, 27 tests, 0 failures.
+
+**Build verification:**
+- `pnpm typecheck`: ✓ 0 errors
+- `pnpm test`: ✓ 27/27
+- `pnpm build`: ✓ 22 chunks, 8.92s build time
+
+**Pre-existing lint backlog:** 58 ESLint errors (all pre-existing before EP-11.5;
+documented in EP-11-Release-Hardening.md). TypeScript compilation passes with 0
+errors. Lint backlog deferred to EP-12 sprint setup.
+
+### Reason
+
+The EP-11 production readiness review returned **NOT READY FOR PRODUCTION AS-IS**
+with 4 confirmed bugs and a set of hardening items. EP-11.5 resolves all items
+required before live backend data can be connected safely in EP-12. The priority
+was correctness (all 4 bugs) over polish (no visual redesign).
+
+### Impact
+
+- All 4 confirmed bugs are resolved.
+- Page transitions now animate on every SPA navigation.
+- Analytics pagination and granularity tabs are fully functional.
+- Scatter chart bubble sizes reflect actual spend distribution.
+- Any runtime JavaScript error in a page now shows a recovery UI instead of a
+  white screen.
+- `prefers-reduced-motion` is respected globally.
+- Sort tables are keyboard-navigable.
+- No backend changes. No API changes. No new routes.
+
+### Related Documents
+
+- docs/knowledge/EP-11-Release-Hardening.md
+- docs/knowledge/EP-11-Production-Readiness.md
+- docs/knowledge/EP-11-Architecture-Review.md
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

@@ -18,6 +18,7 @@ import {
   flexRender,
   createColumnHelper,
   type SortingState,
+  type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, Download } from "lucide-react";
@@ -45,7 +46,7 @@ export default function Analytics() {
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([{ id: "total_cost", desc: true }]);
-  const [pageSize, setPageSize] = useState(25);
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
 
   const timeSeries = useTimeSeries();
   const models = useModels();
@@ -116,8 +117,9 @@ export default function Analytics() {
   const table = useReactTable({
     data: tableData,
     columns,
-    state: { sorting, globalFilter: search, pagination: { pageIndex: 0, pageSize } },
+    state: { sorting, globalFilter: search, pagination },
     onSortingChange: setSorting,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -183,7 +185,10 @@ export default function Analytics() {
             {(["daily", "weekly", "monthly"] as Granularity[]).map((g) => (
               <button
                 key={g}
-                onClick={() => setGranularity(g)}
+                onClick={() => {
+                  setGranularity(g);
+                  useUIStore.getState().setGranularity(g);
+                }}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-all capitalize
                   ${granularity === g ? "bg-app-card text-tx-primary shadow-card" : "text-tx-muted hover:text-tx-secondary"}`}
               >
@@ -248,8 +253,8 @@ export default function Analytics() {
             </button>
           </div>
           <select
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
+            value={pagination.pageSize}
+            onChange={(e) => setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Number(e.target.value) }))}
             className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none"
           >
             {[10, 25, 50].map((n) => <option key={n} value={n}>{n} rows</option>)}
@@ -265,6 +270,18 @@ export default function Analytics() {
                     <th
                       key={header.id}
                       onClick={header.column.getToggleSortingHandler()}
+                      onKeyDown={(e) => {
+                        if ((e.key === "Enter" || e.key === " ") && header.column.getCanSort()) {
+                          e.preventDefault();
+                          header.column.getToggleSortingHandler()?.(e);
+                        }
+                      }}
+                      tabIndex={header.column.getCanSort() ? 0 : undefined}
+                      aria-sort={
+                        !header.column.getCanSort() ? undefined :
+                        header.column.getIsSorted() === "asc" ? "ascending" :
+                        header.column.getIsSorted() === "desc" ? "descending" : "none"
+                      }
                       className={header.column.getCanSort() ? "cursor-pointer select-none" : ""}
                     >
                       <span className="flex items-center gap-1">

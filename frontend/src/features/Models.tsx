@@ -4,6 +4,7 @@ import {
   Scatter,
   XAxis,
   YAxis,
+  ZAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
@@ -137,6 +138,17 @@ export default function Models() {
                       ))}
                     </tr>
                   ))
+                : filtered.length === 0
+                  ? (
+                    <tr>
+                      <td colSpan={9} className="py-0">
+                        <div className="flex flex-col items-center justify-center py-10 text-center">
+                          <p className="text-sm font-medium text-tx-primary mb-1">No models found</p>
+                          <p className="text-xs text-tx-muted">Try a different search term.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )
                 : filtered.map((m, i) => {
                     const rank = sorted.indexOf(m) + 1;
                     const pct = pctRankOf(parseFloat(m.avg_cost_per_request));
@@ -225,13 +237,13 @@ export default function Models() {
                 tickFormatter={(v) => `$${v.toFixed(2)}`}
                 width={52}
               />
+              <ZAxis type="number" dataKey="z" range={[40, 800]} name="Total Spend ($)" />
               <Tooltip content={<CustomScatterTooltip />} />
               <Scatter data={scatterData} fillOpacity={0.8}>
                 {scatterData.map((entry, i) => (
                   <Cell
                     key={i}
                     fill={PROVIDER_COLORS[entry.provider] ?? "#4F46E5"}
-                    r={Math.max(4, Math.min(20, (entry.z / 500)))}
                   />
                 ))}
               </Scatter>

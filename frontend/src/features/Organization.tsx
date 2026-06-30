@@ -100,48 +100,35 @@ export default function Organization() {
           <table className="w-full data-table">
             <thead>
               <tr>
-                <th
-                  className="cursor-pointer"
-                  onClick={() => toggleSort("department_name")}
-                >
-                  <span className="flex items-center gap-1">
-                    Department <SortIcon col="department_name" />
-                  </span>
-                </th>
-                <th
-                  className="cursor-pointer"
-                  onClick={() => toggleSort("team_count")}
-                >
-                  <span className="flex items-center gap-1">
-                    Teams <SortIcon col="team_count" />
-                  </span>
-                </th>
-                <th>Projects</th>
-                <th
-                  className="cursor-pointer"
-                  onClick={() => toggleSort("request_count")}
-                >
-                  <span className="flex items-center gap-1">
-                    Requests <SortIcon col="request_count" />
-                  </span>
-                </th>
-                <th
-                  className="cursor-pointer"
-                  onClick={() => toggleSort("total_cost")}
-                >
-                  <span className="flex items-center gap-1">
-                    Spend <SortIcon col="total_cost" />
-                  </span>
-                </th>
-                <th>Budget</th>
-                <th
-                  className="cursor-pointer w-48"
-                  onClick={() => toggleSort("budget_utilization_pct")}
-                >
-                  <span className="flex items-center gap-1">
-                    Utilization <SortIcon col="budget_utilization_pct" />
-                  </span>
-                </th>
+                {(
+                  [
+                    { key: "department_name", label: "Department" },
+                    { key: "team_count",      label: "Teams" },
+                    { key: null,              label: "Projects" },
+                    { key: "request_count",   label: "Requests" },
+                    { key: "total_cost",      label: "Spend" },
+                    { key: null,              label: "Budget" },
+                    { key: "budget_utilization_pct", label: "Utilization", className: "w-48" },
+                  ] as { key: SortKey | null; label: string; className?: string }[]
+                ).map(({ key, label, className }) =>
+                  key ? (
+                    <th
+                      key={label}
+                      className={cn("cursor-pointer", className)}
+                      tabIndex={0}
+                      role="columnheader"
+                      aria-sort={sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+                      onClick={() => toggleSort(key)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSort(key); } }}
+                    >
+                      <span className="flex items-center gap-1">
+                        {label} <SortIcon col={key} />
+                      </span>
+                    </th>
+                  ) : (
+                    <th key={label} className={className}>{label}</th>
+                  )
+                )}
               </tr>
             </thead>
             <tbody>

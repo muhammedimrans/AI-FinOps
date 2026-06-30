@@ -10,8 +10,9 @@ import {
   Legend,
 } from "recharts";
 import { motion } from "framer-motion";
-import { TrendingUp, Activity, Boxes, Zap } from "lucide-react";
+import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
 import ChartCard from "../components/ChartCard";
+import EmptyState from "../components/EmptyState";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../lib/utils";
@@ -64,6 +65,12 @@ export default function Providers() {
             <div key={i} className="glass-card border border-border-subtle p-5 h-44 skeleton" />
           ))}
         </div>
+      ) : providerList.length === 0 ? (
+        <EmptyState
+          icon={Plug}
+          title="No providers found"
+          description="No AI provider spend in the selected period."
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {providerList.map((p, i) => {

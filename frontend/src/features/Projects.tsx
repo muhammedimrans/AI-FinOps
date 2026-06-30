@@ -10,6 +10,7 @@ import { cn } from "../lib/utils";
 
 function MiniTrendLine({ data, positive }: { data: string[]; positive: boolean }) {
   const nums = data.map(parseFloat);
+  if (nums.length < 2) return null;
   const min = Math.min(...nums);
   const max = Math.max(...nums);
   const range = max - min || 1;

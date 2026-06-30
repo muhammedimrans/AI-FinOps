@@ -112,6 +112,52 @@ class TestSettings:
 
 
 @pytest.mark.unit
+class TestDatabaseUrlNormalization:
+    BASE = "a" * 32
+
+    def _url(self, raw: str) -> str:
+        return Settings(app_secret_key=self.BASE, DATABASE_URL=raw).database_url
+
+    def test_postgres_scheme_rewritten_to_asyncpg(self) -> None:
+        assert self._url("postgres://u:p@host/db").startswith("postgresql+asyncpg://")
+
+    def test_postgresql_scheme_rewritten_to_asyncpg(self) -> None:
+        assert self._url("postgresql://u:p@host/db").startswith("postgresql+asyncpg://")
+
+    def test_asyncpg_scheme_left_unchanged(self) -> None:
+        url = self._url("postgresql+asyncpg://u:p@host/db")
+        assert url.startswith("postgresql+asyncpg://")
+
+    def test_sslmode_require_converted_for_postgres_scheme(self) -> None:
+        url = self._url("postgres://u:p@host/db?sslmode=require")
+        assert "ssl=require" in url
+        assert "sslmode=" not in url
+
+    def test_sslmode_require_converted_for_postgresql_scheme(self) -> None:
+        url = self._url("postgresql://u:p@host/db?sslmode=require")
+        assert "ssl=require" in url
+        assert "sslmode=" not in url
+
+    def test_sslmode_require_converted_for_asyncpg_scheme(self) -> None:
+        url = self._url("postgresql+asyncpg://u:p@host/db?sslmode=require")
+        assert "ssl=require" in url
+        assert "sslmode=" not in url
+
+    def test_url_without_ssl_params_unchanged(self) -> None:
+        url = self._url("postgresql+asyncpg://u:p@host/db")
+        assert "ssl" not in url
+
+    def test_ssl_require_already_present_not_doubled(self) -> None:
+        url = self._url("postgresql+asyncpg://u:p@host/db?ssl=require")
+        assert url.count("ssl=require") == 1
+
+    def test_other_query_params_preserved(self) -> None:
+        url = self._url("postgres://u:p@host/db?sslmode=require&connect_timeout=10")
+        assert "connect_timeout=10" in url
+        assert "ssl=require" in url
+
+
+@pytest.mark.unit
 class TestGetSettings:
     def test_get_settings_returns_settings_instance(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("APP_SECRET_KEY", "a" * 32)

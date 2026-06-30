@@ -478,12 +478,12 @@ The observation: the EP-09 analytics schemas (`ProviderBreakdownItem`, `ModelBre
 |----|----------|------|--------|-----------|
 | PRR-01 | HIGH | No org membership verification — any authenticated user can query any org's financial data | Confidentiality breach in multi-tenant production | EP-11: derive org from JWT claims or verify membership in DB |
 | PRR-02 | HIGH | No RBAC — `BILLING_READ` permission not checked | Unauthorized access to financial data | EP-11: add `RequirePermission(BILLING_READ)` on all dashboard endpoints |
-| PRR-03 | MEDIUM | Invalid `granularity` silently returns daily format | Frontend receives unexpected data shape without error | EP-11 (pre-React): change to `Literal` type, return 422 for invalid values |
-| PRR-04 | MEDIUM | No `start_date <= end_date` validation | Frontend receives empty response for inverted range, difficult to debug | EP-11: add shared date range validator |
+| PRR-03 | MEDIUM | ~~Invalid `granularity` silently returns daily format~~ | ~~Frontend receives unexpected data shape without error~~ | ✅ RESOLVED (EP-10.5): `Granularity` enum added; FastAPI returns 422 for invalid values |
+| PRR-04 | MEDIUM | ~~No `start_date <= end_date` validation~~ | ~~Frontend receives empty response for inverted range, difficult to debug~~ | ✅ RESOLVED (EP-10.5): date range validation added to 6 endpoints; raises 422 |
 | PRR-05 | LOW | `/organization` has ~10 sequential DB queries | High latency for composite endpoint under concurrent load | EP-11: parallelize with `asyncio.gather()` |
 | PRR-06 | LOW | No Redis caching on `/overview` or `/organization` | High DB load from frequent dashboard refreshes | EP-11: add caching layer with TTL 60–300s |
-| PRR-07 | LOW | `/organization` has no `response_model` | OpenAPI spec is incomplete; TypeScript client generation broken for this endpoint | EP-11: define `OrganizationDashboardResponse` schema |
-| PRR-08 | LOW | Breakdown `total_cost` may sum across currencies in multi-currency deployments | Financially incorrect cross-currency sum displayed to users | EP-11: add currency check before summation |
+| PRR-07 | LOW | ~~`/organization` has no `response_model`~~ | ~~OpenAPI spec is incomplete; TypeScript client generation broken for this endpoint~~ | ✅ RESOLVED (EP-10.5): `OrganizationDashboardResponse` schema defined; `response_model` set |
+| PRR-08 | LOW | ~~Breakdown `total_cost` may sum across currencies in multi-currency deployments~~ | ~~Financially incorrect cross-currency sum displayed to users~~ | ✅ RESOLVED (EP-10.5): currency filter applied before cost summation in 5 endpoints |
 | PRR-09 | LOW | No max date range enforcement on `/time-series` | Very large date ranges cause slow queries and large responses | EP-11: add 731-day max range validation |
 | PRR-10 | LOW | Minimal observability (only overview has structured log event) | Slow or failing sub-calls not individually observable | EP-11: add structured log events to all service methods |
 
@@ -517,10 +517,12 @@ Total EP-10.5 effort: approximately 2 hours of code changes plus test updates.
 
 ## Final Verdict
 
-**EP-10 is APPROVED for development and staging environments.**
+**EP-10 is APPROVED AND FROZEN for development and staging environments.**
 
 **EP-10 is NOT APPROVED for multi-tenant production** due to PRR-01 (no org membership verification) and PRR-02 (no RBAC). These are the same security gaps that were present in EP-09 and are explicitly documented as EP-11 prerequisites.
 
-The engineering quality of EP-10 is high. The delegation pattern is correct, the test coverage is comprehensive, the DTO design is sound, and the EP-09 foundation it builds on is solid. The dashboard API layer is ready for integration with the React dashboard frontend in EP-11, contingent on resolving G-03 and G-04 before React development begins.
+EP-10 Release Hardening (2026-06-30) resolved PRR-03 (granularity validation), PRR-04 (date range validation), PRR-07 (response_model for /organization), and PRR-08 (currency filtering). The remaining production risks (PRR-01, PRR-02, PRR-05, PRR-06, PRR-09, PRR-10) are deferred to EP-11.
 
-**Clearance for EP-11:** GRANTED, with the recommendation that G-03 and G-04 are resolved in EP-11 Sprint 1 before React dashboard API integration testing begins.
+The engineering quality of EP-10 is high. The delegation pattern is correct, the test coverage is comprehensive (1010 passed, 0 failed), the DTO design is sound, and the EP-09 foundation it builds on is solid. The dashboard API layer is ready for integration with the React dashboard frontend in EP-11.
+
+**Clearance for EP-11:** GRANTED. G-03 and G-04 have been resolved in EP-10 Release Hardening. EP-11 React dashboard development may begin immediately.

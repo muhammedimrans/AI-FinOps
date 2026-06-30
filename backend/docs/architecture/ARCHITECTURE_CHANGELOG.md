@@ -1,5 +1,47 @@
 # Architecture Changelog
 
+## [0.10.2] — EP-10 Release Hardening (2026-06-30)
+
+### Sprint Outcome
+
+**EP-10 APPROVED AND FROZEN.** All approved findings from the EP-10 Architecture Review and Production Readiness Assessment have been resolved. EP-11 (React Dashboard) may begin.
+
+### Findings Resolved
+
+| ID | Severity | Finding | Resolution |
+|----|----------|---------|------------|
+| RH-01 (REV-01) | MEDIUM | Invalid `granularity` silently degraded to daily | `Granularity(str, enum.Enum)` added; FastAPI returns 422 for invalid values |
+| RH-02 (REV-02/07) | MEDIUM | No `start_date <= end_date` validation | HTTPException(422) added to 6 endpoints |
+| RH-02b (REV-06) | LOW | Breakdown `total_cost` summed across currencies | Currency filter applied before cost summation in 5 endpoint handlers |
+| RH-03 (REV-03) | LOW | `timedelta` imported inside function body | Moved to module-level import |
+| RH-04 (REV-04) | LOW | `/organization` had no `response_model` | `OrganizationDashboardResponse` schema defined; `response_model` set |
+| RH-05 (REV-05) | LOW | Composite endpoint sequential queries undocumented | Comment added documenting why asyncio.gather() is intentionally not used (shared AsyncSession safety) |
+
+### Test Results
+
+```
+EP-10 test suite:   97 passed, 0 failed  (78 original + 19 new regression tests)
+Full test suite:  1010 passed, 30 skipped (integration — no live DB), 0 failed
+```
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `app/api/v1/dashboard.py` | `Granularity` enum; `timedelta` import moved; date range validation on 6 endpoints; currency filtering on 5 endpoints; `response_model` on `/organization`; sequential query comment |
+| `app/schemas/dashboard.py` | 6 new schema classes for composite endpoint: `OrganizationOverviewBlock`, `OrganizationProviderItem`, `OrganizationModelItem`, `OrganizationProjectItem`, `OrganizationTrendPoint`, `OrganizationDashboardResponse` |
+| `tests/test_ep10.py` | 19 new regression tests: `TestRH01GranularityValidation` (6), `TestRH02DateRangeValidation` (8), `TestRH02CurrencyFiltering` (2), `TestRH03ResponseModelOrganization` (3) |
+| `docs/knowledge/EP-10-Release-Hardening.md` | Sprint report (new) |
+| `docs/knowledge/EP-10-Architecture-Review.md` | All REV-01 through REV-07 marked RESOLVED; Final Decision updated to "APPROVED AND FROZEN (post-hardening)" |
+| `docs/knowledge/EP-10-Production-Readiness.md` | PRR-03, PRR-04, PRR-07, PRR-08 marked RESOLVED; Final Verdict updated |
+| `docs/architecture/ARCHITECTURE_CHANGELOG.md` | This entry |
+
+### Stop Condition
+
+EP-10 is frozen. No further changes to `app/dashboard/`, `app/api/v1/dashboard.py`, or `app/schemas/dashboard.py` will be made in EP-10. EP-11 (React Dashboard) begins on the next sprint.
+
+---
+
 ## [0.10.1] — EP-10 Engineering Review (2026-06-30)
 
 ### Review Outcome

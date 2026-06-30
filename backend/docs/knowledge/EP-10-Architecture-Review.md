@@ -20,7 +20,7 @@ EP-10 is approved for development and staging deployment. No findings block merg
 
 **Overall Score: 8.7 / 10**
 
-**Final Decision: APPROVED WITH MINOR CHANGES**
+**Final Decision: APPROVED AND FROZEN (post-hardening)**
 
 ---
 
@@ -363,19 +363,17 @@ If `DashboardService` returned strings, it would be impossible to use the servic
 
 ## Required Changes Before EP-11
 
-| ID | Severity | Finding | Recommended Action |
-|----|----------|---------|-------------------|
-| REV-01 | MEDIUM | Invalid granularity silently degrades to daily | Add `Literal["daily", "weekly", "monthly"]` type annotation; return 422 for invalid values |
-| REV-02 | MEDIUM | No `start_date <= end_date` validation | Add shared date range validator; raise 422 when inverted |
-| REV-03 | LOW | `timedelta` imported inside function body | Move to module-level import |
-| REV-04 | LOW | `/organization` has no `response_model` | Define `OrganizationDashboardResponse` schema (can defer to EP-11) |
-| REV-05 | LOW | Composite endpoint sequential queries | Use `asyncio.gather()` for independent calls (can defer to EP-11) |
-| REV-06 | LOW | Breakdown `total_cost` may sum across currencies | Add multi-currency guard (can defer to EP-11) |
-| REV-07 | LOW | No inverted date range validation in `/organization` | Covered by REV-02 |
+| ID | Severity | Finding | Status |
+|----|----------|---------|--------|
+| REV-01 | MEDIUM | Invalid granularity silently degrades to daily | ✅ RESOLVED — `Granularity(str, enum.Enum)` added; FastAPI returns 422 for invalid values |
+| REV-02 | MEDIUM | No `start_date <= end_date` validation | ✅ RESOLVED — HTTPException(422) added to 6 endpoints |
+| REV-03 | LOW | `timedelta` imported inside function body | ✅ RESOLVED — moved to module-level import |
+| REV-04 | LOW | `/organization` has no `response_model` | ✅ RESOLVED — `OrganizationDashboardResponse` schema defined; `response_model` set |
+| REV-05 | LOW | Composite endpoint sequential queries | ✅ DOCUMENTED — sequential execution intentional (shared AsyncSession not safe for gather); comment added; deferred to EP-11 |
+| REV-06 | LOW | Breakdown `total_cost` may sum across currencies | ✅ RESOLVED — currency filter applied before summation in 5 endpoints |
+| REV-07 | LOW | No inverted date range validation in `/organization` | ✅ RESOLVED — covered by REV-02 resolution |
 
-**Blocking for EP-11 start:** REV-01 and REV-02 are MEDIUM and should be resolved before the React dashboard is built, as incorrect responses on invalid input would be difficult for frontend developers to debug.
-
-**Non-blocking for EP-11 start:** REV-03 through REV-07 are LOW and can be resolved within EP-11 sprint without blocking EP-11 feature development.
+All findings resolved in EP-10 Release Hardening sprint (2026-06-30). See `EP-10-Release-Hardening.md` for full details.
 
 ---
 
@@ -403,8 +401,8 @@ The following items are deferred from EP-10 and must be implemented in EP-11:
 
 ## Final Decision
 
-**APPROVED WITH MINOR CHANGES**
+**APPROVED AND FROZEN (post-hardening)**
 
-EP-10 is production-ready for development and staging environments. The architecture is sound, the delegation pattern is correct, and the test coverage is comprehensive. Two MEDIUM findings (REV-01 invalid granularity, REV-02 date range validation) should be resolved before or during EP-11 sprint 1 to avoid frontend debugging confusion. Five LOW findings can be addressed within EP-11 without blocking feature development.
+EP-10 Release Hardening (2026-06-30) resolved all findings from this review. All MEDIUM findings (REV-01, REV-02) are fully corrected. All LOW findings are resolved or intentionally documented and deferred. Test results: 1010 passed, 0 failed. EP-11 (React Dashboard) may begin.
 
-The security posture (org membership and RBAC deferred) is identical to EP-09 and is acceptable for the current environment. EP-11 MUST close these gaps before production promotion.
+The security posture (org membership and RBAC deferred) is identical to EP-09 and is acceptable for development/staging. EP-11 MUST close these gaps before production promotion.

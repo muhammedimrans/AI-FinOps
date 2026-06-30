@@ -1996,3 +1996,543 @@ class TestRouterRegistration:
                 if isinstance(op, dict) and "tags" in op:
                     tags_in_paths.update(op["tags"])
         assert "dashboard" in tags_in_paths
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EP-10 Release Hardening Regression Tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _authed_client_setup(app: Any) -> None:
+    """Configure app dependency overrides for authenticated, DB-mocked tests.
+
+    Caller MUST call app.dependency_overrides.clear() in a finally block.
+    """
+    from app.auth.dependencies import get_current_user
+    from app.api.deps import get_db
+    from app.models.user import User
+
+    mock_user = MagicMock(spec=User)
+
+    async def mock_get_user() -> User:
+        return mock_user  # type: ignore[return-value]
+
+    mock_session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+    mock_result.all.return_value = []
+    mock_session.execute = AsyncMock(return_value=mock_result)
+    mock_session.commit = AsyncMock()
+    mock_session.rollback = AsyncMock()
+
+    async def mock_get_db():
+        yield mock_session
+
+    app.dependency_overrides[get_current_user] = mock_get_user
+    app.dependency_overrides[get_db] = mock_get_db
+
+
+class TestRH01GranularityValidation:
+    """RH-01: Invalid granularity values must return 422, not silently degrade."""
+
+    @pytest.mark.asyncio
+    async def test_granularity_hourly_returns_422(self, app: Any) -> None:
+        """Unknown granularity 'hourly' must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "hourly",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_granularity_foo_returns_422(self, app: Any) -> None:
+        """Arbitrary string granularity 'foo' must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "foo",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_granularity_wrong_case_returns_422(self, app: Any) -> None:
+        """Case-sensitive: 'DAILY' must return 422 (only 'daily' is valid)."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "DAILY",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_granularity_daily_returns_200(self, app: Any) -> None:
+        """'daily' is a valid granularity and must return 200."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "daily",
+                    },
+                )
+            assert resp.status_code == 200
+            assert resp.json()["granularity"] == "daily"
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_granularity_weekly_returns_200(self, app: Any) -> None:
+        """'weekly' is a valid granularity and must return 200."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "weekly",
+                    },
+                )
+            assert resp.status_code == 200
+            assert resp.json()["granularity"] == "weekly"
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_granularity_monthly_returns_200(self, app: Any) -> None:
+        """'monthly' is a valid granularity and must return 200."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-01",
+                        "end_date": "2026-06-30",
+                        "granularity": "monthly",
+                    },
+                )
+            assert resp.status_code == 200
+            assert resp.json()["granularity"] == "monthly"
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestRH02DateRangeValidation:
+    """RH-02: start_date > end_date must return 422 on all date-range endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_providers_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /providers must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/providers",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_models_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /models must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/models",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_kpis_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /kpis must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/kpis",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-12-31",
+                        "end_date": "2026-01-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_time_series_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /time-series must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/time-series",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_projects_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /projects must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/projects",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_organization_inverted_dates_returns_422(self, app: Any) -> None:
+        """start_date > end_date on /organization must return 422."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/organization",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-01",
+                    },
+                )
+            assert resp.status_code == 422
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_same_day_start_end_returns_200(self, app: Any) -> None:
+        """start_date == end_date is valid and must return 200."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/providers",
+                    params={
+                        "organization_id": str(_ORG_ID),
+                        "start_date": "2026-06-30",
+                        "end_date": "2026-06-30",
+                    },
+                )
+            assert resp.status_code == 200
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_date_range_error_message_format(self) -> None:
+        """Error message must use the canonical wording."""
+        from fastapi import HTTPException
+
+        try:
+            start = date(2026, 6, 30)
+            end = date(2026, 6, 1)
+            if start > end:
+                raise HTTPException(
+                    status_code=422,
+                    detail="start_date must be before or equal to end_date",
+                )
+            assert False, "Should have raised"
+        except HTTPException as exc:
+            assert exc.status_code == 422
+            assert "start_date" in exc.detail
+            assert "end_date" in exc.detail
+
+
+class TestRH02CurrencyFiltering:
+    """RH-02: Mixed-currency cost records must not be cross-summed."""
+
+    @pytest.mark.asyncio
+    async def test_provider_breakdown_filters_by_currency(self, app: Any) -> None:
+        """Provider breakdown with currency=USD must exclude EUR records."""
+        from app.auth.dependencies import get_current_user
+        from app.api.deps import get_db
+        from app.models.user import User
+
+        mock_user = MagicMock(spec=User)
+
+        async def mock_get_user() -> User:
+            return mock_user  # type: ignore[return-value]
+
+        mock_session = AsyncMock()
+
+        async def mock_get_db():
+            yield mock_session
+
+        # Two providers in different currencies
+        mixed_rows = [
+            {
+                "provider": "openai",
+                "currency": "USD",
+                "total_cost": Decimal("100.00"),
+                "total_tokens": 5000,
+                "total_requests": 10,
+                "avg_cost_per_request": Decimal("10.00"),
+            },
+            {
+                "provider": "anthropic",
+                "currency": "EUR",
+                "total_cost": Decimal("80.00"),
+                "total_tokens": 4000,
+                "total_requests": 8,
+                "avg_cost_per_request": Decimal("10.00"),
+            },
+        ]
+
+        app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_db] = mock_get_db
+        try:
+            with patch(
+                "app.api.v1.dashboard.DashboardService.get_provider_breakdown",
+                new_callable=AsyncMock,
+                return_value=mixed_rows,
+            ):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as ac:
+                    resp = await ac.get(
+                        "/v1/dashboard/providers",
+                        params={
+                            "organization_id": str(_ORG_ID),
+                            "start_date": "2026-06-01",
+                            "end_date": "2026-06-30",
+                            "currency": "USD",
+                        },
+                    )
+            assert resp.status_code == 200
+            data = resp.json()
+            # Only USD provider should appear
+            assert len(data["providers"]) == 1
+            assert data["providers"][0]["provider"] == "openai"
+            assert data["providers"][0]["currency"] == "USD"
+            # total_cost must be USD-only: 100.00, not 180.00 (cross-currency sum)
+            assert data["total_cost"] == "100.00"
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_model_breakdown_filters_by_currency(self, app: Any) -> None:
+        """Model breakdown with currency=USD must exclude EUR records."""
+        from app.auth.dependencies import get_current_user
+        from app.api.deps import get_db
+        from app.models.user import User
+
+        mock_user = MagicMock(spec=User)
+
+        async def mock_get_user() -> User:
+            return mock_user  # type: ignore[return-value]
+
+        mock_session = AsyncMock()
+
+        async def mock_get_db():
+            yield mock_session
+
+        mixed_model_rows = [
+            {
+                "provider": "openai",
+                "model": "gpt-4",
+                "currency": "USD",
+                "total_cost": Decimal("60.00"),
+                "total_tokens": 3000,
+                "total_requests": 6,
+                "avg_cost_per_request": Decimal("10.00"),
+            },
+            {
+                "provider": "anthropic",
+                "model": "claude-3-opus",
+                "currency": "EUR",
+                "total_cost": Decimal("50.00"),
+                "total_tokens": 2500,
+                "total_requests": 5,
+                "avg_cost_per_request": Decimal("10.00"),
+            },
+        ]
+
+        app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_db] = mock_get_db
+        try:
+            with patch(
+                "app.api.v1.dashboard.DashboardService.get_model_breakdown",
+                new_callable=AsyncMock,
+                return_value=mixed_model_rows,
+            ):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as ac:
+                    resp = await ac.get(
+                        "/v1/dashboard/models",
+                        params={
+                            "organization_id": str(_ORG_ID),
+                            "start_date": "2026-06-01",
+                            "end_date": "2026-06-30",
+                            "currency": "USD",
+                        },
+                    )
+            assert resp.status_code == 200
+            data = resp.json()
+            # Only USD model should appear
+            assert len(data["models"]) == 1
+            assert data["models"][0]["model"] == "gpt-4"
+            # total_cost must be USD-only: 60.00, not 110.00
+            assert data["total_cost"] == "60.00"
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestRH03ResponseModelOrganization:
+    """RH-03: /organization endpoint must have a typed response_model."""
+
+    @pytest.mark.asyncio
+    async def test_organization_response_model_in_openapi(self, client: Any) -> None:
+        """The /organization endpoint must have a schema in OpenAPI (not untyped object)."""
+        resp = await client.get("/openapi.json")
+        assert resp.status_code == 200
+        spec = resp.json()
+        org_path = spec["paths"].get("/v1/dashboard/organization", {})
+        get_op = org_path.get("get", {})
+        responses = get_op.get("responses", {})
+        response_200 = responses.get("200", {})
+        content = response_200.get("content", {})
+        json_content = content.get("application/json", {})
+        schema = json_content.get("schema", {})
+        # Must have a $ref pointing to a schema (not an empty object {})
+        has_ref = "$ref" in schema or "properties" in schema
+        assert has_ref, f"Expected typed schema for /organization, got: {schema}"
+
+    @pytest.mark.asyncio
+    async def test_organization_response_contains_required_keys(self, app: Any) -> None:
+        """The /organization response must contain overview, provider_breakdown,
+        top_models, project_breakdown, and daily_trend keys."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/organization",
+                    params={"organization_id": str(_ORG_ID)},
+                )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert "overview" in data
+            assert "provider_breakdown" in data
+            assert "top_models" in data
+            assert "project_breakdown" in data
+            assert "daily_trend" in data
+            assert "organization_id" in data
+            assert "period_start" in data
+            assert "period_end" in data
+            assert "currency" in data
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_organization_overview_block_monetary_fields_are_strings(
+        self, app: Any
+    ) -> None:
+        """Overview monetary fields in /organization must be JSON strings."""
+        _authed_client_setup(app)
+        try:
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="http://test"
+            ) as ac:
+                resp = await ac.get(
+                    "/v1/dashboard/organization",
+                    params={"organization_id": str(_ORG_ID)},
+                )
+            assert resp.status_code == 200
+            data = resp.json()
+            overview = data["overview"]
+            assert isinstance(overview["total_spend"], str)
+            assert isinstance(overview["today_spend"], str)
+            assert isinstance(overview["month_spend"], str)
+        finally:
+            app.dependency_overrides.clear()

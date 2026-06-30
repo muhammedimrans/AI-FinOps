@@ -1,5 +1,60 @@
 # Architecture Changelog
 
+## [0.10.0] — EP-10 Dashboard API (2026-06-30)
+
+### Summary
+
+EP-10 delivers the Dashboard API & Executive Analytics Layer (F-060 through F-066). It introduces a new `app/dashboard/` package, 7 REST endpoints under `/v1/dashboard/`, 9 Pydantic DTOs, and 78 tests. Zero new business logic — all data access delegates to EP-09 services and repositories.
+
+### Features Added
+
+| Feature | Artifact | Description |
+|---------|----------|-------------|
+| F-060 | `GET /v1/dashboard/overview` | Executive summary: total/today/month spend, active providers/models, collection status |
+| F-061 | `GET /v1/dashboard/time-series` | Cost trend with daily, weekly, monthly granularities |
+| F-062 | `GET /v1/dashboard/providers` | Per-provider cost breakdown with avg cost per request |
+| F-063 | `GET /v1/dashboard/models` | Per-model cost breakdown, sorted by cost, SQL LIMIT applied |
+| F-064 | `GET /v1/dashboard/organization` | Composite: overview + providers + top 5 models + projects + 30-day trend |
+| F-065 | `GET /v1/dashboard/projects` | Per-project cost breakdown |
+| F-066 | `GET /v1/dashboard/kpis` | Derived KPIs: highest-cost provider/model, avg cost per request/token |
+
+### Files Created
+
+| File | Description |
+|------|-------------|
+| `app/dashboard/__init__.py` | Package marker |
+| `app/dashboard/service.py` | DashboardService — thin orchestration layer |
+| `app/schemas/dashboard.py` | 9 Pydantic DTOs with Decimal-as-string serialization |
+| `app/api/v1/dashboard.py` | 7 REST API endpoints |
+| `tests/test_ep10.py` | 78 tests |
+| `docs/knowledge/EP-10-Knowledge-Transfer.md` | Knowledge transfer |
+| `docs/engineering/EP-10-Completion-Report.md` | Completion report |
+| `docs/architecture/Dashboard-API-Architecture.md` | Architecture document |
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `app/api/router.py` | Added dashboard router |
+| `docs/architecture/ARCHITECTURE_CHANGELOG.md` | This entry |
+
+### Architecture Decisions
+
+- **DashboardService is orchestration-only**: No new SQL, no new business logic. All computation delegated to EP-09.
+- **Lazy dependency instantiation**: Repos and AnalyticsService created inside service methods, not in `__init__`.
+- **Decimal-as-string at DTO boundary**: Consistent with EP-09 pattern.
+- **Org membership deferred**: EP-11 will add membership and RBAC checks.
+
+### Test Results
+
+78 passed (EP-10 suite). 991 passed, 30 skipped (full suite). 0 regressions.
+
+### Stop Condition
+
+EP-10 is complete. EP-11 has not been started.
+
+---
+
 ## [0.9.2] — EP-09 Release Hardening (2026-06-30)
 
 ### Summary

@@ -63,12 +63,12 @@ class UsageCollectionRun(BaseModel):
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[CollectionRunStatus] = mapped_column(
-        SQLEnum(CollectionRunStatus, name="collection_run_status", create_type=True),
+        SQLEnum(CollectionRunStatus, name="collection_run_status", create_type=True, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=CollectionRunStatus.PENDING,
     )
     triggered_by: Mapped[CollectionTrigger] = mapped_column(
-        SQLEnum(CollectionTrigger, name="collection_trigger", create_type=True),
+        SQLEnum(CollectionTrigger, name="collection_trigger", create_type=True, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=CollectionTrigger.MANUAL,
     )

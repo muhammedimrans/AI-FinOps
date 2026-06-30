@@ -76,7 +76,7 @@ class ProviderConnection(BaseModel):
     provider_name: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     provider_type: Mapped[ProviderType] = mapped_column(
-        SQLEnum(ProviderType, name="provider_type", create_type=True),
+        SQLEnum(ProviderType, name="provider_type", create_type=True, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(

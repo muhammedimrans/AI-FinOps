@@ -78,7 +78,7 @@ class Membership(BaseModel):
     )
     user_email: Mapped[str] = mapped_column(String(320), nullable=False)
     role: Mapped[MembershipRole] = mapped_column(
-        SQLEnum(MembershipRole, name="membership_role", create_type=True),
+        SQLEnum(MembershipRole, name="membership_role", create_type=True, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=MembershipRole.MEMBER,
     )

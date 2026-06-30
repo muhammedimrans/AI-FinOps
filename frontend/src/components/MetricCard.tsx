@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { cn, formatCost, formatNumber, formatPercent } from "../lib/utils";
+import { cn, formatCost, formatNumber } from "../lib/utils";
 
 type GradientVariant = "indigo" | "emerald" | "amber" | "blue" | "purple";
 
@@ -36,27 +35,8 @@ const ICON_BG: Record<GradientVariant, string> = {
   purple:  "bg-[rgba(168,85,247,0.12)] text-[#C084FC]",
 };
 
-function AnimatedNumber({ target, duration = 800 }: { target: number; duration?: number }) {
-  const [display, setDisplay] = useState(0);
-  const frame = useRef<number>();
-
-  useEffect(() => {
-    const start = performance.now();
-    const step = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      const ease = 1 - Math.pow(1 - progress, 3);
-      setDisplay(target * ease);
-      if (progress < 1) frame.current = requestAnimationFrame(step);
-    };
-    frame.current = requestAnimationFrame(step);
-    return () => { if (frame.current) cancelAnimationFrame(frame.current); };
-  }, [target, duration]);
-
-  return <>{display}</>;
-}
-
 function Sparkline({ data, color }: { data: number[]; color: string }) {
-  if (!data.length) return null;
+  if (data.length < 2) return null;
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
@@ -109,13 +89,6 @@ export default function MetricCard({
       </div>
     );
   }
-
-  const numericValue =
-    type === "currency"
-      ? parseFloat(String(value))
-      : type === "number"
-        ? Number(value)
-        : null;
 
   const formattedValue =
     type === "currency"

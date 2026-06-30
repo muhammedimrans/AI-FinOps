@@ -1,5 +1,5 @@
 import { Suspense, useEffect } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
@@ -22,6 +22,7 @@ function PageSkeleton() {
 
 export default function AppLayout() {
   const { theme } = useUIStore();
+  const location = useLocation();
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");

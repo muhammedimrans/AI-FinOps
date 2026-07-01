@@ -21,7 +21,7 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Filter, Download } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
@@ -151,9 +151,9 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Total Spend", value: formatCost(totalCost, currency, true), sub: "all providers" },
           { label: "Avg Cost/Request", value: formatCost(avgCost, currency), sub: "across models" },
@@ -210,9 +210,9 @@ export default function Analytics() {
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
             <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => formatCost(v, currency, true)} width={56} />
+            <YAxis tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCost(v, currency, true)} width={56} />
             <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatCost(v, currency, true)} />
-            <Legend formatter={(v) => <span style={{ color: "#94A3B8", fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
+            <Legend formatter={(v: string) => <span style={{ color: "#94A3B8", fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
             {PROVIDERS.map((p) => (
               <Area
                 key={p}
@@ -232,22 +232,22 @@ export default function Analytics() {
 
       {/* Data Table */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle gap-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-border-subtle gap-3">
           <div>
             <h3 className="text-sm font-semibold text-tx-primary">Model Breakdown</h3>
             <p className="text-xs text-tx-muted mt-0.5">{tableData.length} models</p>
           </div>
-          <div className="flex items-center gap-2 flex-1 max-w-sm">
+          <div className="flex items-center gap-2 sm:flex-1 sm:max-w-sm">
             <div className="relative flex-1">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-muted" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search models…"
-                className="w-full bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-primary focus:outline-none transition-colors"
+                className="w-full bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
               />
             </div>
-            <button onClick={exportCSV} className="btn-outline h-8 text-xs px-3">
+            <button onClick={exportCSV} className="btn-outline h-8 text-xs px-3 flex-shrink-0">
               <Download size={13} />
               CSV
             </button>
@@ -255,7 +255,7 @@ export default function Analytics() {
           <select
             value={pagination.pageSize}
             onChange={(e) => setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Number(e.target.value) }))}
-            className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none"
+            className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none self-start sm:self-auto"
           >
             {[10, 25, 50].map((n) => <option key={n} value={n}>{n} rows</option>)}
           </select>
@@ -287,8 +287,8 @@ export default function Analytics() {
                       <span className="flex items-center gap-1">
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {header.column.getCanSort() && (
-                          header.column.getIsSorted() === "asc" ? <ArrowUp size={10} /> :
-                          header.column.getIsSorted() === "desc" ? <ArrowDown size={10} /> :
+                          header.column.getIsSorted() === "asc" ? <ArrowUp size={10} className="text-brand" /> :
+                          header.column.getIsSorted() === "desc" ? <ArrowDown size={10} className="text-brand" /> :
                           <ArrowUpDown size={10} className="opacity-40" />
                         )}
                       </span>

@@ -78,9 +78,22 @@ export default function Models() {
     provider: m.provider,
   }));
 
-  const CustomScatterTooltip = ({ active, payload }: any) => {
+  interface ScatterPoint {
+    x: number;
+    y: number;
+    z: number;
+    name: string;
+    provider: string;
+  }
+
+  interface ScatterTooltipProps {
+    active?: boolean;
+    payload?: { payload: ScatterPoint }[];
+  }
+
+  const CustomScatterTooltip = ({ active, payload }: ScatterTooltipProps) => {
     if (!active || !payload?.length) return null;
-    const d = payload[0].payload;
+    const d = payload[0]!.payload;
     return (
       <div style={TOOLTIP_STYLE} className="p-3">
         <p className="font-medium text-tx-primary mb-1">{d.name}</p>
@@ -92,10 +105,10 @@ export default function Models() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Leaderboard */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-border-subtle">
           <div>
             <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
               <Medal size={14} className="text-warning" />
@@ -109,7 +122,7 @@ export default function Models() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search…"
-              className="w-48 bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-primary focus:outline-none transition-colors"
+              className="w-full sm:w-48 bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
             />
           </div>
         </div>
@@ -133,7 +146,7 @@ export default function Models() {
               {models.isLoading
                 ? Array.from({ length: 8 }, (_, i) => (
                     <tr key={i}>
-                      {[...Array(9)].map((_, j) => (
+                      {Array.from({ length: 9 }, (_, j) => (
                         <td key={j}><div className="h-4 skeleton rounded" /></td>
                       ))}
                     </tr>
@@ -149,7 +162,7 @@ export default function Models() {
                       </td>
                     </tr>
                   )
-                : filtered.map((m, i) => {
+                : filtered.map((m) => {
                     const rank = sorted.indexOf(m) + 1;
                     const pct = pctRankOf(parseFloat(m.avg_cost_per_request));
                     return (
@@ -234,7 +247,7 @@ export default function Models() {
                 tick={{ fill: "#475569", fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => `$${v.toFixed(2)}`}
+                tickFormatter={(v: number) => `$${v.toFixed(2)}`}
                 width={52}
               />
               <ZAxis type="number" dataKey="z" range={[40, 800]} name="Total Spend ($)" />

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
+import { toast } from "../stores/toast";
 import type { Currency } from "../types/api";
 
 const apiSchema = z.object({
@@ -118,10 +119,12 @@ export default function Settings() {
           setError(field, { message: issue.message });
         }
       }
+      toast.error("Couldn't save settings", "Fix the highlighted fields and try again.");
       return;
     }
     console.info("Settings saved", result.data);
     setSaved(true);
+    toast.success("API settings saved");
     setTimeout(() => setSaved(false), 2500);
   }
 

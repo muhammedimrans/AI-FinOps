@@ -4,6 +4,7 @@ import { Building2, AlertCircle, Loader2 } from "lucide-react";
 import { getOrganizations } from "../lib/api";
 import { useOrgStore } from "../stores/org";
 import type { BackendOrgMembershipItem } from "../types/backend";
+import { CostorahMark } from "./CostorahLogo";
 
 type State =
   | { status: "loading" }
@@ -39,21 +40,27 @@ export default function OrgSelector() {
   }, [setOrganization]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-app-bg p-4">
+    <div className="min-h-screen flex items-center justify-center bg-app-bg p-4 relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-brand-radial pointer-events-none" />
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.25, ease: "easeOut" }}
-        className="w-full max-w-sm"
+        className="w-full max-w-sm relative z-10"
       >
-        <div className="glass-card border border-border-subtle p-8">
-          <div className="w-10 h-10 rounded-xl bg-primary-subtle flex items-center justify-center mb-5">
-            <Building2 size={18} className="text-primary" />
+        <div className="flex items-center gap-2.5 justify-center mb-6">
+          <CostorahMark className="w-8 h-8" />
+          <span className="text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+        </div>
+
+        <div className="glass-panel shadow-glow-brand p-8">
+          <div className="w-10 h-10 rounded-xl bg-brand-subtle flex items-center justify-center mb-5">
+            <Building2 size={18} className="text-brand" />
           </div>
 
           {state.status === "loading" && (
             <div className="flex items-center gap-3 text-tx-muted text-sm">
-              <Loader2 size={16} className="animate-spin text-primary" />
+              <Loader2 size={16} className="animate-spin text-brand" />
               Loading organizations…
             </div>
           )}
@@ -85,10 +92,10 @@ export default function OrgSelector() {
                     key={org.id}
                     onClick={() => setOrganization(org.id, org.name)}
                     className="w-full text-left px-4 py-3 rounded-lg border border-border-subtle
-                               bg-app-bg hover:bg-primary-subtle hover:border-primary/40
-                               transition-colors duration-150 group"
+                               bg-app-bg/60 hover:bg-brand-subtle hover:border-brand/40
+                               transition-colors duration-fast group"
                   >
-                    <p className="text-sm font-medium text-tx-primary group-hover:text-primary">
+                    <p className="text-sm font-medium text-tx-primary group-hover:text-brand">
                       {org.name}
                     </p>
                     <p className="text-xs text-tx-muted mt-0.5 capitalize">{org.role}</p>

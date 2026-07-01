@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
+  BellOff,
   Sun,
   Moon,
   Search,
@@ -56,9 +57,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
     useUIStore();
   const [dateOpen, setDateOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
-  const [notifications] = useState(3);
+  const [notifOpen, setNotifOpen] = useState(false);
   const dateRef = useRef<HTMLDivElement>(null);
   const currencyRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const pageLabel = ROUTE_LABELS[location.pathname] ?? "Dashboard";
   const breadcrumb = location.pathname.split("/").filter(Boolean);
@@ -73,13 +75,14 @@ export default function Header({ onMenuClick }: HeaderProps) {
       if (e.key === "Escape") {
         setDateOpen(false);
         setCurrencyOpen(false);
+        setNotifOpen(false);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [setCommandOpen]);
 
-  // Close either dropdown when clicking outside of it.
+  // Close any open dropdown when clicking outside of it.
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
       if (dateOpen && dateRef.current && !dateRef.current.contains(e.target as Node)) {
@@ -88,13 +91,16 @@ export default function Header({ onMenuClick }: HeaderProps) {
       if (currencyOpen && currencyRef.current && !currencyRef.current.contains(e.target as Node)) {
         setCurrencyOpen(false);
       }
+      if (notifOpen && notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
     }
-    if (dateOpen || currencyOpen) {
+    if (dateOpen || currencyOpen || notifOpen) {
       document.addEventListener("mousedown", onClickOutside);
       return () => document.removeEventListener("mousedown", onClickOutside);
     }
     return undefined;
-  }, [dateOpen, currencyOpen]);
+  }, [dateOpen, currencyOpen, notifOpen]);
 
   function selectPreset(preset: (typeof DATE_PRESETS)[0]) {
     setDateRange(preset.value, preset.start(), preset.end());
@@ -253,14 +259,39 @@ export default function Header({ onMenuClick }: HeaderProps) {
         </button>
 
         {/* Notifications */}
-        <button className="btn-ghost h-8 w-8 p-0 justify-center relative" aria-label="Notifications">
-          <Bell size={15} />
-          {notifications > 0 && (
-            <span className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-brand text-app-bg text-[8px] font-bold flex items-center justify-center leading-none">
-              {notifications}
-            </span>
-          )}
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => { setNotifOpen((o) => !o); setDateOpen(false); setCurrencyOpen(false); }}
+            aria-haspopup="true"
+            aria-expanded={notifOpen}
+            aria-label="Notifications"
+            className={cn("btn-ghost h-8 w-8 p-0 justify-center", notifOpen && "text-brand bg-app-hover")}
+          >
+            <Bell size={15} />
+          </button>
+          <AnimatePresence>
+            {notifOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                transition={DROPDOWN_TRANSITION}
+                className="absolute right-0 top-full mt-2 w-72 glass-card rounded-xl shadow-elevated z-50 origin-top-right overflow-hidden"
+              >
+                <div className="px-4 py-3 border-b border-border-subtle">
+                  <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
+                </div>
+                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                  <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+                    <BellOff size={18} className="text-tx-muted" />
+                  </div>
+                  <p className="text-sm font-medium text-tx-primary mb-1">You&apos;re all caught up</p>
+                  <p className="text-xs text-tx-muted leading-relaxed">No new notifications right now.</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
     </header>
   );

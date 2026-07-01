@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Building2, X } from "lucide-react";
-import { cn, getInitials } from "../lib/utils";
+import { cn } from "../lib/utils";
+import Avatar from "../components/Avatar";
 import { useUIStore } from "../stores/ui";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
@@ -301,9 +302,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
           "hover:bg-app-hover transition-colors duration-base",
         )}
       >
-        <div className="w-7 h-7 rounded-full bg-gradient-brand flex items-center justify-center flex-shrink-0">
-          <span className="text-[11px] font-semibold text-app-bg">{getInitials(name)}</span>
-        </div>
+        <Avatar name={name} size={28} />
         <AnimatePresence>
           {!collapsed && (
             <motion.div

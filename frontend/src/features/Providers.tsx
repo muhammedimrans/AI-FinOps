@@ -208,6 +208,7 @@ export default function Providers() {
             <Tooltip
               contentStyle={tooltipStyle}
               formatter={(v: number) => metricFormatter(v)}
+              itemStyle={{ color: chrome.text }}
               labelStyle={{ color: chrome.axis }}
               cursor={{ fill: "rgb(var(--color-brand) / 0.06)" }}
             />

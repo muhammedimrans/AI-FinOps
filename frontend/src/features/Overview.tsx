@@ -304,6 +304,8 @@ export default function Overview() {
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
                 contentStyle={tooltipStyle}
+                itemStyle={{ color: chrome.text }}
+                labelStyle={{ color: chrome.text }}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -373,6 +375,8 @@ export default function Overview() {
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
                 contentStyle={tooltipStyle}
+                itemStyle={{ color: chrome.text }}
+                labelStyle={{ color: chrome.text }}
                 cursor={{ fill: "rgb(var(--color-brand) / 0.06)" }}
               />
               <Bar

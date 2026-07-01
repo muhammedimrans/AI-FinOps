@@ -112,7 +112,7 @@ export default function Models() {
         animate={{ opacity: 1, y: 0 }}
         className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
       >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-border-subtle">
           <div>
             <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">

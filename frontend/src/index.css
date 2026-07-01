@@ -281,7 +281,7 @@
   /* Nav item */
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2 rounded-lg text-tx-secondary
-           transition-all duration-200 cursor-pointer select-none;
+           transition-all duration-base cursor-pointer select-none;
   }
   .nav-item:hover {
     @apply bg-app-hover text-tx-primary;
@@ -317,15 +317,15 @@
   /* Button variants */
   .btn-primary {
     @apply bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg
-           text-sm font-medium transition-all duration-200 flex items-center gap-2;
+           text-sm font-medium transition-all duration-base flex items-center gap-2;
   }
   .btn-ghost {
     @apply text-tx-secondary hover:text-tx-primary hover:bg-app-hover px-3 py-2 rounded-lg
-           text-sm font-medium transition-all duration-200 flex items-center gap-2;
+           text-sm font-medium transition-all duration-base flex items-center gap-2;
   }
   .btn-outline {
     @apply border border-border text-tx-secondary hover:text-tx-primary hover:border-border-strong
-           px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2;
+           px-3 py-2 rounded-lg text-sm font-medium transition-all duration-base flex items-center gap-2;
   }
 }
 

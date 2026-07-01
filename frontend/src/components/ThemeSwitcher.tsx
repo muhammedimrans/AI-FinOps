@@ -45,7 +45,7 @@ export default function ThemeSwitcher() {
         aria-label="Change theme"
         className={cn("btn-ghost h-8 w-8 p-0 justify-center", open && "text-brand bg-app-hover")}
       >
-        <ActiveIcon size={15} />
+        <ActiveIcon size={16} />
       </button>
       <AnimatePresence>
         {open && (

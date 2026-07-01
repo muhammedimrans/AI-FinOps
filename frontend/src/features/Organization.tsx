@@ -42,8 +42,8 @@ export default function Organization() {
   });
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ArrowUpDown size={11} className="opacity-30" />;
-    return sortDir === "asc" ? <ArrowUp size={11} className="text-brand" /> : <ArrowDown size={11} className="text-brand" />;
+    if (sortKey !== col) return <ArrowUpDown size={10} className="opacity-40" />;
+    return sortDir === "asc" ? <ArrowUp size={10} className="text-brand" /> : <ArrowDown size={10} className="text-brand" />;
   }
 
   return (
@@ -101,7 +101,7 @@ export default function Organization() {
       {/* Overall budget bar */}
       {!org.isLoading && (
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-card-lg border border-border-subtle p-5 relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-tx-primary">Organization Budget Overview</h3>
             <span className="text-xs text-tx-muted">
@@ -124,7 +124,7 @@ export default function Organization() {
         animate={{ opacity: 1, y: 0 }}
         className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
       >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
         <div className="px-5 py-4 border-b border-border-subtle">
           <h3 className="text-sm font-semibold text-tx-primary">Department Breakdown</h3>
           <p className="text-xs text-tx-muted mt-0.5">Cost and budget utilization by department</p>

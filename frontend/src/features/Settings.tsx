@@ -44,9 +44,9 @@ function SectionCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card rounded-card-lg border border-border-subtle p-6 relative overflow-hidden"
+      className="glass-card rounded-card-lg border border-border-subtle p-5 relative overflow-hidden"
     >
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
       <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2 mb-5">
         <Icon size={14} className="text-tx-muted" />
         {title}
@@ -81,7 +81,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
     <button
       onClick={() => onChange(!value)}
       className={cn(
-        "relative w-10 h-5.5 rounded-full transition-colors duration-200",
+        "relative w-10 h-5.5 rounded-full transition-colors duration-base",
         value ? "bg-brand" : "bg-app-muted",
       )}
       aria-checked={value}
@@ -89,7 +89,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
     >
       <span
         className={cn(
-          "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200",
+          "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-base",
           value ? "translate-x-5" : "translate-x-0.5",
         )}
       />

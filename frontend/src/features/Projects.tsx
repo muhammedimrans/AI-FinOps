@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { AlertTriangle, FolderOpen, TrendingUp, TrendingDown } from "lucide-react";
+import { AlertTriangle, FolderOpen, TrendingUp, TrendingDown, FolderKanban, DollarSign, Wallet, AlertOctagon } from "lucide-react";
 import BudgetBar from "../components/BudgetBar";
 import EmptyState from "../components/EmptyState";
+import MetricCard from "../components/MetricCard";
 import { useProjects } from "../hooks/useDashboard";
 import { formatCost, formatNumber, modelDisplayName } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
@@ -78,42 +79,52 @@ export default function Projects() {
 
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Total Projects", value: list.length, sub: "active" },
-          {
-            label: "Total Spend",
-            value: formatCost(list.reduce((s, p) => s + parseFloat(p.total_cost), 0), currency, true),
-            sub: "combined",
-          },
-          {
-            label: "Total Budget",
-            value: formatCost(list.reduce((s, p) => s + parseFloat(p.budget), 0), currency, true),
-            sub: "allocated",
-          },
-          {
-            label: "Over Budget",
-            value: overBudget.length,
-            sub: overBudget.length > 0 ? "needs attention" : "all in range",
-            alert: overBudget.length > 0,
-          },
-        ].map((s, i) => (
-          <motion.div
-            key={s.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className={cn(
-              "glass-card border p-5",
-              s.alert ? "border-danger/30 bg-danger-dim" : "border-border-subtle",
-            )}
-          >
-            <p className="text-xs text-tx-muted mb-1">{s.label}</p>
-            <p className={cn("text-xl font-bold", s.alert ? "text-danger" : "text-tx-primary")}>
-              {projects.isLoading ? "—" : s.value}
-            </p>
-            <p className="text-xs text-tx-muted mt-1">{s.sub}</p>
-          </motion.div>
-        ))}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
+          <MetricCard
+            label="Total Projects"
+            value={list.length}
+            type="number"
+            subtitle="active"
+            icon={FolderKanban}
+            gradient="teal"
+            loading={projects.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <MetricCard
+            label="Total Spend"
+            value={list.reduce((s, p) => s + parseFloat(p.total_cost), 0)}
+            type="currency"
+            currency={currency}
+            subtitle="combined"
+            icon={DollarSign}
+            gradient="blue"
+            loading={projects.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <MetricCard
+            label="Total Budget"
+            value={list.reduce((s, p) => s + parseFloat(p.budget), 0)}
+            type="currency"
+            currency={currency}
+            subtitle="allocated"
+            icon={Wallet}
+            gradient="emerald"
+            loading={projects.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <MetricCard
+            label="Over Budget"
+            value={overBudget.length}
+            type="number"
+            subtitle={overBudget.length > 0 ? "needs attention" : "all in range"}
+            icon={AlertOctagon}
+            gradient={overBudget.length > 0 ? "amber" : "teal"}
+            loading={projects.isLoading}
+          />
+        </motion.div>
       </div>
 
       {/* Project Cards Grid */}
@@ -141,9 +152,9 @@ export default function Projects() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.06 }}
-                whileHover={{ y: -2 }}
+                whileHover={{ y: -3, transition: { duration: 0.2, ease: "easeOut" } }}
                 className={cn(
-                  "glass-card border p-5 cursor-pointer transition-shadow hover:shadow-card-hover",
+                  "glass-card rounded-card-lg border p-5 cursor-pointer transition-shadow duration-base hover:shadow-elevated",
                   isOver ? "border-danger/30" : isNear ? "border-warning/30" : "border-border-subtle",
                 )}
               >

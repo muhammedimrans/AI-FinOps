@@ -42,8 +42,9 @@ function SectionCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card border border-border-subtle p-6"
+      className="glass-card rounded-card-lg border border-border-subtle p-6 relative overflow-hidden"
     >
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
       <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2 mb-5">
         <Icon size={14} className="text-tx-muted" />
         {title}

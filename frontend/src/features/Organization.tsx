@@ -1,8 +1,9 @@
 import { motion } from "framer-motion";
-import { Building2, Users, FolderOpen, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
+import { Building2, Users, FolderOpen, ArrowUpDown, ArrowDown, ArrowUp, Wallet, Gauge } from "lucide-react";
 import { useState } from "react";
 import BudgetBar from "../components/BudgetBar";
 import EmptyState from "../components/EmptyState";
+import MetricCard from "../components/MetricCard";
 import { useOrganization } from "../hooks/useDashboard";
 import { formatCost, formatNumber } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
@@ -49,31 +50,58 @@ export default function Organization() {
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Departments",   value: departments.length,  icon: Building2, sub: "active"    },
-          { label: "Total Spend",   value: formatCost(totalCost, currency, true), icon: null, sub: "combined" },
-          { label: "Total Budget",  value: formatCost(totalBudget, currency, true), icon: null, sub: "allocated" },
-          { label: "Avg Utilization", value: `${overallUtil.toFixed(0)}%`, icon: null, sub: "budget used" },
-        ].map((s, i) => (
-          <motion.div
-            key={s.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="glass-card border border-border-subtle p-5"
-          >
-            <p className="text-xs text-tx-muted mb-1">{s.label}</p>
-            <p className="text-xl font-bold text-tx-primary">
-              {org.isLoading ? "—" : s.value}
-            </p>
-            <p className="text-xs text-tx-muted mt-1">{s.sub}</p>
-          </motion.div>
-        ))}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
+          <MetricCard
+            label="Departments"
+            value={departments.length}
+            type="number"
+            subtitle="active"
+            icon={Building2}
+            gradient="teal"
+            loading={org.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <MetricCard
+            label="Total Spend"
+            value={totalCost}
+            type="currency"
+            currency={currency}
+            subtitle="combined"
+            icon={Wallet}
+            gradient="blue"
+            loading={org.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <MetricCard
+            label="Total Budget"
+            value={totalBudget}
+            type="currency"
+            currency={currency}
+            subtitle="allocated"
+            icon={Wallet}
+            gradient="emerald"
+            loading={org.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <MetricCard
+            label="Avg Utilization"
+            value={`${overallUtil.toFixed(0)}%`}
+            type="raw"
+            subtitle="budget used"
+            icon={Gauge}
+            gradient="purple"
+            loading={org.isLoading}
+          />
+        </motion.div>
       </div>
 
       {/* Overall budget bar */}
       {!org.isLoading && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle p-5">
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-card-lg border border-border-subtle p-5 relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-semibold text-tx-primary">Organization Budget Overview</h3>
             <span className="text-xs text-tx-muted">
@@ -91,7 +119,12 @@ export default function Organization() {
       )}
 
       {/* Department Table */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
         <div className="px-5 py-4 border-b border-border-subtle">
           <h3 className="text-sm font-semibold text-tx-primary">Department Breakdown</h3>
           <p className="text-xs text-tx-muted mt-0.5">Cost and budget utilization by department</p>

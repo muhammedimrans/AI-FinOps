@@ -7,6 +7,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Cell,
 } from "recharts";
 import { motion } from "framer-motion";
 import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
@@ -18,11 +19,13 @@ import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../
 import { useUIStore } from "../stores/ui";
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "#12121A",
-  border: "1px solid #1E293B",
-  borderRadius: 8,
+  backgroundColor: "rgba(18,18,26,0.92)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 12,
   color: "#F8FAFC",
   fontSize: 12,
+  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+  backdropFilter: "blur(12px)",
 };
 
 type Metric = "cost" | "requests" | "tokens";
@@ -30,6 +33,7 @@ type Metric = "cost" | "requests" | "tokens";
 export default function Providers() {
   const { currency } = useUIStore();
   const [metric, setMetric] = useState<Metric>("cost");
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
   const providers = useProviders();
   const models = useModels();
@@ -61,7 +65,7 @@ export default function Providers() {
       {providers.isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 4 }, (_, i) => (
-            <div key={i} className="glass-card border border-border-subtle p-5 h-44 skeleton" />
+            <div key={i} className="glass-card rounded-card-lg border border-border-subtle p-5 h-44 skeleton" />
           ))}
         </div>
       ) : providerList.length === 0 ? (
@@ -81,8 +85,8 @@ export default function Providers() {
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: i * 0.06 }}
-                whileHover={{ y: -2 }}
-                className="glass-card border border-border-subtle p-5 cursor-pointer transition-shadow hover:shadow-card-hover"
+                whileHover={{ y: -3, transition: { duration: 0.2, ease: "easeOut" } }}
+                className="glass-card rounded-card-lg border border-border-subtle p-5 cursor-pointer transition-shadow duration-base hover:shadow-elevated"
               >
                 <div className="flex items-start justify-between mb-4">
                   <div>
@@ -186,7 +190,11 @@ export default function Providers() {
         }
       >
         <ResponsiveContainer width="100%" height={300}>
-          <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
+          <BarChart
+            data={chartData}
+            margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+            onMouseLeave={() => setHoveredBar(null)}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
             <XAxis dataKey="name" tick={{ fill: "#94A3B8", fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis
@@ -200,19 +208,36 @@ export default function Providers() {
               contentStyle={TOOLTIP_STYLE}
               formatter={(v: number) => metricFormatter(v)}
               labelStyle={{ color: "#94A3B8" }}
+              cursor={{ fill: "rgba(40,224,194,0.06)" }}
             />
             <Bar
               dataKey={metric}
               name={metricLabel}
               radius={[4, 4, 0, 0]}
-              fill="#4F46E5"
-            />
+              animationDuration={800}
+              animationEasing="ease-out"
+              onMouseEnter={(_, index) => setHoveredBar(index)}
+            >
+              {chartData.map((entry, i) => (
+                <Cell
+                  key={entry.provider}
+                  fill={PROVIDER_COLORS[entry.provider] ?? "#4F46E5"}
+                  opacity={hoveredBar === null || hoveredBar === i ? 1 : 0.35}
+                  style={{ transition: "opacity 150ms ease-out" }}
+                />
+              ))}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
 
       {/* Models by provider table */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
         <div className="px-5 py-4 border-b border-border-subtle">
           <h3 className="text-sm font-semibold text-tx-primary">All Models</h3>
           <p className="text-xs text-tx-muted mt-0.5">All active models across providers</p>

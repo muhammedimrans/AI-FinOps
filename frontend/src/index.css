@@ -115,10 +115,17 @@
            border-b border-border-subtle bg-app-bg sticky top-0 z-10;
   }
   .data-table td {
-    @apply px-4 py-3 text-sm text-tx-secondary border-b border-border-subtle;
+    @apply px-4 py-3 text-sm text-tx-secondary border-b border-border-subtle relative transition-colors duration-fast;
   }
-  .data-table tr:hover td {
-    @apply bg-app-hover;
+  .data-table tbody tr {
+    @apply relative transition-colors duration-fast;
+  }
+  .data-table tbody tr:hover td {
+    @apply bg-app-hover text-tx-primary;
+  }
+  .data-table tbody tr:hover td:first-child::before {
+    content: "";
+    @apply absolute left-0 top-0 bottom-0 w-0.5 bg-brand;
   }
 
   /* Badge */

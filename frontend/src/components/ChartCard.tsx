@@ -47,8 +47,16 @@ export default function ChartCard({
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className={cn("glass-card border border-border-subtle", className)}
+      whileHover={{ transition: { duration: 0.2 } }}
+      className={cn(
+        "glass-card rounded-card-lg border border-border-subtle relative overflow-hidden",
+        "transition-shadow duration-base hover:shadow-elevated",
+        className,
+      )}
     >
+      {/* Top accent line */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 px-5 pt-5 pb-3">
         <div className="min-w-0">

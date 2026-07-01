@@ -21,8 +21,9 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp } from "lucide-react";
 import ChartCard from "../components/ChartCard";
+import MetricCard from "../components/MetricCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
@@ -30,11 +31,13 @@ import { useUIStore } from "../stores/ui";
 import type { Granularity, ModelSummary } from "../types/api";
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "#12121A",
-  border: "1px solid #1E293B",
-  borderRadius: 8,
+  backgroundColor: "rgba(18,18,26,0.92)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 12,
   color: "#F8FAFC",
   fontSize: 12,
+  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+  backdropFilter: "blur(12px)",
 };
 
 const PROVIDERS = ["openai", "anthropic", "google", "azure"];
@@ -154,24 +157,54 @@ export default function Analytics() {
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: "Total Spend", value: formatCost(totalCost, currency, true), sub: "all providers" },
-          { label: "Avg Cost/Request", value: formatCost(avgCost, currency), sub: "across models" },
-          { label: "Min Cost/Request", value: formatCost(minCost, currency), sub: "cheapest model" },
-          { label: "Max Cost/Request", value: formatCost(maxCost, currency), sub: "premium model" },
-        ].map((s, i) => (
-          <motion.div
-            key={s.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="glass-card border border-border-subtle p-5"
-          >
-            <p className="text-xs text-tx-muted mb-1">{s.label}</p>
-            <p className="text-xl font-bold text-tx-primary">{models.isLoading ? "—" : s.value}</p>
-            <p className="text-xs text-tx-muted mt-1">{s.sub}</p>
-          </motion.div>
-        ))}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
+          <MetricCard
+            label="Total Spend"
+            value={totalCost}
+            type="currency"
+            currency={currency}
+            subtitle="all providers"
+            icon={DollarSign}
+            gradient="teal"
+            loading={models.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+          <MetricCard
+            label="Avg Cost/Request"
+            value={avgCost}
+            type="currency"
+            currency={currency}
+            subtitle="across models"
+            icon={Gauge}
+            gradient="blue"
+            loading={models.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+          <MetricCard
+            label="Min Cost/Request"
+            value={minCost}
+            type="currency"
+            currency={currency}
+            subtitle="cheapest model"
+            icon={TrendingDown}
+            gradient="emerald"
+            loading={models.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+          <MetricCard
+            label="Max Cost/Request"
+            value={maxCost}
+            type="currency"
+            currency={currency}
+            subtitle="premium model"
+            icon={TrendingUp}
+            gradient="purple"
+            loading={models.isLoading}
+          />
+        </motion.div>
       </div>
 
       {/* Stacked Area Chart */}
@@ -231,7 +264,12 @@ export default function Analytics() {
       </ChartCard>
 
       {/* Data Table */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-border-subtle gap-3">
           <div>
             <h3 className="text-sm font-semibold text-tx-primary">Model Breakdown</h3>

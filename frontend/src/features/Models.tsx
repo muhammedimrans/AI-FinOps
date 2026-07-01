@@ -19,14 +19,6 @@ import { formatCost, formatNumber, formatTokens, modelDisplayName } from "../lib
 import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
 
-const TOOLTIP_STYLE = {
-  backgroundColor: "#12121A",
-  border: "1px solid #1E293B",
-  borderRadius: 8,
-  color: "#F8FAFC",
-  fontSize: 12,
-};
-
 function MedalIcon({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-[#FFD700] text-sm">🥇</span>;
   if (rank === 2) return <span className="text-[#C0C0C0] text-sm">🥈</span>;
@@ -95,11 +87,17 @@ export default function Models() {
     if (!active || !payload?.length) return null;
     const d = payload[0]!.payload;
     return (
-      <div style={TOOLTIP_STYLE} className="p-3">
-        <p className="font-medium text-tx-primary mb-1">{d.name}</p>
-        <p className="text-tx-muted text-[11px]">Requests: {formatNumber(d.x * 1000)}</p>
-        <p className="text-tx-muted text-[11px]">$/1K req: {formatCost(d.y, currency)}</p>
-        <p className="text-tx-muted text-[11px]">Total: {formatCost(d.z, currency, true)}</p>
+      <div className="glass-card rounded-xl border-white/10 shadow-elevated p-3.5 min-w-[150px]">
+        <p className="font-semibold text-tx-primary mb-1.5 flex items-center gap-1.5">
+          <span
+            className="w-2 h-2 rounded-full flex-shrink-0"
+            style={{ background: PROVIDER_COLORS[d.provider] ?? "#4F46E5" }}
+          />
+          {d.name}
+        </p>
+        <p className="text-tx-muted text-[11px]">Requests: <span className="text-tx-secondary tabular-nums">{formatNumber(d.x * 1000)}</span></p>
+        <p className="text-tx-muted text-[11px]">$/1K req: <span className="text-tx-secondary tabular-nums">{formatCost(d.y, currency)}</span></p>
+        <p className="text-tx-muted text-[11px]">Total: <span className="text-tx-primary font-semibold tabular-nums">{formatCost(d.z, currency, true)}</span></p>
       </div>
     );
   };
@@ -107,7 +105,12 @@ export default function Models() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Leaderboard */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card border border-border-subtle">
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
+      >
+        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-border-subtle">
           <div>
             <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">

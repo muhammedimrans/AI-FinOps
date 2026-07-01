@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Loader2, AlertCircle, Eye, EyeOff, TrendingUp, Sparkles, Layers } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Check, TrendingUp, Sparkles, Layers, ArrowRight } from "lucide-react";
 import { login, getOrganizations } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
 import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
 import CostorahLogo, { CostorahMark } from "../components/CostorahLogo";
+import AuroraBackground from "../components/AuroraBackground";
+import ParticleField from "../components/ParticleField";
 
 export default function Login() {
   const { isAuthenticated, setLogin } = useAuthStore();
@@ -68,10 +70,13 @@ export default function Login() {
   }
 
   return (
-    <div className={cn("min-h-screen w-full flex bg-app-bg", theme)}>
+    <div className={cn("min-h-screen w-full flex relative bg-app-bg overflow-hidden", theme)}>
+      {/* Full-bleed ambient background shared by both panels */}
+      <AuroraBackground />
+      <ParticleField count={30} className="absolute inset-0 z-0" />
+
       {/* ── Left panel — brand illustration (hidden on mobile/tablet) ──────── */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12">
-        <div className="absolute inset-0 bg-gradient-brand-radial" />
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12 z-10">
         <NetworkBackdrop />
 
         <div className="relative z-10 max-w-md w-full">
@@ -79,27 +84,30 @@ export default function Login() {
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="flex items-center gap-3 mb-10"
+            className="flex items-center gap-3 mb-12"
           >
-            <CostorahMark className="w-10 h-10" />
-            <span className="text-lg font-bold tracking-[0.1em] text-tx-primary">COSTORAH</span>
+            <div className="relative">
+              <div className="absolute inset-0 bg-brand/30 blur-xl rounded-full animate-glow-pulse" />
+              <CostorahMark className="w-12 h-12 relative" />
+            </div>
+            <span className="text-xl font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
           </motion.div>
 
           <motion.h2
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-            className="text-h2 text-tx-primary mb-3 leading-tight"
+            className="text-h1 text-tx-primary mb-4 leading-[1.15] tracking-tight"
           >
-            Track, analyze, and optimize
-            <br />
+            Track, analyze, and{" "}
+            <span className="bg-gradient-brand bg-clip-text text-transparent">optimize</span>{" "}
             your AI spend in real time.
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.18, ease: "easeOut" }}
-            className="text-sm text-tx-secondary mb-12 max-w-sm"
+            className="text-base text-tx-secondary mb-14 max-w-sm leading-relaxed"
           >
             One dashboard for every provider, every project, every dollar —
             with anomaly alerts before they hit your budget.
@@ -110,47 +118,59 @@ export default function Login() {
       </div>
 
       {/* ── Right panel — auth form ─────────────────────────────────────────── */}
-      <div className="flex flex-1 items-center justify-center p-4 sm:p-6 lg:p-12 relative">
-        <div className="lg:hidden absolute inset-0 bg-gradient-brand-radial pointer-events-none" />
-
+      <div className="flex flex-1 items-center justify-center p-4 sm:p-6 lg:p-12 relative z-10">
         <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
-          className="w-full max-w-sm relative z-10"
+          initial={{ opacity: 0, y: 20, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.4, ease: "easeOut" }}
+          className="w-full max-w-[440px] relative"
         >
-          <div className="lg:hidden mb-8">
+          {/* Ambient glow blob behind the card */}
+          <div className="absolute -inset-8 bg-gradient-brand-radial blur-3xl opacity-60 pointer-events-none" aria-hidden="true" />
+
+          <div className="lg:hidden mb-8 relative">
             <CostorahLogo />
           </div>
 
-          <div className="glass-card border border-border-subtle p-6 sm:p-8 shadow-card">
-            <h1 className="text-xl font-bold text-tx-primary mb-1">Welcome back</h1>
-            <p className="text-sm text-tx-muted mb-6">Sign in to your account to continue</p>
+          <div className="glass-panel shadow-glow-brand-lg p-8 sm:p-11 relative">
+            <div className="hidden lg:flex items-center gap-2.5 mb-8">
+              <CostorahMark className="w-8 h-8" />
+              <span className="text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+            </div>
 
-            <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4" noValidate>
+            <h1 className="text-h3 font-bold text-tx-primary mb-2">Welcome back</h1>
+            <p className="text-sm text-tx-muted mb-8">Sign in to your account to continue</p>
+
+            <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5" noValidate>
               <div>
-                <label htmlFor="email" className="block text-xs font-medium text-tx-secondary mb-1.5">
+                <label htmlFor="email" className="block text-xs font-medium text-tx-secondary mb-2">
                   Email address
                 </label>
-                <input
-                  id="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  aria-invalid={!!error}
-                  className="w-full h-11 px-3.5 text-sm bg-app-bg border border-border-subtle rounded-lg
-                             text-tx-primary placeholder:text-tx-muted
-                             focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/60
-                             transition-colors duration-fast disabled:opacity-50"
-                  disabled={loading}
-                />
+                <div className="relative group">
+                  <Mail
+                    size={16}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-tx-muted transition-colors duration-fast group-focus-within:text-brand"
+                  />
+                  <input
+                    id="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    aria-invalid={!!error}
+                    className="w-full h-12 pl-11 pr-4 text-sm bg-app-bg/60 border border-border-subtle rounded-xl
+                               text-tx-primary placeholder:text-tx-muted
+                               focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/60
+                               transition-all duration-fast disabled:opacity-50"
+                    disabled={loading}
+                  />
+                </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-2">
                   <label htmlFor="password" className="block text-xs font-medium text-tx-secondary">
                     Password
                   </label>
@@ -162,7 +182,11 @@ export default function Login() {
                     Forgot password?
                   </button>
                 </div>
-                <div className="relative">
+                <div className="relative group">
+                  <Lock
+                    size={16}
+                    className="absolute left-3.5 top-1/2 -translate-y-1/2 text-tx-muted transition-colors duration-fast group-focus-within:text-brand"
+                  />
                   <input
                     id="password"
                     type={showPassword ? "text" : "password"}
@@ -172,10 +196,10 @@ export default function Login() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     aria-invalid={!!error}
-                    className="w-full h-11 px-3.5 pr-10 text-sm bg-app-bg border border-border-subtle rounded-lg
+                    className="w-full h-12 pl-11 pr-11 text-sm bg-app-bg/60 border border-border-subtle rounded-xl
                                text-tx-primary placeholder:text-tx-muted
                                focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/60
-                               transition-colors duration-fast disabled:opacity-50"
+                               transition-all duration-fast disabled:opacity-50"
                     disabled={loading}
                   />
                   <button
@@ -183,69 +207,146 @@ export default function Login() {
                     onClick={() => setShowPassword((v) => !v)}
                     disabled={loading}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-0 top-0 h-11 w-10 flex items-center justify-center
+                    className="absolute right-0 top-0 h-12 w-11 flex items-center justify-center
                                text-tx-muted hover:text-tx-secondary transition-colors duration-fast"
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.span
+                        key={showPassword ? "hide" : "show"}
+                        initial={{ opacity: 0, scale: 0.7 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.7 }}
+                        transition={{ duration: 0.12 }}
+                        className="flex"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </motion.span>
+                    </AnimatePresence>
                   </button>
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className="w-4 h-4 rounded border-border-subtle bg-app-bg accent-brand
-                             focus:outline-none focus:ring-2 focus:ring-brand/40"
-                />
-                <span className="text-xs text-tx-secondary">Remember me</span>
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2.5 cursor-pointer select-none group">
+                  <span className="relative flex items-center justify-center w-[18px] h-[18px] flex-shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={rememberMe}
+                      onChange={(e) => setRememberMe(e.target.checked)}
+                      className="peer sr-only"
+                    />
+                    <span
+                      className={cn(
+                        "w-[18px] h-[18px] rounded-md border transition-all duration-fast flex items-center justify-center",
+                        "peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40",
+                        rememberMe
+                          ? "bg-gradient-brand border-transparent"
+                          : "bg-app-bg/60 border-border-subtle group-hover:border-border",
+                      )}
+                    >
+                      <AnimatePresence>
+                        {rememberMe && (
+                          <motion.span
+                            initial={{ scale: 0, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0, opacity: 0 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <Check size={12} strokeWidth={3} className="text-app-bg" />
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
+                    </span>
+                  </span>
+                  <span className="text-xs text-tx-secondary">Remember me</span>
+                </label>
+              </div>
 
-              {forgotNotice && (
-                <div
-                  role="status"
-                  className="flex items-start gap-2 p-3 rounded-lg bg-info-dim border border-info/20 animate-fade-in"
-                >
-                  <AlertCircle size={14} className="text-info mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-info">
-                    Contact your administrator to reset your password.
-                  </p>
-                </div>
-              )}
+              <AnimatePresence mode="popLayout">
+                {forgotNotice && (
+                  <motion.div
+                    key="forgot-notice"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 p-3 rounded-xl bg-info-dim border border-info/20"
+                    >
+                      <AlertCircle size={14} className="text-info mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-info">
+                        Contact your administrator to reset your password.
+                      </p>
+                    </div>
+                  </motion.div>
+                )}
 
-              {error && (
-                <div
-                  role="alert"
-                  className="flex items-start gap-2 p-3 rounded-lg bg-danger-dim border border-danger/20 animate-fade-in"
-                >
-                  <AlertCircle size={14} className="text-danger mt-0.5 flex-shrink-0" />
-                  <p className="text-xs text-danger">{error}</p>
-                </div>
-              )}
+                {error && (
+                  <motion.div
+                    key="error"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto", x: [0, -6, 6, -6, 6, 0] }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.4 }}
+                    className="overflow-hidden"
+                  >
+                    <div
+                      role="alert"
+                      className="flex items-start gap-2 p-3 rounded-xl bg-danger-dim border border-danger/20"
+                    >
+                      <AlertCircle size={14} className="text-danger mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-danger">{error}</p>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-              <button
+              <motion.button
                 type="submit"
                 disabled={loading || !email || !password}
-                className="w-full h-11 rounded-lg bg-gradient-brand text-app-bg text-sm font-semibold
-                           flex items-center justify-center gap-2 shadow-glow-brand
-                           hover:brightness-110 active:brightness-95
-                           transition-all duration-fast disabled:opacity-50 disabled:cursor-not-allowed
+                whileHover={!loading && email && password ? { scale: 1.01 } : {}}
+                whileTap={!loading && email && password ? { scale: 0.98 } : {}}
+                className="w-full h-12 rounded-xl bg-gradient-brand bg-[length:200%_auto] text-app-bg text-sm font-semibold
+                           flex items-center justify-center gap-2 shadow-glow-brand overflow-hidden
+                           hover:bg-[position:100%_0] active:brightness-95 group
+                           transition-all duration-slow disabled:opacity-50 disabled:cursor-not-allowed
                            disabled:shadow-none"
               >
-                {loading ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  "Sign in"
-                )}
-              </button>
+                <AnimatePresence mode="wait" initial={false}>
+                  {loading ? (
+                    <motion.span
+                      key="loading"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.15 }}
+                      className="flex items-center gap-2"
+                    >
+                      <Loader2 size={16} className="animate-spin" />
+                      Signing in…
+                    </motion.span>
+                  ) : (
+                    <motion.span
+                      key="idle"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.15 }}
+                      className="flex items-center gap-1.5"
+                    >
+                      Sign in
+                      <ArrowRight size={15} className="transition-transform duration-fast group-hover:translate-x-0.5" />
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </motion.button>
             </form>
           </div>
 
-          <p className="text-center text-xs text-tx-muted mt-4">
+          <p className="text-center text-xs text-tx-muted mt-6">
             Contact your administrator to create an account.
           </p>
         </motion.div>
@@ -304,9 +405,7 @@ function FloatingMetricCards() {
   return (
     <div className="relative h-56">
       <motion.div
-        className="absolute left-0 top-0 w-52 glass-card border border-border-subtle p-4"
-        animate={{ y: [0, -8, 0] }}
-        transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute left-0 top-0 w-52 glass-card border border-border-subtle p-4 shadow-elevated animate-float"
       >
         <div className="flex items-center gap-2 text-tx-muted text-[11px] font-medium uppercase tracking-wide mb-1.5">
           <TrendingUp size={12} className="text-brand" />
@@ -318,9 +417,8 @@ function FloatingMetricCards() {
       </motion.div>
 
       <motion.div
-        className="absolute right-0 top-16 w-44 glass-card border border-border-subtle p-3.5"
-        animate={{ y: [0, 10, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 0.6 }}
+        className="absolute right-0 top-16 w-44 glass-card border border-border-subtle p-3.5 shadow-elevated animate-float-slow"
+        style={{ animationDelay: "0.6s" }}
       >
         <div className="flex items-center gap-2 text-tx-muted text-[11px] font-medium uppercase tracking-wide mb-2">
           <Layers size={12} className="text-brand" />
@@ -342,9 +440,8 @@ function FloatingMetricCards() {
       </motion.div>
 
       <motion.div
-        className="absolute left-10 bottom-0 w-40 glass-card border border-border-subtle px-3.5 py-2.5 flex items-center gap-2.5"
-        animate={{ y: [0, -6, 0] }}
-        transition={{ duration: 4.5, repeat: Infinity, ease: "easeInOut", delay: 1.1 }}
+        className="absolute left-10 bottom-0 w-40 glass-card border border-border-subtle px-3.5 py-2.5 flex items-center gap-2.5 shadow-elevated animate-float"
+        style={{ animationDelay: "1.1s" }}
       >
         <div className="w-7 h-7 rounded-full bg-brand-subtle flex items-center justify-center flex-shrink-0">
           <Sparkles size={13} className="text-brand" />

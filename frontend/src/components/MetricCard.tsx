@@ -2,7 +2,7 @@ import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { cn, formatCost, formatNumber } from "../lib/utils";
 
-type GradientVariant = "indigo" | "emerald" | "amber" | "blue" | "purple";
+type GradientVariant = "teal" | "indigo" | "emerald" | "amber" | "blue" | "purple";
 
 interface MetricCardProps {
   label: string;
@@ -20,6 +20,7 @@ interface MetricCardProps {
 }
 
 const GRADIENT_CLASSES: Record<GradientVariant, string> = {
+  teal:    "metric-gradient-teal   border-brand/20",
   indigo:  "metric-gradient-indigo border-primary/20",
   emerald: "metric-gradient-emerald border-success/20",
   amber:   "metric-gradient-amber  border-warning/20",
@@ -28,6 +29,7 @@ const GRADIENT_CLASSES: Record<GradientVariant, string> = {
 };
 
 const ICON_BG: Record<GradientVariant, string> = {
+  teal:    "bg-brand-subtle text-brand",
   indigo:  "bg-primary-subtle text-primary-light",
   emerald: "bg-success-dim text-success-light",
   amber:   "bg-warning-dim text-warning-light",
@@ -108,6 +110,7 @@ export default function MetricCard({
         : "text-danger";
 
   const SPARK_COLORS: Record<GradientVariant, string> = {
+    teal:    "#28E0C2",
     indigo:  "#4F46E5",
     emerald: "#10B981",
     amber:   "#F59E0B",

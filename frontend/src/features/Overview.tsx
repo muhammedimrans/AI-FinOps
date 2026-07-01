@@ -45,17 +45,31 @@ const TOOLTIP_STYLE = {
   fontSize: 12,
 };
 
-function CustomTooltip({ active, payload, label, currency }: any) {
+interface TooltipPayloadEntry {
+  dataKey?: string | number;
+  color?: string;
+  name?: string | number;
+  value?: string | number;
+}
+
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string | number;
+  currency: string;
+}
+
+function CustomTooltip({ active, payload, label, currency }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
     <div style={TOOLTIP_STYLE} className="p-3 shadow-card-hover">
       <p className="text-tx-muted text-xs mb-2">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 text-xs">
           <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
           <span className="text-tx-secondary capitalize">{p.name}:</span>
           <span className="text-tx-primary font-medium">
-            {formatCost(p.value, currency, true)}
+            {formatCost(p.value ?? 0, currency, true)}
           </span>
         </div>
       ))}
@@ -127,12 +141,10 @@ export default function Overview() {
       cost: parseFloat(m.total_cost),
     }));
 
-  const activeProviders = providerList.filter((p) => parseFloat(p.total_cost) > 0);
-
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
           <MetricCard
             label="Total Spend"
@@ -143,7 +155,7 @@ export default function Overview() {
             trendInverse={false}
             subtitle="vs previous period"
             icon={DollarSign}
-            gradient="indigo"
+            gradient="teal"
             sparkline={recent7}
             loading={overview.isLoading}
           />
@@ -209,8 +221,8 @@ export default function Overview() {
           <AreaChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.25} />
-                <stop offset="95%" stopColor="#4F46E5" stopOpacity={0} />
+                <stop offset="5%" stopColor="#28E0C2" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#28E0C2" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
@@ -225,7 +237,7 @@ export default function Overview() {
               tick={{ fill: "#475569", fontSize: 11 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(v) => formatCost(v, currency, true)}
+              tickFormatter={(v: number) => formatCost(v, currency, true)}
               width={56}
             />
             <Tooltip content={<CustomTooltip currency={currency} />} />
@@ -233,18 +245,18 @@ export default function Overview() {
               type="monotone"
               dataKey="total"
               name="Total"
-              stroke="#4F46E5"
+              stroke="#28E0C2"
               strokeWidth={2}
               fill="url(#totalGrad)"
               dot={false}
-              activeDot={{ r: 4, fill: "#4F46E5" }}
+              activeDot={{ r: 4, fill: "#28E0C2" }}
             />
           </AreaChart>
         </ResponsiveContainer>
       </ChartCard>
 
       {/* Provider + Model charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
         <ChartCard
           title="Provider Distribution"
           subtitle="Cost share by provider"
@@ -275,7 +287,7 @@ export default function Overview() {
                 contentStyle={TOOLTIP_STYLE}
               />
               <Legend
-                formatter={(value) => (
+                formatter={(value: string) => (
                   <span style={{ color: "#94A3B8", fontSize: 12 }}>
                     {value.charAt(0).toUpperCase() + value.slice(1)}
                   </span>
@@ -303,7 +315,7 @@ export default function Overview() {
                 tick={{ fill: "#475569", fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
-                tickFormatter={(v) => formatCost(v, currency, true)}
+                tickFormatter={(v: number) => formatCost(v, currency, true)}
               />
               <YAxis
                 type="category"
@@ -356,7 +368,7 @@ export default function Overview() {
                 {activity.isLoading
                   ? Array.from({ length: 6 }, (_, i) => (
                       <tr key={i}>
-                        {[...Array(7)].map((_, j) => (
+                        {Array.from({ length: 7 }, (_, j) => (
                           <td key={j}><div className="h-4 skeleton rounded w-full" /></td>
                         ))}
                       </tr>

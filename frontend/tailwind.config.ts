@@ -69,6 +69,8 @@ const config: Config = {
       },
       borderRadius: {
         card: "12px",
+        "card-lg": "20px",
+        "card-xl": "28px",
         lg:   "8px",
         md:   "6px",
         sm:   "4px",
@@ -79,6 +81,9 @@ const config: Config = {
         glow:    "0 0 20px rgba(79,70,229,0.3)",
         "glow-success": "0 0 20px rgba(16,185,129,0.25)",
         "glow-brand": "0 0 32px rgba(40,224,194,0.25)",
+        "glow-brand-lg": "0 0 60px rgba(40,224,194,0.22), 0 0 120px rgba(124,58,237,0.10)",
+        elevated: "0 8px 24px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
+        "elevated-lg": "0 24px 64px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset",
       },
       backgroundImage: {
         "gradient-primary": "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
@@ -87,12 +92,21 @@ const config: Config = {
         "gradient-shimmer": "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%)",
         "gradient-brand":   "linear-gradient(135deg, #28E0C2 0%, #00B8A9 100%)",
         "gradient-brand-radial": "radial-gradient(ellipse at top left, rgba(40,224,194,0.18) 0%, rgba(124,58,237,0.10) 45%, rgba(10,10,15,0) 75%)",
+        aurora: "radial-gradient(ellipse 80% 50% at 20% 0%, rgba(40,224,194,0.20) 0%, transparent 60%), " +
+                "radial-gradient(ellipse 60% 50% at 80% 10%, rgba(124,58,237,0.16) 0%, transparent 60%), " +
+                "radial-gradient(ellipse 70% 60% at 50% 100%, rgba(40,224,194,0.10) 0%, transparent 60%)",
       },
       animation: {
         shimmer: "shimmer 1.5s infinite",
         "count-up": "countUp 0.8s ease-out",
         "fade-in": "fadeIn 0.2s ease-out",
         "slide-up": "slideUp 0.25s ease-out",
+        float: "float 6s ease-in-out infinite",
+        "float-slow": "float 9s ease-in-out infinite",
+        "glow-pulse": "glowPulse 4s ease-in-out infinite",
+        aurora: "auroraShift 18s ease-in-out infinite",
+        drift: "drift 14s linear infinite",
+        shake: "shake 0.4s ease-in-out",
       },
       keyframes: {
         shimmer: {
@@ -107,11 +121,40 @@ const config: Config = {
           from: { opacity: "0", transform: "translateY(8px)" },
           to:   { opacity: "1", transform: "translateY(0)" },
         },
+        float: {
+          "0%, 100%": { transform: "translate3d(0, 0, 0)" },
+          "50%": { transform: "translate3d(0, -14px, 0)" },
+        },
+        glowPulse: {
+          "0%, 100%": { opacity: "0.5" },
+          "50%": { opacity: "1" },
+        },
+        auroraShift: {
+          "0%, 100%": { transform: "translate3d(0, 0, 0) scale(1)" },
+          "50%": { transform: "translate3d(2%, -2%, 0) scale(1.05)" },
+        },
+        drift: {
+          "0%": { transform: "translate3d(0, 100%, 0)", opacity: "0" },
+          "10%": { opacity: "0.7" },
+          "50%": { transform: "translate3d(var(--drift-x, 20px), 40%, 0)" },
+          "90%": { opacity: "0.7" },
+          "100%": { transform: "translate3d(0, -20%, 0)", opacity: "0" },
+        },
+        shake: {
+          "0%, 100%": { transform: "translateX(0)" },
+          "20%, 60%": { transform: "translateX(-6px)" },
+          "40%, 80%": { transform: "translateX(6px)" },
+        },
       },
       transitionDuration: {
         fast: "150ms",
         base: "200ms",
         slow: "300ms",
+      },
+      backdropBlur: {
+        xs: "2px",
+        card: "16px",
+        heavy: "28px",
       },
     },
   },

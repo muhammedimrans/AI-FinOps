@@ -42,13 +42,13 @@ export default function Organization() {
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <ArrowUpDown size={11} className="opacity-30" />;
-    return sortDir === "asc" ? <ArrowUp size={11} className="text-primary" /> : <ArrowDown size={11} className="text-primary" />;
+    return sortDir === "asc" ? <ArrowUp size={11} className="text-brand" /> : <ArrowDown size={11} className="text-brand" />;
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Departments",   value: departments.length,  icon: Building2, sub: "active"    },
           { label: "Total Spend",   value: formatCost(totalCost, currency, true), icon: null, sub: "combined" },
@@ -135,7 +135,7 @@ export default function Organization() {
               {org.isLoading
                 ? Array.from({ length: 5 }, (_, i) => (
                     <tr key={i}>
-                      {[...Array(7)].map((_, j) => (
+                      {Array.from({ length: 7 }, (_, j) => (
                         <td key={j}><div className="h-4 skeleton rounded" /></td>
                       ))}
                     </tr>
@@ -157,6 +157,7 @@ export default function Organization() {
                           initial={{ opacity: 0 }}
                           animate={{ opacity: 1 }}
                           transition={{ delay: i * 0.04 }}
+                          className={cn(isOver && "bg-danger-dim/40", isNear && "bg-warning-dim/40")}
                         >
                           <td>
                             <div className="flex items-center gap-2">

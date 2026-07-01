@@ -8,12 +8,12 @@ import {
   Bell,
   Palette,
   RefreshCw,
-  DollarSign,
   Save,
   CheckCircle,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
+import type { Currency } from "../types/api";
 
 const apiSchema = z.object({
   apiBaseUrl: z.string().url("Must be a valid URL"),
@@ -79,7 +79,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
       onClick={() => onChange(!value)}
       className={cn(
         "relative w-10 h-5.5 rounded-full transition-colors duration-200",
-        value ? "bg-primary" : "bg-app-muted",
+        value ? "bg-brand" : "bg-app-muted",
       )}
       aria-checked={value}
       role="switch"
@@ -101,7 +101,7 @@ export default function Settings() {
   const [refreshInterval, setRefreshInterval] = useState(300);
   const [notifs, setNotifs] = useState({ budget: true, anomaly: true, weekly: false, marketing: false });
 
-  const { register, handleSubmit, formState: { errors } } = useForm<ApiForm>({
+  const { register, handleSubmit, setError, formState: { errors } } = useForm<ApiForm>({
     defaultValues: {
       apiBaseUrl: (import.meta.env["VITE_API_BASE_URL"] as string | undefined) ?? "http://localhost:8000",
       timeout: 10000,
@@ -109,17 +109,27 @@ export default function Settings() {
   });
 
   function onSave(data: ApiForm) {
-    console.info("Settings saved", data);
+    const result = apiSchema.safeParse(data);
+    if (!result.success) {
+      for (const issue of result.error.issues) {
+        const field = issue.path[0];
+        if (field === "apiBaseUrl" || field === "timeout") {
+          setError(field, { message: issue.message });
+        }
+      }
+      return;
+    }
+    console.info("Settings saved", result.data);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="p-4 sm:p-6 max-w-3xl">
       {/* Page header */}
       <div className="flex items-center gap-3 mb-8">
-        <div className="w-10 h-10 rounded-xl bg-primary-subtle flex items-center justify-center">
-          <SettingsIcon size={18} className="text-primary" />
+        <div className="w-10 h-10 rounded-xl bg-brand-subtle flex items-center justify-center flex-shrink-0">
+          <SettingsIcon size={18} className="text-brand" />
         </div>
         <div>
           <h2 className="text-h2 text-tx-primary">Settings</h2>
@@ -128,7 +138,7 @@ export default function Settings() {
       </div>
 
       {/* Section tabs */}
-      <div className="flex gap-1 mb-6 bg-app-card rounded-lg p-1 w-fit border border-border-subtle">
+      <div className="flex flex-wrap gap-1 mb-6 bg-app-card rounded-lg p-1 w-fit border border-border-subtle">
         {SECTIONS.map((s) => (
           <button
             key={s.id}
@@ -136,7 +146,7 @@ export default function Settings() {
             className={cn(
               "flex items-center gap-1.5 px-4 py-2 rounded-md text-xs font-medium transition-all",
               active === s.id
-                ? "bg-primary text-white shadow-glow"
+                ? "bg-brand text-app-bg shadow-glow-brand"
                 : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
             )}
           >
@@ -148,7 +158,7 @@ export default function Settings() {
 
       <div className="space-y-5">
         {active === "api" && (
-          <form onSubmit={handleSubmit(onSave)}>
+          <form onSubmit={(e) => { void handleSubmit(onSave)(e); }}>
             <SectionCard title="API Configuration" icon={Globe}>
               <div>
                 <label className="text-xs text-tx-muted block mb-1.5">Backend URL</label>
@@ -156,7 +166,7 @@ export default function Settings() {
                   {...register("apiBaseUrl")}
                   className={cn(
                     "w-full bg-app-bg border rounded-lg px-3 py-2 text-sm text-tx-primary",
-                    "placeholder:text-tx-muted focus:outline-none focus:border-primary transition-colors",
+                    "placeholder:text-tx-muted focus:outline-none focus:border-brand transition-colors",
                     errors.apiBaseUrl ? "border-danger" : "border-border",
                   )}
                   placeholder="http://localhost:8000"
@@ -170,8 +180,15 @@ export default function Settings() {
                 <input
                   type="number"
                   {...register("timeout", { valueAsNumber: true })}
-                  className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-primary transition-colors"
+                  className={cn(
+                    "w-full bg-app-bg border rounded-lg px-3 py-2 text-sm text-tx-primary",
+                    "focus:outline-none focus:border-brand transition-colors",
+                    errors.timeout ? "border-danger" : "border-border",
+                  )}
                 />
+                {errors.timeout && (
+                  <p className="text-danger text-xs mt-1">{errors.timeout.message}</p>
+                )}
               </div>
               <button
                 type="submit"
@@ -194,7 +211,7 @@ export default function Settings() {
                     onClick={() => { if (theme !== t) toggleTheme(); }}
                     className={cn(
                       "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
-                      theme === t ? "bg-primary text-white" : "text-tx-muted hover:text-tx-secondary",
+                      theme === t ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
                     )}
                   >
                     {t}
@@ -205,8 +222,8 @@ export default function Settings() {
             <SettingRow label="Currency" description="Default currency for cost display">
               <select
                 value={currency}
-                onChange={(e) => setCurrency(e.target.value as any)}
-                className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-primary"
+                onChange={(e) => setCurrency(e.target.value as Currency)}
+                className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
               >
                 {["USD", "EUR", "GBP"].map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -243,7 +260,7 @@ export default function Settings() {
               <select
                 value={refreshInterval}
                 onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-primary"
+                className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
               >
                 <option value={60}>1 minute</option>
                 <option value={300}>5 minutes</option>
@@ -253,14 +270,14 @@ export default function Settings() {
               </select>
             </SettingRow>
             <SettingRow label="Cache duration" description="Keep fetched data for">
-              <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-primary">
+              <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand">
                 <option>5 minutes</option>
                 <option>15 minutes</option>
                 <option>1 hour</option>
               </select>
             </SettingRow>
             <SettingRow label="Historical data range" description="Maximum date range for analytics">
-              <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-primary">
+              <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand">
                 <option>90 days</option>
                 <option>180 days</option>
                 <option>1 year</option>

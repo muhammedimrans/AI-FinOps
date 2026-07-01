@@ -7,7 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import { motion } from "framer-motion";
 import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
@@ -57,7 +56,7 @@ export default function Providers() {
         : formatNumber(v, true);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Provider Cards */}
       {providers.isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -235,7 +234,7 @@ export default function Providers() {
               {models.isLoading
                 ? Array.from({ length: 8 }, (_, i) => (
                     <tr key={i}>
-                      {[...Array(7)].map((_, j) => (
+                      {Array.from({ length: 7 }, (_, j) => (
                         <td key={j}><div className="h-4 skeleton rounded" /></td>
                       ))}
                     </tr>

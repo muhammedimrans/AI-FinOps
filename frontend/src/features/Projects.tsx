@@ -1,7 +1,6 @@
 import { motion } from "framer-motion";
 import { AlertTriangle, FolderOpen, TrendingUp, TrendingDown } from "lucide-react";
 import BudgetBar from "../components/BudgetBar";
-import ProviderBadge from "../components/ProviderBadge";
 import EmptyState from "../components/EmptyState";
 import { useProjects } from "../hooks/useDashboard";
 import { formatCost, formatNumber, modelDisplayName } from "../lib/utils";
@@ -45,7 +44,7 @@ export default function Projects() {
   const nearBudget = list.filter((p) => p.budget_utilization_pct >= 80 && p.budget_utilization_pct <= 100);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Alert banner */}
       {!projects.isLoading && (overBudget.length > 0 || nearBudget.length > 0) && (
         <motion.div
@@ -78,7 +77,7 @@ export default function Projects() {
       )}
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: "Total Projects", value: list.length, sub: "active" },
           {

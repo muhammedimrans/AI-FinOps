@@ -21,6 +21,15 @@ const config: Config = {
           dim: "#312E81",
           subtle: "rgba(79,70,229,0.12)",
         },
+        // Costorah brand - Teal (used on the login/auth surface)
+        brand: {
+          DEFAULT: "#28E0C2",
+          hover: "#00E5B8",
+          light: "#5CEBD4",
+          dim: "#0A3D34",
+          subtle: "rgba(40,224,194,0.12)",
+          purple: "#7C3AED",
+        },
         // Semantic
         success: { DEFAULT: "#10B981", dim: "rgba(16,185,129,0.12)", light: "#34D399" },
         warning: { DEFAULT: "#F59E0B", dim: "rgba(245,158,11,0.12)", light: "#FCD34D" },
@@ -69,12 +78,15 @@ const config: Config = {
         "card-hover": "0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3)",
         glow:    "0 0 20px rgba(79,70,229,0.3)",
         "glow-success": "0 0 20px rgba(16,185,129,0.25)",
+        "glow-brand": "0 0 32px rgba(40,224,194,0.25)",
       },
       backgroundImage: {
         "gradient-primary": "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
         "gradient-success": "linear-gradient(135deg, #10B981 0%, #059669 100%)",
         "gradient-card":    "linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
         "gradient-shimmer": "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%)",
+        "gradient-brand":   "linear-gradient(135deg, #28E0C2 0%, #00B8A9 100%)",
+        "gradient-brand-radial": "radial-gradient(ellipse at top left, rgba(40,224,194,0.18) 0%, rgba(124,58,237,0.10) 45%, rgba(10,10,15,0) 75%)",
       },
       animation: {
         shimmer: "shimmer 1.5s infinite",

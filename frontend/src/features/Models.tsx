@@ -17,6 +17,7 @@ import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
+import { useChartChrome } from "../lib/chartPalette";
 import { cn } from "../lib/utils";
 
 function MedalIcon({ rank }: { rank: number }) {
@@ -35,6 +36,7 @@ function EfficiencyBadge({ pctRank }: { pctRank: number }) {
 
 export default function Models() {
   const { currency } = useUIStore();
+  const chrome = useChartChrome();
   const [search, setSearch] = useState("");
   const models = useModels();
 
@@ -91,7 +93,7 @@ export default function Models() {
         <p className="font-semibold text-tx-primary mb-1.5 flex items-center gap-1.5">
           <span
             className="w-2 h-2 rounded-full flex-shrink-0"
-            style={{ background: PROVIDER_COLORS[d.provider] ?? "#4F46E5" }}
+            style={{ background: PROVIDER_COLORS[d.provider] ?? chrome.primary }}
           />
           {d.name}
         </p>
@@ -233,21 +235,21 @@ export default function Models() {
           </div>
           <ResponsiveContainer width="100%" height={320}>
             <ScatterChart margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" />
+              <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} />
               <XAxis
                 type="number"
                 dataKey="x"
                 name="Requests (K)"
-                tick={{ fill: "#475569", fontSize: 11 }}
+                tick={{ fill: chrome.axis, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
-                label={{ value: "Requests (K)", position: "insideBottom", offset: -4, fill: "#475569", fontSize: 10 }}
+                label={{ value: "Requests (K)", position: "insideBottom", offset: -4, fill: chrome.axis, fontSize: 10 }}
               />
               <YAxis
                 type="number"
                 dataKey="y"
                 name="$/1K Req"
-                tick={{ fill: "#475569", fontSize: 11 }}
+                tick={{ fill: chrome.axis, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => `$${v.toFixed(2)}`}
@@ -259,7 +261,7 @@ export default function Models() {
                 {scatterData.map((entry, i) => (
                   <Cell
                     key={i}
-                    fill={PROVIDER_COLORS[entry.provider] ?? "#4F46E5"}
+                    fill={PROVIDER_COLORS[entry.provider] ?? chrome.primary}
                   />
                 ))}
               </Scatter>

@@ -1,5 +1,16 @@
 import type { Config } from "tailwindcss";
 
+/**
+ * Resolves a Tailwind color to a runtime CSS variable so it can change per-theme without a rebuild.
+ * Tailwind's JS API accepts a function here at runtime (it calls it with `{ opacityValue }` for
+ * `bg-brand/50`-style modifiers), but its published types only declare `string`, so the return
+ * value is cast to match — this is a type-level lie, not a behavior change.
+ */
+function themed(variable: string): string {
+  return ((({ opacityValue }: { opacityValue?: string }) =>
+    opacityValue === undefined ? `rgb(var(${variable}))` : `rgb(var(${variable}) / ${opacityValue})`) as unknown) as string;
+}
+
 const config: Config = {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   darkMode: "class",
@@ -8,47 +19,47 @@ const config: Config = {
       colors: {
         // App backgrounds
         app: {
-          bg: "#0A0A0F",
-          card: "#12121A",
-          muted: "#1A1A26",
-          hover: "#1E1E2E",
+          bg: themed("--color-app-bg"),
+          card: themed("--color-app-card"),
+          muted: themed("--color-app-muted"),
+          hover: themed("--color-app-hover"),
         },
-        // Primary - Deep Indigo
+        // Secondary accent (legacy "primary" — indigo/purple family, theme-mapped)
         primary: {
-          DEFAULT: "#4F46E5",
-          hover: "#4338CA",
-          light: "#6366F1",
-          dim: "#312E81",
-          subtle: "rgba(79,70,229,0.12)",
+          DEFAULT: themed("--color-primary"),
+          hover: themed("--color-primary-hover"),
+          light: themed("--color-primary-light"),
+          dim: themed("--color-primary-dim"),
+          subtle: `rgb(var(--color-primary) / 0.12)`,
         },
-        // Costorah brand - Teal (used on the login/auth surface)
+        // Costorah brand — the app's primary accent, remapped per theme
         brand: {
-          DEFAULT: "#28E0C2",
-          hover: "#00E5B8",
-          light: "#5CEBD4",
-          dim: "#0A3D34",
-          subtle: "rgba(40,224,194,0.12)",
-          purple: "#7C3AED",
+          DEFAULT: themed("--color-brand"),
+          hover: themed("--color-brand-hover"),
+          light: themed("--color-brand-light"),
+          dim: themed("--color-brand-dim"),
+          subtle: `rgb(var(--color-brand) / 0.12)`,
+          purple: themed("--color-brand-purple"),
         },
         // Semantic
-        success: { DEFAULT: "#10B981", dim: "rgba(16,185,129,0.12)", light: "#34D399" },
-        warning: { DEFAULT: "#F59E0B", dim: "rgba(245,158,11,0.12)", light: "#FCD34D" },
-        danger:  { DEFAULT: "#EF4444", dim: "rgba(239,68,68,0.12)",  light: "#F87171" },
-        info:    { DEFAULT: "#3B82F6", dim: "rgba(59,130,246,0.12)", light: "#60A5FA" },
+        success: { DEFAULT: themed("--color-success"), dim: `rgb(var(--color-success) / 0.12)`, light: themed("--color-success-light") },
+        warning: { DEFAULT: themed("--color-warning"), dim: `rgb(var(--color-warning) / 0.12)`, light: themed("--color-warning-light") },
+        danger:  { DEFAULT: themed("--color-danger"),  dim: `rgb(var(--color-danger) / 0.12)`,  light: themed("--color-danger-light") },
+        info:    { DEFAULT: themed("--color-info"),    dim: `rgb(var(--color-info) / 0.12)`,    light: themed("--color-info-light") },
         // Text
         tx: {
-          primary:   "#F8FAFC",
-          secondary: "#94A3B8",
-          muted:     "#475569",
-          disabled:  "#334155",
+          primary:   themed("--color-tx-primary"),
+          secondary: themed("--color-tx-secondary"),
+          muted:     themed("--color-tx-muted"),
+          disabled:  themed("--color-tx-disabled"),
         },
         // Borders
         border: {
-          subtle:  "#1E293B",
-          DEFAULT: "#334155",
-          strong:  "#475569",
+          subtle:  themed("--color-border-subtle"),
+          DEFAULT: themed("--color-border"),
+          strong:  themed("--color-border-strong"),
         },
-        // Provider colors
+        // Provider colors — third-party brand identity, constant across themes
         openai:    { DEFAULT: "#10A37F", dim: "rgba(16,163,127,0.15)" },
         anthropic: { DEFAULT: "#D4A574", dim: "rgba(212,165,116,0.15)" },
         google:    { DEFAULT: "#4285F4", dim: "rgba(66,133,244,0.15)" },
@@ -76,25 +87,25 @@ const config: Config = {
         sm:   "4px",
       },
       boxShadow: {
-        card:    "0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3)",
-        "card-hover": "0 4px 12px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.3)",
-        glow:    "0 0 20px rgba(79,70,229,0.3)",
-        "glow-success": "0 0 20px rgba(16,185,129,0.25)",
-        "glow-brand": "0 0 32px rgba(40,224,194,0.25)",
-        "glow-brand-lg": "0 0 60px rgba(40,224,194,0.22), 0 0 120px rgba(124,58,237,0.10)",
-        elevated: "0 8px 24px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04) inset",
-        "elevated-lg": "0 24px 64px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset",
+        card:    "0 1px 3px rgb(var(--shadow-rgb) / var(--shadow-a-1)), 0 1px 2px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
+        "card-hover": "0 4px 12px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 2px 4px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
+        glow:    "0 0 20px rgb(var(--color-primary) / var(--glow-a))",
+        "glow-success": "0 0 20px rgb(var(--color-success) / var(--glow-a))",
+        "glow-brand": "0 0 32px rgb(var(--color-brand) / var(--glow-a))",
+        "glow-brand-lg": "0 0 60px rgb(var(--color-brand) / var(--glow-a-lg)), 0 0 120px rgb(var(--color-brand-purple) / var(--glow-a-sm))",
+        elevated: "0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)), 0 2px 8px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a))",
+        "elevated-lg": "0 24px 64px rgb(var(--shadow-rgb) / var(--shadow-a-5)), 0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)), 0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a-lg))",
       },
       backgroundImage: {
-        "gradient-primary": "linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%)",
-        "gradient-success": "linear-gradient(135deg, #10B981 0%, #059669 100%)",
-        "gradient-card":    "linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%)",
-        "gradient-shimmer": "linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%)",
-        "gradient-brand":   "linear-gradient(135deg, #28E0C2 0%, #00B8A9 100%)",
-        "gradient-brand-radial": "radial-gradient(ellipse at top left, rgba(40,224,194,0.18) 0%, rgba(124,58,237,0.10) 45%, rgba(10,10,15,0) 75%)",
-        aurora: "radial-gradient(ellipse 80% 50% at 20% 0%, rgba(40,224,194,0.20) 0%, transparent 60%), " +
-                "radial-gradient(ellipse 60% 50% at 80% 10%, rgba(124,58,237,0.16) 0%, transparent 60%), " +
-                "radial-gradient(ellipse 70% 60% at 50% 100%, rgba(40,224,194,0.10) 0%, transparent 60%)",
+        "gradient-primary": "linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-brand-purple)) 100%)",
+        "gradient-success": "linear-gradient(135deg, rgb(var(--color-success)) 0%, rgb(var(--color-success-light)) 100%)",
+        "gradient-card":    "linear-gradient(145deg, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 100%)",
+        "gradient-shimmer": "linear-gradient(90deg, transparent 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 50%, transparent 100%)",
+        "gradient-brand":   "linear-gradient(135deg, rgb(var(--color-brand)) 0%, rgb(var(--color-brand-hover)) 100%)",
+        "gradient-brand-radial": "radial-gradient(ellipse at top left, rgb(var(--color-brand) / var(--glow-a-lg)) 0%, rgb(var(--color-brand-purple) / var(--glow-a-sm)) 45%, rgb(var(--color-app-bg) / 0) 75%)",
+        aurora: "radial-gradient(ellipse 80% 50% at 20% 0%, rgb(var(--color-brand) / var(--aurora-a)) 0%, transparent 60%), " +
+                "radial-gradient(ellipse 60% 50% at 80% 10%, rgb(var(--color-brand-purple) / var(--aurora-a-2)) 0%, transparent 60%), " +
+                "radial-gradient(ellipse 70% 60% at 50% 100%, rgb(var(--color-brand) / var(--aurora-a-3)) 0%, transparent 60%)",
       },
       animation: {
         shimmer: "shimmer 1.5s infinite",
@@ -107,6 +118,7 @@ const config: Config = {
         aurora: "auroraShift 18s ease-in-out infinite",
         drift: "drift 14s linear infinite",
         shake: "shake 0.4s ease-in-out",
+        "theme-fade": "themeFade 0.3s ease-out",
       },
       keyframes: {
         shimmer: {
@@ -144,6 +156,10 @@ const config: Config = {
           "0%, 100%": { transform: "translateX(0)" },
           "20%, 60%": { transform: "translateX(-6px)" },
           "40%, 80%": { transform: "translateX(6px)" },
+        },
+        themeFade: {
+          from: { opacity: "0.4" },
+          to: { opacity: "1" },
         },
       },
       transitionDuration: {

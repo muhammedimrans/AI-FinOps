@@ -4,8 +4,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
   BellOff,
-  Sun,
-  Moon,
   Search,
   ChevronDown,
   Calendar,
@@ -14,6 +12,7 @@ import {
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
+import ThemeSwitcher from "../components/ThemeSwitcher";
 import type { Currency } from "../types/api";
 
 const DROPDOWN_TRANSITION = { duration: 0.15, ease: "easeOut" as const };
@@ -53,8 +52,7 @@ interface HeaderProps {
 
 export default function Header({ onMenuClick }: HeaderProps) {
   const location = useLocation();
-  const { theme, toggleTheme, currency, setCurrency, datePreset, setDateRange, setCommandOpen } =
-    useUIStore();
+  const { currency, setCurrency, datePreset, setDateRange, setCommandOpen } = useUIStore();
   const [dateOpen, setDateOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -249,14 +247,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
 
         <div className="w-px h-5 bg-border-subtle" />
 
-        {/* Theme toggle */}
-        <button
-          onClick={toggleTheme}
-          className="btn-ghost h-8 w-8 p-0 justify-center"
-          aria-label="Toggle theme"
-        >
-          {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-        </button>
+        {/* Theme switcher */}
+        <ThemeSwitcher />
 
         {/* Notifications */}
         <div className="relative" ref={notifRef}>

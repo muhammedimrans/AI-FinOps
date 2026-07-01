@@ -9,10 +9,6 @@ interface UIState {
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
 
-  // Theme
-  theme: "dark" | "light";
-  toggleTheme: () => void;
-
   // Global filters
   currency: Currency;
   granularity: Granularity;
@@ -35,14 +31,6 @@ export const useUIStore = create<UIState>()(
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
       setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
 
-      theme: "dark",
-      toggleTheme: () =>
-        set((s) => {
-          const next = s.theme === "dark" ? "light" : "dark";
-          document.documentElement.classList.toggle("dark", next === "dark");
-          return { theme: next };
-        }),
-
       currency: "USD",
       granularity: "daily",
       datePreset: "30d",
@@ -60,7 +48,6 @@ export const useUIStore = create<UIState>()(
       name: "ai-finops-ui",
       partialize: (s) => ({
         sidebarCollapsed: s.sidebarCollapsed,
-        theme: s.theme,
         currency: s.currency,
         granularity: s.granularity,
         datePreset: s.datePreset,

@@ -6,6 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI FinOps — Cost Observability Platform</title>
     <meta name="description" content="AI cost observability and financial operations platform" />
+    <script>
+      (function () {
+        var THEMES = ["neon-cyber", "professional-light", "professional-dark"];
+        try {
+          var stored = localStorage.getItem("costorah-theme");
+          var theme =
+            THEMES.indexOf(stored) !== -1
+              ? stored
+              : window.matchMedia("(prefers-color-scheme: dark)").matches
+                ? "professional-dark"
+                : "professional-light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "professional-light");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

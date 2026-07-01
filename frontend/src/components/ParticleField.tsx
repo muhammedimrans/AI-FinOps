@@ -44,7 +44,7 @@ export default function ParticleField({ count = 24, className }: ParticleFieldPr
           animationDuration: `${p.duration}s`,
           animationDelay: `${p.delay}s`,
           filter: "blur(0.5px)",
-          boxShadow: "0 0 6px rgba(40,224,194,0.6)",
+          boxShadow: "0 0 6px rgb(var(--color-brand) / 0.6)",
           "--drift-x": `${p.drift}px`,
         };
         return (

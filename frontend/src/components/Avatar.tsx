@@ -1,4 +1,4 @@
-import { getInitials, cn } from "../lib/utils";
+import { getInitials, cn } from "../utils";
 import { useProfileStore } from "../stores/profile";
 
 interface AvatarProps {

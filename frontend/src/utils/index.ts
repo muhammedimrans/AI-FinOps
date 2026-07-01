@@ -33,10 +33,6 @@ export function formatNumber(value: number, compact = false): string {
   }).format(value);
 }
 
-export function formatPercent(value: number, decimals = 1): string {
-  return `${value >= 0 ? "+" : ""}${value.toFixed(decimals)}%`;
-}
-
 export function formatTokens(value: number): string {
   if (value >= 1_000_000_000) return `${(value / 1_000_000_000).toFixed(1)}B`;
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -65,11 +61,6 @@ export function formatDate(dateStr: string): string {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function formatDateFull(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
 export function formatDateTime(isoStr: string): string {
   const d = new Date(isoStr);
   return d.toLocaleString("en-US", {
@@ -90,18 +81,6 @@ export function getToday(): string {
 
 // ── Trend helpers ─────────────────────────────────────────────────────────────
 
-export function trendColor(pct: number): string {
-  if (pct > 0) return "text-danger";
-  if (pct < 0) return "text-success";
-  return "text-tx-muted";
-}
-
-export function trendColorInverse(pct: number): string {
-  if (pct > 0) return "text-success";
-  if (pct < 0) return "text-danger";
-  return "text-tx-muted";
-}
-
 export function trendIcon(pct: number): "up" | "down" | "flat" {
   if (pct > 0.1) return "up";
   if (pct < -0.1) return "down";
@@ -109,14 +88,6 @@ export function trendIcon(pct: number): "up" | "down" | "flat" {
 }
 
 // ── Misc ──────────────────────────────────────────────────────────────────────
-
-export function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-export function slugify(str: string): string {
-  return str.toLowerCase().replace(/\s+/g, "-");
-}
 
 export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
@@ -159,8 +130,4 @@ export function modelDisplayName(modelId: string): string {
     "azure-gpt-35": "Azure GPT-3.5",
   };
   return map[modelId] ?? modelId;
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

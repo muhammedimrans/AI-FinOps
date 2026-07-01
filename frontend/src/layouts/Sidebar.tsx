@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Building2, X } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 import Avatar from "../components/Avatar";
 import { useUIStore } from "../stores/ui";
 import { useAuthStore } from "../stores/auth";

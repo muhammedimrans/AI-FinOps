@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Search, CornerDownLeft, ArrowUp, ArrowDown } from "lucide-react";
 import { NAV_ITEMS } from "../lib/navigation";
 import { useUIStore } from "../stores/ui";
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 
 /**
  * Global quick-jump palette — Cmd+K / Ctrl+K to open (wired in AppLayout).

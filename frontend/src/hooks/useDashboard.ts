@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useUIStore } from "../stores/ui";
 import { useOrgStore } from "../stores/org";
-import * as api from "../lib/api";
+import * as api from "../services/api";
 
 function useFilters() {
   const { startDate, endDate, currency, granularity } = useUIStore();

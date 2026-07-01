@@ -1,4 +1,4 @@
-import { cn, providerDisplayName } from "../lib/utils";
+import { cn, providerDisplayName } from "../utils";
 
 const PROVIDER_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
   openai:    { bg: "bg-openai-dim",    text: "text-openai",    dot: "bg-openai"    },

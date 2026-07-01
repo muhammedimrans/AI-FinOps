@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { cn, formatCost } from "../lib/utils";
+import { cn, formatCost } from "../utils";
 
 interface BudgetBarProps {
   used: number | string;

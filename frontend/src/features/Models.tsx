@@ -15,10 +15,9 @@ import { Medal, Search } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useModels } from "../hooks/useDashboard";
-import { formatCost, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
+import { formatCost, formatNumber, formatTokens, modelDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
-import { cn } from "../lib/utils";
 
 function MedalIcon({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-[#FFD700] text-sm">🥇</span>;

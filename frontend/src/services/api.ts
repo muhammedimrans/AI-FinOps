@@ -30,7 +30,7 @@ import {
   mapProjects,
   mapOrganization,
   mapKPIs,
-} from "./mappers";
+} from "../lib/mappers";
 import {
   getMockOverview,
   getMockTimeSeries,
@@ -40,7 +40,7 @@ import {
   getMockOrganization,
   getMockKPIs,
   getMockRecentActivity,
-} from "./mock-data";
+} from "../lib/mockData";
 import { useAuthStore } from "../stores/auth";
 
 // ── Configuration ─────────────────────────────────────────────────────────────

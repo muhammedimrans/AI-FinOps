@@ -34,7 +34,7 @@ import {
   modelDisplayName,
   providerDisplayName,
   cn,
-} from "../lib/utils";
+} from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import type { Granularity } from "../types/api";

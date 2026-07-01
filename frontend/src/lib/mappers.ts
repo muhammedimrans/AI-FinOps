@@ -23,7 +23,7 @@ import type {
   Currency,
   Granularity,
 } from "../types/api";
-import { modelDisplayName } from "./utils";
+import { modelDisplayName } from "../utils";
 
 // ── Overview ──────────────────────────────────────────────────────────────────
 

@@ -89,18 +89,11 @@ const config: Config = {
       boxShadow: {
         card:    "0 1px 3px rgb(var(--shadow-rgb) / var(--shadow-a-1)), 0 1px 2px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
         "card-hover": "0 4px 12px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 2px 4px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
-        glow:    "0 0 20px rgb(var(--color-primary) / var(--glow-a))",
-        "glow-success": "0 0 20px rgb(var(--color-success) / var(--glow-a))",
         "glow-brand": "0 0 32px rgb(var(--color-brand) / var(--glow-a))",
         "glow-brand-lg": "0 0 60px rgb(var(--color-brand) / var(--glow-a-lg)), 0 0 120px rgb(var(--color-brand-purple) / var(--glow-a-sm))",
         elevated: "0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)), 0 2px 8px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a))",
-        "elevated-lg": "0 24px 64px rgb(var(--shadow-rgb) / var(--shadow-a-5)), 0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)), 0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a-lg))",
       },
       backgroundImage: {
-        "gradient-primary": "linear-gradient(135deg, rgb(var(--color-primary)) 0%, rgb(var(--color-brand-purple)) 100%)",
-        "gradient-success": "linear-gradient(135deg, rgb(var(--color-success)) 0%, rgb(var(--color-success-light)) 100%)",
-        "gradient-card":    "linear-gradient(145deg, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 100%)",
-        "gradient-shimmer": "linear-gradient(90deg, transparent 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 50%, transparent 100%)",
         "gradient-brand":   "linear-gradient(135deg, rgb(var(--color-brand)) 0%, rgb(var(--color-brand-hover)) 100%)",
         "gradient-brand-radial": "radial-gradient(ellipse at top left, rgb(var(--color-brand) / var(--glow-a-lg)) 0%, rgb(var(--color-brand-purple) / var(--glow-a-sm)) 45%, rgb(var(--color-app-bg) / 0) 75%)",
         aurora: "radial-gradient(ellipse 80% 50% at 20% 0%, rgb(var(--color-brand) / var(--aurora-a)) 0%, transparent 60%), " +
@@ -108,17 +101,12 @@ const config: Config = {
                 "radial-gradient(ellipse 70% 60% at 50% 100%, rgb(var(--color-brand) / var(--aurora-a-3)) 0%, transparent 60%)",
       },
       animation: {
-        shimmer: "shimmer 1.5s infinite",
-        "count-up": "countUp 0.8s ease-out",
         "fade-in": "fadeIn 0.2s ease-out",
-        "slide-up": "slideUp 0.25s ease-out",
         float: "float 6s ease-in-out infinite",
         "float-slow": "float 9s ease-in-out infinite",
         "glow-pulse": "glowPulse 4s ease-in-out infinite",
         aurora: "auroraShift 18s ease-in-out infinite",
         drift: "drift 14s linear infinite",
-        shake: "shake 0.4s ease-in-out",
-        "theme-fade": "themeFade 0.3s ease-out",
       },
       keyframes: {
         shimmer: {
@@ -128,10 +116,6 @@ const config: Config = {
         fadeIn: {
           from: { opacity: "0" },
           to:   { opacity: "1" },
-        },
-        slideUp: {
-          from: { opacity: "0", transform: "translateY(8px)" },
-          to:   { opacity: "1", transform: "translateY(0)" },
         },
         float: {
           "0%, 100%": { transform: "translate3d(0, 0, 0)" },
@@ -152,25 +136,11 @@ const config: Config = {
           "90%": { opacity: "0.7" },
           "100%": { transform: "translate3d(0, -20%, 0)", opacity: "0" },
         },
-        shake: {
-          "0%, 100%": { transform: "translateX(0)" },
-          "20%, 60%": { transform: "translateX(-6px)" },
-          "40%, 80%": { transform: "translateX(6px)" },
-        },
-        themeFade: {
-          from: { opacity: "0.4" },
-          to: { opacity: "1" },
-        },
       },
       transitionDuration: {
         fast: "150ms",
         base: "200ms",
         slow: "300ms",
-      },
-      backdropBlur: {
-        xs: "2px",
-        card: "16px",
-        heavy: "28px",
       },
     },
   },

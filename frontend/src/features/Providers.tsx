@@ -15,7 +15,7 @@ import ChartCard from "../components/ChartCard";
 import EmptyState from "../components/EmptyState";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
-import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../lib/utils";
+import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 

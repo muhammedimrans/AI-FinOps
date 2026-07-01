@@ -6,7 +6,7 @@ import {
   modelDisplayName,
   providerDisplayName,
   trendIcon,
-} from "../lib/utils";
+} from "../utils";
 
 // Regression tests for EP-11.5 utility functions
 

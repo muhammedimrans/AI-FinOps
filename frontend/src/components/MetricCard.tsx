@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { cn, formatCost, formatNumber } from "../lib/utils";
+import { cn, formatCost, formatNumber } from "../utils";
 import { useCountUp } from "../hooks/useCountUp";
 
 type GradientVariant = "teal" | "indigo" | "emerald" | "amber" | "blue" | "purple";

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { AnimatePresence, motion } from "framer-motion";
 import {
   Bell,
   BellOff,
@@ -13,9 +12,8 @@ import {
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
 import ThemeSwitcher from "../components/ThemeSwitcher";
+import Popover from "../components/Popover";
 import type { Currency } from "../types/api";
-
-const DROPDOWN_TRANSITION = { duration: 0.15, ease: "easeOut" as const };
 
 const ROUTE_LABELS: Record<string, string> = {
   "/dashboard":              "Overview",
@@ -70,35 +68,10 @@ export default function Header({ onMenuClick }: HeaderProps) {
         e.preventDefault();
         setCommandOpen(true);
       }
-      if (e.key === "Escape") {
-        setDateOpen(false);
-        setCurrencyOpen(false);
-        setNotifOpen(false);
-      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [setCommandOpen]);
-
-  // Close any open dropdown when clicking outside of it.
-  useEffect(() => {
-    function onClickOutside(e: MouseEvent) {
-      if (dateOpen && dateRef.current && !dateRef.current.contains(e.target as Node)) {
-        setDateOpen(false);
-      }
-      if (currencyOpen && currencyRef.current && !currencyRef.current.contains(e.target as Node)) {
-        setCurrencyOpen(false);
-      }
-      if (notifOpen && notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setNotifOpen(false);
-      }
-    }
-    if (dateOpen || currencyOpen || notifOpen) {
-      document.addEventListener("mousedown", onClickOutside);
-      return () => document.removeEventListener("mousedown", onClickOutside);
-    }
-    return undefined;
-  }, [dateOpen, currencyOpen, notifOpen]);
 
   function selectPreset(preset: (typeof DATE_PRESETS)[0]) {
     setDateRange(preset.value, preset.start(), preset.end());
@@ -168,35 +141,32 @@ export default function Header({ onMenuClick }: HeaderProps) {
             <span className="hidden sm:inline">{currentPreset?.label ?? datePreset}</span>
             <ChevronDown size={13} className={cn("hidden sm:block transition-transform", dateOpen && "rotate-180")} />
           </button>
-          <AnimatePresence>
-            {dateOpen && (
-              <motion.div
-                role="listbox"
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={DROPDOWN_TRANSITION}
-                className="absolute right-0 top-full mt-2 w-44 glass-card rounded-xl shadow-elevated z-50 py-1.5 origin-top-right"
-              >
-                {DATE_PRESETS.map((p) => (
-                  <button
-                    key={p.value}
-                    role="option"
-                    aria-selected={p.value === datePreset}
-                    onClick={() => selectPreset(p)}
-                    className={cn(
-                      "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
-                      p.value === datePreset
-                        ? "text-brand bg-brand-subtle font-medium"
-                        : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
-                    )}
-                  >
-                    {p.label}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <Popover
+            anchorRef={dateRef}
+            open={dateOpen}
+            onClose={() => setDateOpen(false)}
+            align="end"
+            className="w-44 glass-card rounded-xl shadow-elevated z-[1000] py-1.5 origin-top-right"
+          >
+            <div role="listbox">
+              {DATE_PRESETS.map((p) => (
+                <button
+                  key={p.value}
+                  role="option"
+                  aria-selected={p.value === datePreset}
+                  onClick={() => selectPreset(p)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
+                    p.value === datePreset
+                      ? "text-brand bg-brand-subtle font-medium"
+                      : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
+                  )}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </Popover>
         </div>
 
         {/* Currency selector */}
@@ -214,35 +184,32 @@ export default function Header({ onMenuClick }: HeaderProps) {
             <span className="hidden sm:inline">{currency}</span>
             <ChevronDown size={13} className={cn("hidden sm:block transition-transform", currencyOpen && "rotate-180")} />
           </button>
-          <AnimatePresence>
-            {currencyOpen && (
-              <motion.div
-                role="listbox"
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={DROPDOWN_TRANSITION}
-                className="absolute right-0 top-full mt-2 w-28 glass-card rounded-xl shadow-elevated z-50 py-1.5 origin-top-right"
-              >
-                {CURRENCIES.map((c) => (
-                  <button
-                    key={c}
-                    role="option"
-                    aria-selected={c === currency}
-                    onClick={() => { setCurrency(c); setCurrencyOpen(false); }}
-                    className={cn(
-                      "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
-                      c === currency
-                        ? "text-brand bg-brand-subtle font-medium"
-                        : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
-                    )}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <Popover
+            anchorRef={currencyRef}
+            open={currencyOpen}
+            onClose={() => setCurrencyOpen(false)}
+            align="end"
+            className="w-28 glass-card rounded-xl shadow-elevated z-[1000] py-1.5 origin-top-right"
+          >
+            <div role="listbox">
+              {CURRENCIES.map((c) => (
+                <button
+                  key={c}
+                  role="option"
+                  aria-selected={c === currency}
+                  onClick={() => { setCurrency(c); setCurrencyOpen(false); }}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
+                    c === currency
+                      ? "text-brand bg-brand-subtle font-medium"
+                      : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </Popover>
         </div>
 
         <div className="w-px h-5 bg-border-subtle" />
@@ -261,28 +228,24 @@ export default function Header({ onMenuClick }: HeaderProps) {
           >
             <Bell size={16} />
           </button>
-          <AnimatePresence>
-            {notifOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                transition={DROPDOWN_TRANSITION}
-                className="absolute right-0 top-full mt-2 w-72 glass-card rounded-xl shadow-elevated z-50 origin-top-right overflow-hidden"
-              >
-                <div className="px-4 py-3 border-b border-border-subtle">
-                  <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
-                </div>
-                <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                  <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
-                    <BellOff size={18} className="text-tx-muted" />
-                  </div>
-                  <p className="text-sm font-medium text-tx-primary mb-1">You&apos;re all caught up</p>
-                  <p className="text-xs text-tx-muted leading-relaxed">No new notifications right now.</p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <Popover
+            anchorRef={notifRef}
+            open={notifOpen}
+            onClose={() => setNotifOpen(false)}
+            align="end"
+            className="w-72 glass-card rounded-xl shadow-elevated z-[1000] origin-top-right overflow-hidden"
+          >
+            <div className="px-4 py-3 border-b border-border-subtle">
+              <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
+            </div>
+            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+              <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+                <BellOff size={18} className="text-tx-muted" />
+              </div>
+              <p className="text-sm font-medium text-tx-primary mb-1">You&apos;re all caught up</p>
+              <p className="text-xs text-tx-muted leading-relaxed">No new notifications right now.</p>
+            </div>
+          </Popover>
         </div>
       </div>
     </header>

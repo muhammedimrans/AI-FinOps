@@ -251,7 +251,12 @@ export default function Analytics() {
             <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
             <XAxis dataKey="date" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
             <YAxis tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCost(v, currency, true)} width={56} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatCost(v, currency, true)} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              itemStyle={{ color: chrome.text }}
+              labelStyle={{ color: chrome.text }}
+              formatter={(v: number) => formatCost(v, currency, true)}
+            />
             <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
             {PROVIDERS.map((p) => (
               <Area

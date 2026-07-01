@@ -28,6 +28,7 @@ import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
+import { toast } from "../stores/toast";
 import type { Granularity, ModelSummary } from "../types/api";
 
 const TOOLTIP_STYLE = {
@@ -143,6 +144,10 @@ export default function Analytics() {
     : 0;
 
   function exportCSV() {
+    if (tableData.length === 0) {
+      toast.warning("Nothing to export", "There is no model data for the current period.");
+      return;
+    }
     const rows = tableData.map((m) =>
       [m.provider, m.model_id, m.request_count, m.input_tokens, m.output_tokens, m.total_cost].join(","),
     );
@@ -151,6 +156,7 @@ export default function Analytics() {
     a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
     a.download = "ai-finops-analytics.csv";
     a.click();
+    toast.success("Export ready", `${tableData.length} models exported to CSV.`);
   }
 
   return (
@@ -364,13 +370,14 @@ export default function Analytics() {
           </span>
           <div className="flex gap-1">
             {[
-              { label: "←", fn: () => table.previousPage(), disabled: !table.getCanPreviousPage() },
-              { label: "→", fn: () => table.nextPage(), disabled: !table.getCanNextPage() },
+              { label: "←", name: "Previous page", fn: () => table.previousPage(), disabled: !table.getCanPreviousPage() },
+              { label: "→", name: "Next page", fn: () => table.nextPage(), disabled: !table.getCanNextPage() },
             ].map((b) => (
               <button
                 key={b.label}
                 onClick={b.fn}
                 disabled={b.disabled}
+                aria-label={b.name}
                 className="w-7 h-7 rounded-md text-xs font-medium border border-border-subtle text-tx-secondary hover:text-tx-primary hover:bg-app-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all"
               >
                 {b.label}

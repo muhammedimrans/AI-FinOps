@@ -18,6 +18,15 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
   const { sidebarCollapsed, toggleSidebar } = useUIStore();
   const location = useLocation();
 
+  useEffect(() => {
+    if (!mobileOpen) return undefined;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onCloseMobile?.();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen, onCloseMobile]);
+
   return (
     <>
       {/* Desktop — persistent, collapsible */}
@@ -56,6 +65,9 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
               aria-hidden="true"
             />
             <motion.aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation"
               initial={{ x: -272 }}
               animate={{ x: 0 }}
               exit={{ x: -272 }}
@@ -212,8 +224,17 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
     function onClickOutside(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     }
-    if (open) document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    if (open) {
+      document.addEventListener("mousedown", onClickOutside);
+      document.addEventListener("keydown", onKeyDown);
+    }
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [open]);
 
   function handleSignOut() {
@@ -233,12 +254,14 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
       <AnimatePresence>
         {open && (
           <motion.div
+            role="menu"
+            aria-label="Account menu"
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
             transition={{ duration: 0.12 }}
             className="absolute bottom-full left-3 right-3 mb-2 bg-app-card border border-border-subtle
-                       rounded-lg shadow-card-hover overflow-hidden z-20"
+                       rounded-lg shadow-elevated overflow-hidden z-20"
           >
             {organizationName && (
               <div className="px-3 py-2 border-b border-border-subtle">
@@ -247,6 +270,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
               </div>
             )}
             <button
+              role="menuitem"
               onClick={handleSwitchOrg}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-tx-secondary
                          hover:bg-app-hover hover:text-tx-primary transition-colors duration-fast"
@@ -255,6 +279,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
               Switch organization
             </button>
             <button
+              role="menuitem"
               onClick={handleSignOut}
               className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-danger
                          hover:bg-danger-dim transition-colors duration-fast"
@@ -268,6 +293,9 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
 
       <button
         onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`Account menu for ${name}`}
         className={cn(
           "w-full flex items-center gap-3 rounded-lg px-2 py-2",
           "hover:bg-app-hover transition-colors duration-200",

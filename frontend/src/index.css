@@ -47,8 +47,9 @@
 
   /* Focus ring */
   :focus-visible {
-    outline: 2px solid #4F46E5;
+    outline: 2px solid #28E0C2;
     outline-offset: 2px;
+    border-radius: 4px;
   }
 }
 

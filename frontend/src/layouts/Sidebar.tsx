@@ -70,7 +70,7 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
               >
                 <X size={15} />
               </button>
-              <SidebarBody collapsed={false} location={location} onNavigate={onCloseMobile} />
+              <SidebarBody collapsed={false} location={location} {...(onCloseMobile ? { onNavigate: onCloseMobile } : {})} />
             </motion.aside>
           </div>
         )}
@@ -137,7 +137,7 @@ function SidebarBody({
                   item={item}
                   collapsed={collapsed}
                   active={isNavItemActive(item, location.pathname)}
-                  onNavigate={onNavigate}
+                  {...(onNavigate ? { onNavigate } : {})}
                 />
               ))}
             </div>

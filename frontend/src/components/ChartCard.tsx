@@ -50,12 +50,12 @@ export default function ChartCard({
       className={cn("glass-card border border-border-subtle", className)}
     >
       {/* Header */}
-      <div className="flex items-start justify-between px-5 pt-5 pb-3">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 px-5 pt-5 pb-3">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-tx-primary">{title}</h3>
           {subtitle && <p className="text-xs text-tx-muted mt-0.5">{subtitle}</p>}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex items-center gap-2 flex-shrink-0">{actions}</div>}
       </div>
 
       {legend && (

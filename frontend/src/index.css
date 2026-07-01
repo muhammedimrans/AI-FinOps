@@ -61,6 +61,9 @@
   }
 
   /* Metric card gradient variants */
+  .metric-gradient-teal {
+    background: linear-gradient(135deg, rgba(40,224,194,0.16) 0%, rgba(0,184,169,0.08) 100%);
+  }
   .metric-gradient-indigo {
     background: linear-gradient(135deg, rgba(79,70,229,0.15) 0%, rgba(124,58,237,0.08) 100%);
   }

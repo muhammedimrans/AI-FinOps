@@ -328,23 +328,3 @@
            px-3 py-2 rounded-lg text-sm font-medium transition-all duration-base flex items-center gap-2;
   }
 }
-
-@layer utilities {
-  .text-gradient-primary {
-    background: linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-brand-purple)));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-  .text-gradient-success {
-    background: linear-gradient(135deg, rgb(var(--color-success)), rgb(var(--color-success-light)));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  .border-gradient {
-    border: 1px solid transparent;
-    background-clip: padding-box;
-  }
-}

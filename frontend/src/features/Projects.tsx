@@ -4,9 +4,8 @@ import BudgetBar from "../components/BudgetBar";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useProjects } from "../hooks/useDashboard";
-import { formatCost, formatNumber, modelDisplayName } from "../lib/utils";
+import { formatCost, formatNumber, modelDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
-import { cn } from "../lib/utils";
 
 function MiniTrendLine({ data, positive }: { data: string[]; positive: boolean }) {
   const nums = data.map(parseFloat);

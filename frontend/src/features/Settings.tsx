@@ -19,7 +19,7 @@ import { THEMES, useThemeStore } from "../stores/theme";
 import { useAuthStore } from "../stores/auth";
 import { useProfileStore } from "../stores/profile";
 import Avatar from "../components/Avatar";
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 import { toast } from "../stores/toast";
 import type { Currency } from "../types/api";
 

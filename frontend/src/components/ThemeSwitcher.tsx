@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { Check, Moon, Sun, Zap } from "lucide-react";
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 import { THEMES, useThemeStore, type ThemeId } from "../stores/theme";
 import Popover from "./Popover";
 

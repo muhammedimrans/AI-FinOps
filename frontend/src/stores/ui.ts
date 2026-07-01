@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Currency, Granularity } from "../types/api";
-import { getToday, getDaysAgo } from "../lib/utils";
+import { getToday, getDaysAgo } from "../utils";
 
 interface UIState {
   // Sidebar

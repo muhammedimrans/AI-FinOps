@@ -4,17 +4,6 @@ export type Currency = "USD" | "EUR" | "GBP";
 export type Granularity = "daily" | "weekly" | "monthly";
 export type Provider = "openai" | "anthropic" | "google" | "azure" | "bedrock" | "cohere";
 
-export interface DateRange {
-  start: string; // ISO date YYYY-MM-DD
-  end: string;
-}
-
-export interface BaseParams {
-  start_date: string;
-  end_date: string;
-  currency?: Currency;
-}
-
 // ── Overview ──────────────────────────────────────────────────────────────────
 
 export interface OverviewKPIs {
@@ -163,15 +152,4 @@ export interface UsageEventsResponse {
   total: number;
   page: number;
   page_size: number;
-}
-
-// ── Filter state ──────────────────────────────────────────────────────────────
-
-export interface FilterState {
-  dateRange: DateRange;
-  currency: Currency;
-  granularity: Granularity;
-  providers: string[];
-  models: string[];
-  projects: string[];
 }

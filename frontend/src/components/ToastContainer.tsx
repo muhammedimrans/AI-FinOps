@@ -2,7 +2,7 @@ import { forwardRef, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from "lucide-react";
 import { useToastStore, type Toast, type ToastVariant } from "../stores/toast";
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 
 const VARIANT_CONFIG: Record<ToastVariant, { icon: React.ElementType; iconClass: string; borderClass: string }> = {
   success: { icon: CheckCircle2, iconClass: "text-success", borderClass: "border-success/25" },

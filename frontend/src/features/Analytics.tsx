@@ -26,7 +26,7 @@ import ChartCard from "../components/ChartCard";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
-import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
+import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";

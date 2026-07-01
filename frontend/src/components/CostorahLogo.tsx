@@ -4,7 +4,7 @@
  * at any size. `variant="mark"` renders the glyph only (sidebar, favicon-style
  * contexts); `variant="full"` adds the wordmark + tagline (login, splash contexts).
  */
-import { cn } from "../lib/utils";
+import { cn } from "../utils";
 import markSrc from "../assets/costorah-mark.png";
 
 interface CostorahLogoProps {

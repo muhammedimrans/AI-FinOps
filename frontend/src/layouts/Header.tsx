@@ -9,7 +9,7 @@ import {
   DollarSign,
   Menu,
 } from "lucide-react";
-import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../lib/utils";
+import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import Popover from "../components/Popover";

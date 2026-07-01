@@ -5,9 +5,8 @@ import BudgetBar from "../components/BudgetBar";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useOrganization } from "../hooks/useDashboard";
-import { formatCost, formatNumber } from "../lib/utils";
+import { formatCost, formatNumber, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
-import { cn } from "../lib/utils";
 import type { DepartmentCost } from "../types/api";
 
 type SortKey = "department_name" | "total_cost" | "budget_utilization_pct" | "team_count" | "request_count";

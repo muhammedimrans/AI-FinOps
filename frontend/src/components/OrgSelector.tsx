@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Building2, AlertCircle, Loader2 } from "lucide-react";
-import { getOrganizations } from "../lib/api";
+import { getOrganizations } from "../services/api";
 import { useOrgStore } from "../stores/org";
 import type { BackendOrgMembershipItem } from "../types/backend";
 import { CostorahMark } from "./CostorahLogo";

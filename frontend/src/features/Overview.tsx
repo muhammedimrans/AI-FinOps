@@ -10,7 +10,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend,
   BarChart,
   Bar,
 } from "recharts";
@@ -33,16 +32,20 @@ import {
   formatNumber,
   formatDateTime,
   modelDisplayName,
+  providerDisplayName,
+  cn,
 } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
 import type { Granularity } from "../types/api";
 
 const TOOLTIP_STYLE = {
-  backgroundColor: "#12121A",
-  border: "1px solid #1E293B",
-  borderRadius: 8,
+  backgroundColor: "rgba(18,18,26,0.92)",
+  border: "1px solid rgba(255,255,255,0.08)",
+  borderRadius: 12,
   color: "#F8FAFC",
   fontSize: 12,
+  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+  backdropFilter: "blur(12px)",
 };
 
 interface TooltipPayloadEntry {
@@ -62,13 +65,13 @@ interface CustomTooltipProps {
 function CustomTooltip({ active, payload, label, currency }: CustomTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
-    <div style={TOOLTIP_STYLE} className="p-3 shadow-card-hover">
-      <p className="text-tx-muted text-xs mb-2">{label}</p>
+    <div className="glass-card rounded-xl border-white/10 shadow-elevated p-3.5 min-w-[140px]">
+      <p className="text-tx-muted text-[11px] uppercase tracking-wide mb-2">{label}</p>
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-tx-secondary capitalize">{p.name}:</span>
-          <span className="text-tx-primary font-medium">
+          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color, boxShadow: `0 0 6px ${p.color}` }} />
+          <span className="text-tx-secondary capitalize flex-1">{p.name}:</span>
+          <span className="text-tx-primary font-semibold tabular-nums">
             {formatCost(p.value ?? 0, currency, true)}
           </span>
         </div>
@@ -104,6 +107,8 @@ function GranularityTabs({
 export default function Overview() {
   const { currency } = useUIStore();
   const [granularity, setGranularity] = useState<Granularity>("daily");
+  const [hoveredProvider, setHoveredProvider] = useState<string | null>(null);
+  const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
   const overview = useOverview();
   const timeSeries = useTimeSeries();
@@ -240,16 +245,18 @@ export default function Overview() {
               tickFormatter={(v: number) => formatCost(v, currency, true)}
               width={56}
             />
-            <Tooltip content={<CustomTooltip currency={currency} />} />
+            <Tooltip content={<CustomTooltip currency={currency} />} cursor={{ stroke: "#28E0C2", strokeWidth: 1, strokeDasharray: "3 3" }} />
             <Area
               type="monotone"
               dataKey="total"
               name="Total"
               stroke="#28E0C2"
-              strokeWidth={2}
+              strokeWidth={2.5}
               fill="url(#totalGrad)"
               dot={false}
-              activeDot={{ r: 4, fill: "#28E0C2" }}
+              activeDot={{ r: 5, fill: "#28E0C2", stroke: "#0A0A0F", strokeWidth: 2 }}
+              animationDuration={1000}
+              animationEasing="ease-out"
             />
           </AreaChart>
         </ResponsiveContainer>
@@ -262,8 +269,10 @@ export default function Overview() {
           subtitle="Cost share by provider"
           loading={providers.isLoading}
           minHeight={260}
+          bodyClassName="flex flex-col sm:flex-row items-center gap-2"
         >
-          <ResponsiveContainer width="100%" height={260}>
+          <div className="w-full sm:w-3/5">
+          <ResponsiveContainer width="100%" height={220}>
             <PieChart>
               <Pie
                 data={pieData}
@@ -273,28 +282,62 @@ export default function Overview() {
                 outerRadius={95}
                 paddingAngle={3}
                 dataKey="value"
+                animationDuration={900}
+                animationEasing="ease-out"
               >
-                {pieData.map((entry) => (
-                  <Cell
-                    key={entry.name}
-                    fill={PROVIDER_COLORS[entry.name] ?? "#4F46E5"}
-                    stroke="transparent"
-                  />
-                ))}
+                {pieData.map((entry) => {
+                  const dimmed = hoveredProvider !== null && hoveredProvider !== entry.name;
+                  return (
+                    <Cell
+                      key={entry.name}
+                      fill={PROVIDER_COLORS[entry.name] ?? "#4F46E5"}
+                      stroke="transparent"
+                      opacity={dimmed ? 0.3 : 1}
+                      style={{ transition: "opacity 150ms ease-out" }}
+                      onMouseEnter={() => setHoveredProvider(entry.name)}
+                      onMouseLeave={() => setHoveredProvider(null)}
+                    />
+                  );
+                })}
               </Pie>
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
                 contentStyle={TOOLTIP_STYLE}
               />
-              <Legend
-                formatter={(value: string) => (
-                  <span style={{ color: "#94A3B8", fontSize: 12 }}>
-                    {value.charAt(0).toUpperCase() + value.slice(1)}
-                  </span>
-                )}
-              />
             </PieChart>
           </ResponsiveContainer>
+          </div>
+
+          {/* Interactive legend — hover highlights the matching slice */}
+          <div className="flex sm:flex-col flex-wrap gap-2 sm:gap-1.5 sm:w-2/5 px-2">
+            {pieData.map((entry) => {
+              const total = pieData.reduce((s, p) => s + p.value, 0);
+              const pct = total > 0 ? (entry.value / total) * 100 : 0;
+              const dimmed = hoveredProvider !== null && hoveredProvider !== entry.name;
+              return (
+                <button
+                  key={entry.name}
+                  onMouseEnter={() => setHoveredProvider(entry.name)}
+                  onMouseLeave={() => setHoveredProvider(null)}
+                  className={cn(
+                    "flex items-center gap-2 text-left px-2 py-1.5 rounded-lg transition-all duration-fast",
+                    dimmed ? "opacity-40" : "opacity-100 bg-app-hover/60",
+                  )}
+                >
+                  <span
+                    className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                    style={{ background: PROVIDER_COLORS[entry.name] ?? "#4F46E5" }}
+                  />
+                  <span className="text-xs text-tx-secondary flex-1 truncate">
+                    {providerDisplayName(entry.name)}
+                  </span>
+                  <span className="text-xs font-semibold text-tx-primary tabular-nums">
+                    {pct.toFixed(0)}%
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </ChartCard>
 
         <ChartCard
@@ -308,6 +351,7 @@ export default function Overview() {
               data={topModels}
               layout="vertical"
               margin={{ top: 0, right: 16, bottom: 0, left: 4 }}
+              onMouseLeave={() => setHoveredBar(null)}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
               <XAxis
@@ -328,8 +372,24 @@ export default function Overview() {
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
                 contentStyle={TOOLTIP_STYLE}
+                cursor={{ fill: "rgba(40,224,194,0.06)" }}
               />
-              <Bar dataKey="cost" name="Cost" fill="#4F46E5" radius={[0, 4, 4, 0]} />
+              <Bar
+                dataKey="cost"
+                name="Cost"
+                radius={[0, 4, 4, 0]}
+                animationDuration={800}
+                animationEasing="ease-out"
+                onMouseEnter={(_, index) => setHoveredBar(index)}
+              >
+                {topModels.map((entry, i) => (
+                  <Cell
+                    key={entry.name}
+                    fill={hoveredBar === null || hoveredBar === i ? "#28E0C2" : "#1E5C52"}
+                    style={{ transition: "fill 150ms ease-out" }}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
@@ -337,7 +397,8 @@ export default function Overview() {
 
       {/* Recent Activity */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <div className="glass-card border border-border-subtle">
+        <div className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
             <div>
               <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
@@ -347,7 +408,10 @@ export default function Overview() {
               <p className="text-xs text-tx-muted mt-0.5">Latest AI API calls across all providers</p>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+              <span className="relative flex w-2 h-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full w-2 h-2 bg-success" />
+              </span>
               <span className="text-xs text-tx-muted">Live</span>
             </div>
           </div>
@@ -373,8 +437,13 @@ export default function Overview() {
                         ))}
                       </tr>
                     ))
-                  : events.map((e) => (
-                      <tr key={e.id}>
+                  : events.map((e, i) => (
+                      <motion.tr
+                        key={e.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.25, delay: Math.min(i * 0.04, 0.3) }}
+                      >
                         <td className="text-tx-muted whitespace-nowrap">{formatDateTime(e.timestamp)}</td>
                         <td><ProviderBadge provider={e.provider} size="sm" /></td>
                         <td className="text-tx-primary font-mono text-xs">{modelDisplayName(e.model_id)}</td>
@@ -384,7 +453,7 @@ export default function Overview() {
                         <td className="text-right font-semibold text-xs text-tx-primary">
                           {formatCost(e.cost, currency)}
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
               </tbody>
             </table>

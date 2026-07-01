@@ -4,7 +4,161 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Theme tokens — three complete themes, switched at runtime via
+ * `data-theme` on <html>. Every color Tailwind resolves through
+ * `themed()` in tailwind.config.ts reads one of these CSS variables,
+ * so a theme change re-paints the whole app without a rebuild.
+ */
 @layer base {
+  :root,
+  [data-theme="neon-cyber"] {
+    --color-app-bg: 10 10 15;
+    --color-app-card: 18 18 26;
+    --color-app-muted: 26 26 38;
+    --color-app-hover: 30 30 46;
+
+    --color-primary: 79 70 229;
+    --color-primary-hover: 67 56 202;
+    --color-primary-light: 99 102 241;
+    --color-primary-dim: 49 46 129;
+
+    --color-brand: 40 224 194;
+    --color-brand-hover: 0 229 184;
+    --color-brand-light: 92 235 212;
+    --color-brand-dim: 10 61 52;
+    --color-brand-purple: 124 58 237;
+
+    --color-success: 16 185 129;
+    --color-success-light: 52 211 153;
+    --color-warning: 245 158 11;
+    --color-warning-light: 252 211 77;
+    --color-danger: 239 68 68;
+    --color-danger-light: 248 113 113;
+    --color-info: 59 130 246;
+    --color-info-light: 96 165 250;
+
+    --color-tx-primary: 248 250 252;
+    --color-tx-secondary: 148 163 184;
+    --color-tx-muted: 71 85 105;
+    --color-tx-disabled: 51 65 85;
+
+    --color-border-subtle: 30 41 59;
+    --color-border: 51 65 85;
+    --color-border-strong: 71 85 105;
+
+    --shadow-rgb: 0 0 0;
+    --shadow-a-1: 0.4;  --shadow-a-2: 0.3;  --shadow-a-3: 0.5;
+    --shadow-a-4: 0.45; --shadow-a-5: 0.55;
+    --glow-a: 0.3; --glow-a-lg: 0.22; --glow-a-sm: 0.1;
+    --glass-edge-rgb: 255 255 255; --glass-edge-a: 0.04; --glass-edge-a-lg: 0.05;
+    --glass-tint-rgb: 255 255 255; --glass-a-1: 0.04; --glass-a-2: 0.01;
+    --aurora-a: 0.2; --aurora-a-2: 0.16; --aurora-a-3: 0.1;
+    --glass-blur: 12px;
+    --glass-panel-blur: 28px;
+    --scrollbar-track: 18 18 26;
+    --scrollbar-thumb: 51 65 85;
+    --scrollbar-thumb-hover: 71 85 105;
+  }
+
+  [data-theme="professional-light"] {
+    --color-app-bg: 250 250 252;
+    --color-app-card: 255 255 255;
+    --color-app-muted: 244 245 247;
+    --color-app-hover: 237 238 241;
+
+    --color-primary: 37 99 235;
+    --color-primary-hover: 29 78 216;
+    --color-primary-light: 96 165 250;
+    --color-primary-dim: 219 234 254;
+
+    --color-brand: 37 99 235;
+    --color-brand-hover: 29 78 216;
+    --color-brand-light: 96 165 250;
+    --color-brand-dim: 219 234 254;
+    --color-brand-purple: 99 102 241;
+
+    --color-success: 5 150 105;
+    --color-success-light: 16 185 129;
+    --color-warning: 217 119 6;
+    --color-warning-light: 245 158 11;
+    --color-danger: 220 38 38;
+    --color-danger-light: 239 68 68;
+    --color-info: 37 99 235;
+    --color-info-light: 59 130 246;
+
+    --color-tx-primary: 15 23 42;
+    --color-tx-secondary: 71 85 105;
+    --color-tx-muted: 148 163 184;
+    --color-tx-disabled: 203 213 225;
+
+    --color-border-subtle: 226 232 240;
+    --color-border: 203 213 225;
+    --color-border-strong: 148 163 184;
+
+    --shadow-rgb: 15 23 42;
+    --shadow-a-1: 0.06; --shadow-a-2: 0.04; --shadow-a-3: 0.08;
+    --shadow-a-4: 0.1;  --shadow-a-5: 0.14;
+    --glow-a: 0; --glow-a-lg: 0; --glow-a-sm: 0;
+    --glass-edge-rgb: 15 23 42; --glass-edge-a: 0.06; --glass-edge-a-lg: 0.08;
+    --glass-tint-rgb: 15 23 42; --glass-a-1: 0.02; --glass-a-2: 0.005;
+    --aurora-a: 0.04; --aurora-a-2: 0.03; --aurora-a-3: 0.02;
+    --glass-blur: 0px;
+    --glass-panel-blur: 8px;
+    --scrollbar-track: 244 245 247;
+    --scrollbar-thumb: 203 213 225;
+    --scrollbar-thumb-hover: 148 163 184;
+  }
+
+  [data-theme="professional-dark"] {
+    --color-app-bg: 13 16 20;
+    --color-app-card: 20 24 29;
+    --color-app-muted: 27 32 38;
+    --color-app-hover: 34 40 47;
+
+    --color-primary: 14 165 233;
+    --color-primary-hover: 2 132 199;
+    --color-primary-light: 125 211 252;
+    --color-primary-dim: 12 40 54;
+
+    --color-brand: 14 165 233;
+    --color-brand-hover: 2 132 199;
+    --color-brand-light: 125 211 252;
+    --color-brand-dim: 12 40 54;
+    --color-brand-purple: 129 140 248;
+
+    --color-success: 52 211 153;
+    --color-success-light: 110 231 183;
+    --color-warning: 251 191 36;
+    --color-warning-light: 253 224 71;
+    --color-danger: 248 113 113;
+    --color-danger-light: 252 165 165;
+    --color-info: 56 189 248;
+    --color-info-light: 125 211 252;
+
+    --color-tx-primary: 236 239 244;
+    --color-tx-secondary: 156 168 186;
+    --color-tx-muted: 107 122 141;
+    --color-tx-disabled: 74 84 99;
+
+    --color-border-subtle: 32 38 46;
+    --color-border: 46 53 63;
+    --color-border-strong: 63 72 84;
+
+    --shadow-rgb: 0 0 0;
+    --shadow-a-1: 0.35; --shadow-a-2: 0.25; --shadow-a-3: 0.4;
+    --shadow-a-4: 0.4;  --shadow-a-5: 0.5;
+    --glow-a: 0.16; --glow-a-lg: 0.12; --glow-a-sm: 0.06;
+    --glass-edge-rgb: 255 255 255; --glass-edge-a: 0.05; --glass-edge-a-lg: 0.06;
+    --glass-tint-rgb: 255 255 255; --glass-a-1: 0.035; --glass-a-2: 0.01;
+    --aurora-a: 0.1; --aurora-a-2: 0.08; --aurora-a-3: 0.05;
+    --glass-blur: 14px;
+    --glass-panel-blur: 22px;
+    --scrollbar-track: 20 24 29;
+    --scrollbar-thumb: 46 53 63;
+    --scrollbar-thumb-hover: 63 72 84;
+  }
+
   :root {
     --sidebar-width: 240px;
     --sidebar-collapsed: 64px;
@@ -33,21 +187,39 @@
     height: 100%;
   }
 
-  /* Dark mode default */
   html {
-    background-color: #0A0A0F;
-    color: #F8FAFC;
+    background-color: rgb(var(--color-app-bg));
+    color: rgb(var(--color-tx-primary));
+  }
+
+  /* Smooth, flash-free theme switching — colors/surfaces cross-fade, layout never shifts */
+  html,
+  body,
+  * {
+    transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 250ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html,
+    body,
+    * {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
   }
 
   /* Custom scrollbar */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: #12121A; }
-  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+  ::-webkit-scrollbar-track { background: rgb(var(--scrollbar-track)); }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--scrollbar-thumb)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--scrollbar-thumb-hover)); }
 
   /* Focus ring */
   :focus-visible {
-    outline: 2px solid #28E0C2;
+    outline: 2px solid rgb(var(--color-brand));
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -57,43 +229,51 @@
   /* Glass card */
   .glass-card {
     @apply bg-app-card border border-border-subtle rounded-card;
-    background: linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
-    backdrop-filter: blur(12px);
+    background:
+      linear-gradient(145deg, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 100%),
+      rgb(var(--color-app-card));
+    backdrop-filter: blur(var(--glass-blur));
   }
 
   /* Glass panel — premium hero surface (login, splash, empty-state heroes) */
   .glass-panel {
-    @apply rounded-card-xl border border-white/[0.08];
-    background: linear-gradient(160deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.015) 55%, rgba(255,255,255,0.03) 100%);
-    backdrop-filter: blur(28px) saturate(140%);
-    -webkit-backdrop-filter: blur(28px) saturate(140%);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
+    @apply rounded-card-xl border;
+    border-color: rgb(var(--glass-edge-rgb) / var(--glass-edge-a-lg));
+    background:
+      linear-gradient(160deg, rgb(var(--glass-tint-rgb) / calc(var(--glass-a-1) * 1.5)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 55%, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 100%),
+      rgb(var(--color-app-card));
+    backdrop-filter: blur(var(--glass-panel-blur)) saturate(140%);
+    -webkit-backdrop-filter: blur(var(--glass-panel-blur)) saturate(140%);
+    box-shadow:
+      0 24px 64px rgb(var(--shadow-rgb) / var(--shadow-a-5)),
+      0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)),
+      0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a-lg)) inset;
   }
 
   /* Metric card gradient variants */
   .metric-gradient-teal {
-    background: linear-gradient(135deg, rgba(40,224,194,0.16) 0%, rgba(0,184,169,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-brand) / 0.16) 0%, rgb(var(--color-brand-hover) / 0.08) 100%);
   }
   .metric-gradient-indigo {
-    background: linear-gradient(135deg, rgba(79,70,229,0.15) 0%, rgba(124,58,237,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-primary) / 0.15) 0%, rgb(var(--color-brand-purple) / 0.08) 100%);
   }
   .metric-gradient-emerald {
-    background: linear-gradient(135deg, rgba(16,185,129,0.15) 0%, rgba(5,150,105,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-success) / 0.15) 0%, rgb(var(--color-success) / 0.08) 100%);
   }
   .metric-gradient-amber {
-    background: linear-gradient(135deg, rgba(245,158,11,0.15) 0%, rgba(217,119,6,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-warning) / 0.15) 0%, rgb(var(--color-warning) / 0.08) 100%);
   }
   .metric-gradient-blue {
-    background: linear-gradient(135deg, rgba(59,130,246,0.15) 0%, rgba(37,99,235,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-info) / 0.15) 0%, rgb(var(--color-info) / 0.08) 100%);
   }
   .metric-gradient-purple {
-    background: linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(126,34,206,0.08) 100%);
+    background: linear-gradient(135deg, rgb(var(--color-brand-purple) / 0.15) 0%, rgb(var(--color-brand-purple) / 0.08) 100%);
   }
 
   /* Shimmer skeleton */
   .skeleton {
     @apply rounded bg-app-muted relative overflow-hidden;
-    background: linear-gradient(90deg, #1A1A26 25%, #222233 50%, #1A1A26 75%);
+    background: linear-gradient(90deg, rgb(var(--color-app-muted)) 25%, rgb(var(--color-app-hover)) 50%, rgb(var(--color-app-muted)) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
   }
@@ -107,7 +287,7 @@
     @apply bg-app-hover text-tx-primary;
   }
   .nav-item.active {
-    @apply bg-primary-subtle text-primary-light font-medium;
+    @apply bg-brand-subtle text-brand font-medium;
   }
 
   /* Data table */
@@ -151,13 +331,13 @@
 
 @layer utilities {
   .text-gradient-primary {
-    background: linear-gradient(135deg, #4F46E5, #7C3AED);
+    background: linear-gradient(135deg, rgb(var(--color-primary)), rgb(var(--color-brand-purple)));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
   }
   .text-gradient-success {
-    background: linear-gradient(135deg, #10B981, #059669);
+    background: linear-gradient(135deg, rgb(var(--color-success)), rgb(var(--color-success-light)));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

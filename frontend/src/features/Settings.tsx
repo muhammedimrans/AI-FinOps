@@ -12,6 +12,7 @@ import {
   CheckCircle,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
+import { THEMES, useThemeStore } from "../stores/theme";
 import { cn } from "../lib/utils";
 import { toast } from "../stores/toast";
 import type { Currency } from "../types/api";
@@ -97,7 +98,8 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 export default function Settings() {
-  const { theme, toggleTheme, currency, setCurrency } = useUIStore();
+  const { currency, setCurrency } = useUIStore();
+  const { theme, setTheme } = useThemeStore();
   const [active, setActive] = useState("api");
   const [saved, setSaved] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(300);
@@ -207,18 +209,19 @@ export default function Settings() {
 
         {active === "display" && (
           <SectionCard title="Display Preferences" icon={Palette}>
-            <SettingRow label="Theme" description="Dark or light interface">
+            <SettingRow label="Theme" description="Neon Cyber, Professional Light, or Professional Dark">
               <div className="flex gap-1 bg-app-bg rounded-lg p-0.5 border border-border-subtle">
-                {["dark", "light"].map((t) => (
+                {THEMES.map((t) => (
                   <button
-                    key={t}
-                    onClick={() => { if (theme !== t) toggleTheme(); }}
+                    key={t.id}
+                    onClick={() => setTheme(t.id)}
+                    aria-pressed={theme === t.id}
                     className={cn(
-                      "px-3 py-1 rounded-md text-xs font-medium transition-all capitalize",
-                      theme === t ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
+                      "px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap",
+                      theme === t.id ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
                     )}
                   >
-                    {t}
+                    {t.label}
                   </button>
                 ))}
               </div>

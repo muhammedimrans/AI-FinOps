@@ -31,7 +31,7 @@ export function CostorahMark({ className }: { className?: string }) {
         fill="currentColor"
       />
       {/* "C" cut-through */}
-      <circle cx="58" cy="44" r="15" fill="#0A0A0F" />
+      <circle cx="58" cy="44" r="15" fill="rgb(var(--color-app-card))" />
       <path
         d="M65.3 36.5a10.5 10.5 0 1 0 0 15"
         stroke="currentColor"

@@ -5,8 +5,6 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import CommandPalette from "../components/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
-import { useUIStore } from "../stores/ui";
-import { cn } from "../lib/utils";
 
 function PageSkeleton() {
   return (
@@ -23,13 +21,8 @@ function PageSkeleton() {
 }
 
 export default function AppLayout() {
-  const { theme } = useUIStore();
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
 
   // Close the mobile drawer automatically whenever the route changes.
   useEffect(() => {
@@ -37,7 +30,7 @@ export default function AppLayout() {
   }, [location.pathname]);
 
   return (
-    <div className={cn("flex h-screen overflow-hidden bg-app-bg", theme)}>
+    <div className="flex h-screen overflow-hidden bg-app-bg">
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[200]

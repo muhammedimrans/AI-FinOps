@@ -17,21 +17,22 @@ import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "rgba(18,18,26,0.92)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: 12,
-  color: "#F8FAFC",
-  fontSize: 12,
-  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
-  backdropFilter: "blur(12px)",
-};
+import { useChartChrome } from "../lib/chartPalette";
 
 type Metric = "cost" | "requests" | "tokens";
 
 export default function Providers() {
   const { currency } = useUIStore();
+  const chrome = useChartChrome();
+  const tooltipStyle = {
+    backgroundColor: chrome.tooltipBg,
+    border: `1px solid ${chrome.tooltipBorder}`,
+    borderRadius: 12,
+    color: chrome.text,
+    fontSize: 12,
+    boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / var(--shadow-a-5))",
+    backdropFilter: "blur(12px)",
+  };
   const [metric, setMetric] = useState<Metric>("cost");
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
 
@@ -195,20 +196,20 @@ export default function Providers() {
             margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
             onMouseLeave={() => setHoveredBar(null)}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-            <XAxis dataKey="name" tick={{ fill: "#94A3B8", fontSize: 11 }} axisLine={false} tickLine={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+            <XAxis dataKey="name" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis
-              tick={{ fill: "#475569", fontSize: 11 }}
+              tick={{ fill: chrome.axis, fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={metricFormatter}
               width={60}
             />
             <Tooltip
-              contentStyle={TOOLTIP_STYLE}
+              contentStyle={tooltipStyle}
               formatter={(v: number) => metricFormatter(v)}
-              labelStyle={{ color: "#94A3B8" }}
-              cursor={{ fill: "rgba(40,224,194,0.06)" }}
+              labelStyle={{ color: chrome.axis }}
+              cursor={{ fill: "rgb(var(--color-brand) / 0.06)" }}
             />
             <Bar
               dataKey={metric}
@@ -221,7 +222,7 @@ export default function Providers() {
               {chartData.map((entry, i) => (
                 <Cell
                   key={entry.provider}
-                  fill={PROVIDER_COLORS[entry.provider] ?? "#4F46E5"}
+                  fill={PROVIDER_COLORS[entry.provider] ?? chrome.primary}
                   opacity={hoveredBar === null || hoveredBar === i ? 1 : 0.35}
                   style={{ transition: "opacity 150ms ease-out" }}
                 />

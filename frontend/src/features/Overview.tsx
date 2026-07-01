@@ -36,17 +36,8 @@ import {
   cn,
 } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
+import { useChartChrome } from "../lib/chartPalette";
 import type { Granularity } from "../types/api";
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "rgba(18,18,26,0.92)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: 12,
-  color: "#F8FAFC",
-  fontSize: 12,
-  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
-  backdropFilter: "blur(12px)",
-};
 
 interface TooltipPayloadEntry {
   dataKey?: string | number;
@@ -106,6 +97,16 @@ function GranularityTabs({
 
 export default function Overview() {
   const { currency } = useUIStore();
+  const chrome = useChartChrome();
+  const tooltipStyle = {
+    backgroundColor: chrome.tooltipBg,
+    border: `1px solid ${chrome.tooltipBorder}`,
+    borderRadius: 12,
+    color: chrome.text,
+    fontSize: 12,
+    boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / var(--shadow-a-5))",
+    backdropFilter: "blur(12px)",
+  };
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [hoveredProvider, setHoveredProvider] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
@@ -226,35 +227,35 @@ export default function Overview() {
           <AreaChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
             <defs>
               <linearGradient id="totalGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#28E0C2" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#28E0C2" stopOpacity={0} />
+                <stop offset="5%" stopColor={chrome.brand} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={chrome.brand} stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
             <XAxis
               dataKey="date"
-              tick={{ fill: "#475569", fontSize: 11 }}
+              tick={{ fill: chrome.axis, fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               interval="preserveStartEnd"
             />
             <YAxis
-              tick={{ fill: "#475569", fontSize: 11 }}
+              tick={{ fill: chrome.axis, fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={(v: number) => formatCost(v, currency, true)}
               width={56}
             />
-            <Tooltip content={<CustomTooltip currency={currency} />} cursor={{ stroke: "#28E0C2", strokeWidth: 1, strokeDasharray: "3 3" }} />
+            <Tooltip content={<CustomTooltip currency={currency} />} cursor={{ stroke: chrome.brand, strokeWidth: 1, strokeDasharray: "3 3" }} />
             <Area
               type="monotone"
               dataKey="total"
               name="Total"
-              stroke="#28E0C2"
+              stroke={chrome.brand}
               strokeWidth={2.5}
               fill="url(#totalGrad)"
               dot={false}
-              activeDot={{ r: 5, fill: "#28E0C2", stroke: "#0A0A0F", strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: chrome.brand, stroke: chrome.bg, strokeWidth: 2 }}
               animationDuration={1000}
               animationEasing="ease-out"
             />
@@ -290,7 +291,7 @@ export default function Overview() {
                   return (
                     <Cell
                       key={entry.name}
-                      fill={PROVIDER_COLORS[entry.name] ?? "#4F46E5"}
+                      fill={PROVIDER_COLORS[entry.name] ?? chrome.primary}
                       stroke="transparent"
                       opacity={dimmed ? 0.3 : 1}
                       style={{ transition: "opacity 150ms ease-out" }}
@@ -302,7 +303,7 @@ export default function Overview() {
               </Pie>
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
-                contentStyle={TOOLTIP_STYLE}
+                contentStyle={tooltipStyle}
               />
             </PieChart>
           </ResponsiveContainer>
@@ -326,7 +327,7 @@ export default function Overview() {
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                    style={{ background: PROVIDER_COLORS[entry.name] ?? "#4F46E5" }}
+                    style={{ background: PROVIDER_COLORS[entry.name] ?? chrome.primary }}
                   />
                   <span className="text-xs text-tx-secondary flex-1 truncate">
                     {providerDisplayName(entry.name)}
@@ -353,10 +354,10 @@ export default function Overview() {
               margin={{ top: 0, right: 16, bottom: 0, left: 4 }}
               onMouseLeave={() => setHoveredBar(null)}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" horizontal={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} horizontal={false} />
               <XAxis
                 type="number"
-                tick={{ fill: "#475569", fontSize: 10 }}
+                tick={{ fill: chrome.axis, fontSize: 10 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => formatCost(v, currency, true)}
@@ -364,15 +365,15 @@ export default function Overview() {
               <YAxis
                 type="category"
                 dataKey="name"
-                tick={{ fill: "#94A3B8", fontSize: 11 }}
+                tick={{ fill: chrome.axis, fontSize: 11 }}
                 axisLine={false}
                 tickLine={false}
                 width={90}
               />
               <Tooltip
                 formatter={(v: number) => formatCost(v, currency, true)}
-                contentStyle={TOOLTIP_STYLE}
-                cursor={{ fill: "rgba(40,224,194,0.06)" }}
+                contentStyle={tooltipStyle}
+                cursor={{ fill: "rgb(var(--color-brand) / 0.06)" }}
               />
               <Bar
                 dataKey="cost"
@@ -385,7 +386,7 @@ export default function Overview() {
                 {topModels.map((entry, i) => (
                   <Cell
                     key={entry.name}
-                    fill={hoveredBar === null || hoveredBar === i ? "#28E0C2" : "#1E5C52"}
+                    fill={hoveredBar === null || hoveredBar === i ? "rgb(var(--color-brand))" : "rgb(var(--color-brand) / 0.35)"}
                     style={{ transition: "fill 150ms ease-out" }}
                   />
                 ))}

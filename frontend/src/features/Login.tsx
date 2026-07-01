@@ -5,16 +5,15 @@ import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Check, TrendingUp, Spark
 import { login, getOrganizations } from "../lib/api";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
-import { useUIStore } from "../stores/ui";
 import { cn } from "../lib/utils";
 import CostorahLogo, { CostorahMark } from "../components/CostorahLogo";
 import AuroraBackground from "../components/AuroraBackground";
 import ParticleField from "../components/ParticleField";
+import ThemeSwitcher from "../components/ThemeSwitcher";
 
 export default function Login() {
   const { isAuthenticated, setLogin } = useAuthStore();
   const { setOrganization } = useOrgStore();
-  const { theme } = useUIStore();
   const navigate = useNavigate();
 
   const [email, setEmail] = useState("");
@@ -70,10 +69,13 @@ export default function Login() {
   }
 
   return (
-    <div className={cn("min-h-screen w-full flex relative bg-app-bg overflow-hidden", theme)}>
+    <div className="min-h-screen w-full flex relative bg-app-bg overflow-hidden">
       {/* Full-bleed ambient background shared by both panels */}
       <AuroraBackground />
       <ParticleField count={30} className="absolute inset-0 z-0" />
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeSwitcher />
+      </div>
 
       {/* ── Left panel — brand illustration (hidden on mobile/tablet) ──────── */}
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12 z-10">
@@ -123,7 +125,7 @@ export default function Login() {
           initial={{ opacity: 0, y: 20, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="w-full max-w-[440px] relative"
+          className="w-full max-w-[480px] relative"
         >
           {/* Ambient glow blob behind the card */}
           <div className="absolute -inset-8 bg-gradient-brand-radial blur-3xl opacity-60 pointer-events-none" aria-hidden="true" />
@@ -378,7 +380,7 @@ function NetworkBackdrop() {
           y1={nodes[a]!.y}
           x2={nodes[b]!.x}
           y2={nodes[b]!.y}
-          stroke="#28E0C2"
+          stroke="rgb(var(--color-brand))"
           strokeWidth="0.5"
           strokeOpacity="0.35"
           initial={{ pathLength: 0 }}
@@ -392,7 +394,7 @@ function NetworkBackdrop() {
           cx={n.x}
           cy={n.y}
           r="2.5"
-          fill="#28E0C2"
+          fill="rgb(var(--color-brand))"
           animate={{ opacity: [0.4, 1, 0.4] }}
           transition={{ duration: 3, delay: i * 0.3, repeat: Infinity, ease: "easeInOut" }}
         />
@@ -461,7 +463,7 @@ function Sparkline() {
       <motion.path
         d="M0,24 L15,20 L30,22 L45,12 L60,16 L75,6 L90,10 L105,4 L120,8"
         fill="none"
-        stroke="#28E0C2"
+        stroke="rgb(var(--color-brand))"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"

@@ -28,18 +28,9 @@ import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../lib/utils";
 import { useUIStore } from "../stores/ui";
+import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import type { Granularity, ModelSummary } from "../types/api";
-
-const TOOLTIP_STYLE = {
-  backgroundColor: "rgba(18,18,26,0.92)",
-  border: "1px solid rgba(255,255,255,0.08)",
-  borderRadius: 12,
-  color: "#F8FAFC",
-  fontSize: 12,
-  boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
-  backdropFilter: "blur(12px)",
-};
 
 const PROVIDERS = ["openai", "anthropic", "google", "azure"];
 
@@ -47,6 +38,16 @@ const columnHelper = createColumnHelper<ModelSummary & { rank: number }>();
 
 export default function Analytics() {
   const { currency } = useUIStore();
+  const chrome = useChartChrome();
+  const tooltipStyle = {
+    backgroundColor: chrome.tooltipBg,
+    border: `1px solid ${chrome.tooltipBorder}`,
+    borderRadius: 12,
+    color: chrome.text,
+    fontSize: 12,
+    boxShadow: "0 12px 32px rgb(var(--shadow-rgb) / var(--shadow-a-5))",
+    backdropFilter: "blur(12px)",
+  };
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([{ id: "total_cost", desc: true }]);
@@ -247,11 +248,11 @@ export default function Analytics() {
                 </linearGradient>
               ))}
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1E293B" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-            <YAxis tick={{ fill: "#475569", fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCost(v, currency, true)} width={56} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v: number) => formatCost(v, currency, true)} />
-            <Legend formatter={(v: string) => <span style={{ color: "#94A3B8", fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+            <YAxis tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCost(v, currency, true)} width={56} />
+            <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatCost(v, currency, true)} />
+            <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
             {PROVIDERS.map((p) => (
               <Area
                 key={p}

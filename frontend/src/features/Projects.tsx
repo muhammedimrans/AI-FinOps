@@ -26,7 +26,7 @@ function MiniTrendLine({ data, positive }: { data: string[]; positive: boolean }
       <polyline
         points={points}
         fill="none"
-        stroke={positive ? "#10B981" : "#EF4444"}
+        stroke={positive ? "rgb(var(--color-success))" : "rgb(var(--color-danger))"}
         strokeWidth={1.5}
         strokeLinecap="round"
         strokeLinejoin="round"

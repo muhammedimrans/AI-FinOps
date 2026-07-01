@@ -39,20 +39,20 @@ const ICON_BG: Record<GradientVariant, string> = {
 };
 
 const ICON_GLOW: Record<GradientVariant, string> = {
-  teal:    "shadow-[0_0_16px_rgba(40,224,194,0.35)]",
-  indigo:  "shadow-[0_0_16px_rgba(79,70,229,0.35)]",
-  emerald: "shadow-[0_0_16px_rgba(16,185,129,0.3)]",
-  amber:   "shadow-[0_0_16px_rgba(245,158,11,0.3)]",
-  blue:    "shadow-[0_0_16px_rgba(59,130,246,0.3)]",
-  purple:  "shadow-[0_0_16px_rgba(168,85,247,0.3)]",
+  teal:    "shadow-[0_0_16px_rgb(var(--color-brand)/var(--glow-a))]",
+  indigo:  "shadow-[0_0_16px_rgb(var(--color-primary)/var(--glow-a))]",
+  emerald: "shadow-[0_0_16px_rgb(var(--color-success)/var(--glow-a))]",
+  amber:   "shadow-[0_0_16px_rgb(var(--color-warning)/var(--glow-a))]",
+  blue:    "shadow-[0_0_16px_rgb(var(--color-info)/var(--glow-a))]",
+  purple:  "shadow-[0_0_16px_rgba(168,85,247,var(--glow-a))]",
 };
 
 const SPARK_COLORS: Record<GradientVariant, string> = {
-  teal:    "#28E0C2",
-  indigo:  "#4F46E5",
-  emerald: "#10B981",
-  amber:   "#F59E0B",
-  blue:    "#3B82F6",
+  teal:    "rgb(var(--color-brand))",
+  indigo:  "rgb(var(--color-primary))",
+  emerald: "rgb(var(--color-success))",
+  amber:   "rgb(var(--color-warning))",
+  blue:    "rgb(var(--color-info))",
   purple:  "#A855F7",
 };
 

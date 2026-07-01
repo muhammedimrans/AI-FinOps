@@ -43,7 +43,7 @@ export default function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarPr
             "absolute top-[72px] -right-3 w-6 h-6 rounded-full",
             "bg-app-card border border-border flex items-center justify-center",
             "text-tx-muted hover:text-brand hover:border-brand/40 hover:bg-app-hover",
-            "transition-all duration-200 z-10 shadow-card",
+            "transition-all duration-base z-10 shadow-card",
           )}
           aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
@@ -298,7 +298,7 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
         aria-label={`Account menu for ${name}`}
         className={cn(
           "w-full flex items-center gap-3 rounded-lg px-2 py-2",
-          "hover:bg-app-hover transition-colors duration-200",
+          "hover:bg-app-hover transition-colors duration-base",
         )}
       >
         <div className="w-7 h-7 rounded-full bg-gradient-brand flex items-center justify-center flex-shrink-0">

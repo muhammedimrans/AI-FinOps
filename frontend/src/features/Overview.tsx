@@ -399,7 +399,7 @@ export default function Overview() {
       {/* Recent Activity */}
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
         <div className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" />
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
             <div>
               <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">

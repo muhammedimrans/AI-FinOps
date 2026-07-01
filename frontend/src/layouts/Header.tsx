@@ -113,7 +113,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
         className="lg:hidden btn-ghost h-8 w-8 p-0 justify-center flex-shrink-0"
         aria-label="Open navigation"
       >
-        <Menu size={18} />
+        <Menu size={16} />
       </button>
 
       {/* Page title / breadcrumb */}
@@ -166,7 +166,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           >
             <Calendar size={13} />
             <span className="hidden sm:inline">{currentPreset?.label ?? datePreset}</span>
-            <ChevronDown size={12} className={cn("hidden sm:block transition-transform", dateOpen && "rotate-180")} />
+            <ChevronDown size={13} className={cn("hidden sm:block transition-transform", dateOpen && "rotate-180")} />
           </button>
           <AnimatePresence>
             {dateOpen && (
@@ -212,7 +212,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
           >
             <DollarSign size={13} />
             <span className="hidden sm:inline">{currency}</span>
-            <ChevronDown size={12} className={cn("hidden sm:block transition-transform", currencyOpen && "rotate-180")} />
+            <ChevronDown size={13} className={cn("hidden sm:block transition-transform", currencyOpen && "rotate-180")} />
           </button>
           <AnimatePresence>
             {currencyOpen && (
@@ -259,7 +259,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             aria-label="Notifications"
             className={cn("btn-ghost h-8 w-8 p-0 justify-center", notifOpen && "text-brand bg-app-hover")}
           >
-            <Bell size={15} />
+            <Bell size={16} />
           </button>
           <AnimatePresence>
             {notifOpen && (

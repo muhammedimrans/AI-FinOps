@@ -760,22 +760,34 @@ class TestUsageCollectionService:
                 return_value=mock_cp_repo,
             ),
         ):
-            # Patch the lazy import inside collect()
+            # Patch the lazy import inside collect(). Must be restored after
+            # the test — a bare attribute reassignment here previously leaked
+            # across the whole test session (every later test importing
+            # UsageEventRepository etc. would get this MagicMock instead of
+            # the real class), so this uses save/restore via try/finally.
+            import app.repositories.usage_collection_checkpoint_repository as ucc_mod
             import app.repositories.usage_collection_run_repository as ucr_mod
             import app.repositories.usage_event_repository as uer_mod
-            import app.repositories.usage_collection_checkpoint_repository as ucc_mod
 
+            _orig_ucr = ucr_mod.UsageCollectionRunRepository
+            _orig_uer = uer_mod.UsageEventRepository
+            _orig_ucc = ucc_mod.UsageCollectionCheckpointRepository
             ucr_mod.UsageCollectionRunRepository = MagicMock(return_value=mock_run_repo)
             uer_mod.UsageEventRepository = MagicMock(return_value=mock_event_repo)
             ucc_mod.UsageCollectionCheckpointRepository = MagicMock(return_value=mock_cp_repo)
 
-            service = UsageCollectionService(session)
-            run = await service.collect(
-                organization_id=_ORG_ID,
-                provider="openai",
-                start_date=_START,
-                end_date=_END,
-            )
+            try:
+                service = UsageCollectionService(session)
+                run = await service.collect(
+                    organization_id=_ORG_ID,
+                    provider="openai",
+                    start_date=_START,
+                    end_date=_END,
+                )
+            finally:
+                ucr_mod.UsageCollectionRunRepository = _orig_ucr
+                uer_mod.UsageEventRepository = _orig_uer
+                ucc_mod.UsageCollectionCheckpointRepository = _orig_ucc
 
         assert run.status == CollectionRunStatus.COMPLETED
         assert run.events_collected == 3
@@ -796,29 +808,37 @@ class TestUsageCollectionService:
             mock_adapter, completed_run=failed_run, failed_run=failed_run
         )
 
+        import app.repositories.usage_collection_checkpoint_repository as ucc_mod
         import app.repositories.usage_collection_run_repository as ucr_mod
         import app.repositories.usage_event_repository as uer_mod
-        import app.repositories.usage_collection_checkpoint_repository as ucc_mod
 
+        _orig_ucr = ucr_mod.UsageCollectionRunRepository
+        _orig_uer = uer_mod.UsageEventRepository
+        _orig_ucc = ucc_mod.UsageCollectionCheckpointRepository
         ucr_mod.UsageCollectionRunRepository = MagicMock(return_value=mock_run_repo)
         uer_mod.UsageEventRepository = MagicMock(return_value=AsyncMock())
         ucc_mod.UsageCollectionCheckpointRepository = MagicMock(return_value=mock_cp_repo)
 
-        with (
-            patch("app.usage.service._build_config", return_value=MagicMock()),
-            patch(
-                "app.usage.service.ProviderFactory",
-                return_value=MagicMock(create=MagicMock(return_value=mock_adapter)),
-            ),
-        ):
-            service = UsageCollectionService(session)
-            with pytest.raises(RuntimeError, match="adapter exploded"):
-                await service.collect(
-                    organization_id=_ORG_ID,
-                    provider="openai",
-                    start_date=_START,
-                    end_date=_END,
-                )
+        try:
+            with (
+                patch("app.usage.service._build_config", return_value=MagicMock()),
+                patch(
+                    "app.usage.service.ProviderFactory",
+                    return_value=MagicMock(create=MagicMock(return_value=mock_adapter)),
+                ),
+            ):
+                service = UsageCollectionService(session)
+                with pytest.raises(RuntimeError, match="adapter exploded"):
+                    await service.collect(
+                        organization_id=_ORG_ID,
+                        provider="openai",
+                        start_date=_START,
+                        end_date=_END,
+                    )
+        finally:
+            ucr_mod.UsageCollectionRunRepository = _orig_ucr
+            uer_mod.UsageEventRepository = _orig_uer
+            ucc_mod.UsageCollectionCheckpointRepository = _orig_ucc
 
         mock_run_repo.update.assert_called_once()
         call_kwargs = mock_run_repo.update.call_args[1]
@@ -846,28 +866,36 @@ class TestUsageCollectionService:
             mock_adapter, completed_run=completed_run
         )
 
+        import app.repositories.usage_collection_checkpoint_repository as ucc_mod
         import app.repositories.usage_collection_run_repository as ucr_mod
         import app.repositories.usage_event_repository as uer_mod
-        import app.repositories.usage_collection_checkpoint_repository as ucc_mod
 
+        _orig_ucr = ucr_mod.UsageCollectionRunRepository
+        _orig_uer = uer_mod.UsageEventRepository
+        _orig_ucc = ucc_mod.UsageCollectionCheckpointRepository
         ucr_mod.UsageCollectionRunRepository = MagicMock(return_value=mock_run_repo)
         uer_mod.UsageEventRepository = MagicMock(return_value=mock_event_repo)
         ucc_mod.UsageCollectionCheckpointRepository = MagicMock(return_value=mock_cp_repo)
 
-        with (
-            patch("app.usage.service._build_config", return_value=MagicMock()),
-            patch(
-                "app.usage.service.ProviderFactory",
-                return_value=MagicMock(create=MagicMock(return_value=mock_adapter)),
-            ),
-        ):
-            service = UsageCollectionService(session)
-            run = await service.collect(
-                organization_id=_ORG_ID,
-                provider="openai",
-                start_date=_START,
-                end_date=_END,
-            )
+        try:
+            with (
+                patch("app.usage.service._build_config", return_value=MagicMock()),
+                patch(
+                    "app.usage.service.ProviderFactory",
+                    return_value=MagicMock(create=MagicMock(return_value=mock_adapter)),
+                ),
+            ):
+                service = UsageCollectionService(session)
+                run = await service.collect(
+                    organization_id=_ORG_ID,
+                    provider="openai",
+                    start_date=_START,
+                    end_date=_END,
+                )
+        finally:
+            ucr_mod.UsageCollectionRunRepository = _orig_ucr
+            uer_mod.UsageEventRepository = _orig_uer
+            ucc_mod.UsageCollectionCheckpointRepository = _orig_ucc
 
         update_kwargs = mock_run_repo.update.call_args[1]
         assert update_kwargs["events_failed"] == 1

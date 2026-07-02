@@ -17,12 +17,12 @@ import ChartCard from "../components/ChartCard";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
-import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
+import ProviderBadge from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
-import { PROVIDER_CATALOG } from "../lib/providerCatalog";
+import { PROVIDER_CATALOG, PROVIDER_COLORS } from "../lib/providerCatalog";
 
 type Metric = "cost" | "requests" | "tokens";
 

@@ -17,7 +17,8 @@ import { motion } from "framer-motion";
 import { DollarSign, Activity, Layers, Zap, Clock } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
-import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
+import ProviderBadge from "../components/ProviderBadge";
+import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import {

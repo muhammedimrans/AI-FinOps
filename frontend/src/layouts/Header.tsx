@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  AlertTriangle,
   Bell,
   BellOff,
   Search,
   ChevronDown,
   Calendar,
   DollarSign,
+  Info,
   Menu,
+  OctagonAlert,
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { routeLabel } from "../lib/navigation";
+import { useAlerts, type AlertSeverity } from "../hooks/useAlerts";
+import { useNotificationStore } from "../stores/notifications";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import Popover from "../components/Popover";
 import type { Currency } from "../types/api";
@@ -34,9 +39,17 @@ interface HeaderProps {
   onMenuClick?: () => void;
 }
 
+const SEVERITY_ICON: Record<AlertSeverity, { icon: React.ElementType; className: string }> = {
+  danger:  { icon: OctagonAlert,  className: "text-danger" },
+  warning: { icon: AlertTriangle, className: "text-warning" },
+  info:    { icon: Info,          className: "text-info" },
+};
+
 export default function Header({ onMenuClick }: HeaderProps) {
   const location = useLocation();
   const { currency, setCurrency, datePreset, setDateRange, setCommandOpen } = useUIStore();
+  const { alerts, unreadCount } = useAlerts();
+  const { markRead, markAllRead } = useNotificationStore();
   const [dateOpen, setDateOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -209,10 +222,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
             onClick={() => { setNotifOpen((o) => !o); setDateOpen(false); setCurrencyOpen(false); }}
             aria-haspopup="true"
             aria-expanded={notifOpen}
-            aria-label="Notifications"
-            className={cn("btn-ghost h-8 w-8 p-0 justify-center", notifOpen && "text-brand bg-app-hover")}
+            aria-label={unreadCount > 0 ? `Notifications — ${unreadCount} unread` : "Notifications"}
+            className={cn("btn-ghost h-8 w-8 p-0 justify-center relative", notifOpen && "text-brand bg-app-hover")}
           >
             <Bell size={16} />
+            {unreadCount > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-0.5 rounded-full bg-danger
+                           text-white text-[9px] font-bold flex items-center justify-center leading-none"
+              >
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
           </button>
           <Popover
             anchorRef={notifRef}
@@ -221,19 +243,57 @@ export default function Header({ onMenuClick }: HeaderProps) {
             align="end"
             className="w-72 glass-card rounded-xl shadow-elevated z-[1000] origin-top-right overflow-hidden"
           >
-            <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
-              <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
-                Coming soon
-              </span>
+            <div className="px-4 py-3 border-b border-border-subtle flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-tx-primary">Alerts</h3>
+              {unreadCount > 0 && (
+                <button
+                  onClick={() => markAllRead(alerts.map((a) => a.id))}
+                  className="text-[11px] font-medium text-brand hover:text-brand-light transition-colors duration-fast"
+                >
+                  Mark all read
+                </button>
+              )}
             </div>
-            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-              <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
-                <BellOff size={18} className="text-tx-muted" />
+            {alerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+                  <BellOff size={18} className="text-tx-muted" />
+                </div>
+                <p className="text-sm font-medium text-tx-primary mb-1">All clear</p>
+                <p className="text-xs text-tx-muted leading-relaxed">
+                  No budget or anomaly alerts in the current period.
+                </p>
               </div>
-              <p className="text-sm font-medium text-tx-primary mb-1">Notifications are coming soon</p>
-              <p className="text-xs text-tx-muted leading-relaxed">
-                Budget and anomaly alerts will appear here in a future release.
+            ) : (
+              <ul className="max-h-80 overflow-y-auto py-1" aria-label="Alerts">
+                {alerts.map((a) => {
+                  const { icon: Icon, className } = SEVERITY_ICON[a.severity];
+                  return (
+                    <li key={a.id}>
+                      <button
+                        onClick={() => markRead(a.id)}
+                        className={cn(
+                          "w-full flex items-start gap-2.5 px-4 py-2.5 text-left transition-colors duration-fast hover:bg-app-hover",
+                          a.read && "opacity-55",
+                        )}
+                      >
+                        <Icon size={14} className={cn("mt-0.5 flex-shrink-0", className)} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs font-medium text-tx-primary">{a.title}</span>
+                          <span className="block text-[11px] text-tx-muted mt-0.5 leading-relaxed">{a.description}</span>
+                        </span>
+                        {!a.read && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" aria-label="Unread" />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <div className="px-4 py-2 border-t border-border-subtle">
+              <p className="text-[10px] text-tx-muted">
+                Derived live from budget and spend data for the selected period.
               </p>
             </div>
           </Popover>

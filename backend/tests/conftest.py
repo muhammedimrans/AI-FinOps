@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -30,6 +31,7 @@ from app.db.mixins import uuid7
 from app.main import create_app
 from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
+from app.models.organization_api_key import OrganizationApiKey
 from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
 from app.models.user import User, UserStatus
@@ -288,6 +290,32 @@ def make_membership(
     obj.organization_id = org_id or uuid7()
     obj.user_email = user_email
     obj.role = role
+    return obj
+
+
+def make_api_key(
+    *,
+    org_id: uuid.UUID | None = None,
+    name: str = "CI pipeline",
+    key_prefix: str = "costorah_live_ab12cd34",
+    key_hash: str = "a" * 64,
+    permissions: list[str] | None = None,
+    created_by: uuid.UUID | None = None,
+) -> OrganizationApiKey:
+    """Return a transient OrganizationApiKey instance."""
+    obj = OrganizationApiKey()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.name = name
+    obj.description = None
+    obj.key_prefix = key_prefix
+    obj.key_hash = key_hash
+    obj.permissions = permissions if permissions is not None else []
+    obj.created_by = created_by
+    obj.last_used_at = None
+    obj.expires_at = None
+    obj.created_at = datetime.now(UTC)
+    obj.updated_at = obj.created_at
     return obj
 
 

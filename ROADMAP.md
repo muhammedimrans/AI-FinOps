@@ -4,10 +4,11 @@ High-level, ordered by priority. See `docs/knowledge/` for per-episode status re
 
 ## Critical (pre-production)
 
-- **Org-scoped authorization (EP-11)** — enforce membership between the
-  authenticated user and the `organization_id` used by dashboard/analytics
-  endpoints. Today any valid JWT can query any org's aggregates.
-- **Rate limiting** on `/v1/auth/*` (credential stuffing) and dashboard queries.
+- ~~Org-scoped authorization~~ — **done**: membership is enforced on every
+  org-scoped endpoint (dashboard, analytics, usage, pricing).
+- ~~Rate limiting on login~~ — **done**: sliding window + account lockout.
+- Role-based (not just membership-based) permissions on org-scoped reads/writes;
+  BILLING_WRITE enforcement on pricing creation.
 
 ## High
 

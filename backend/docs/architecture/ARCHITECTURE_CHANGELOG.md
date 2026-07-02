@@ -1,5 +1,182 @@
 # Architecture Changelog
 
+## [0.16.0] — EP-16 Usage Ingestion Platform (2026-07-02)
+
+### Summary
+
+Adds `POST /v1/ingest/usage` — the first endpoint machine integrations
+(future Monitoring Agent, SDKs, gateways, custom scripts) can push usage
+data to, authenticated entirely by EP-15's API-key middleware with zero
+JWT involvement. Validates the payload, deduplicates by `request_id`,
+stores it in a new `usage_records` ledger, and — the architecturally
+interesting part — dual-writes into the *existing* EP-08/EP-09 tables
+(`UsageEvent`, `UsageCostRecord`, `DailyCostSummary`) so the dashboard and
+analytics endpoints built in EP-10/EP-11 reflect ingested usage
+immediately, with no endpoint or frontend changes at all.
+
+### Ingestion Flow
+
+```
+POST /v1/ingest/usage
+Authorization: Bearer costorah_live_...
+        │
+        ▼
+RequireApiKeyPermission(USAGE_WRITE)   (EP-15, unmodified)
+        │  ApiKeyAuthContext(organization, api_key, permissions)
+        ▼
+IngestUsageRequest (Pydantic)           400/422 on: unknown provider, blank
+        │                                model, negative/inconsistent token
+        │                                counts, negative/non-finite cost,
+        │                                non-alphabetic currency, timestamp
+        │                                too far in the future, oversized
+        │                                metadata (>16KB)
+        ▼
+UsageIngestionService.ingest()
+        │
+        ├─ UsageRecordRepository.get_by_request_id(org, request_id)
+        │      found → return (existing, duplicate=True)   ── 200, no writes
+        │
+        ├─ project_id given? ProjectRepository.get(project_id)
+        │      missing / wrong org → UnknownProjectError    ── 404
+        │
+        ├─ UsageRecordRepository.create(record)             ── INSERT #1
+        │      unique-constraint race → rollback, re-query,
+        │      return (winner, duplicate=True)               ── 200
+        │
+        └─ _feed_dashboard_aggregates(record)  [same transaction]
+               UsageEventRepository.upsert()                 ── UPSERT
+               UsageCostRecordRepository.upsert()             ── UPSERT
+               AggregationService.build_daily_summaries()     ── bounded to
+                                                                  1 org + 1 day
+        ▼
+IngestUsageResponse                                          ── 200
+  {success, usage_id, request_id, processed_at, duplicate}
+```
+
+Any failure inside `_feed_dashboard_aggregates` propagates and rolls back
+the *entire* transaction, including the UsageRecord insert — deliberate,
+not an oversight: because ingestion is idempotent on `request_id`, a
+caller who retries after a 500 either succeeds cleanly or hits the same
+error again, and can never end up double-counted. That safety property is
+what makes it acceptable to not special-case (swallow) errors in the
+dashboard-feed step.
+
+### Database Schema
+
+`usage_records` (new table): `id`, `external_id`, `organization_id`,
+`project_id`, `api_key_id`, `provider`, `model`, `request_id`, `status`
+(success/error/timeout/cancelled), `input_tokens`, `output_tokens`,
+`cached_tokens`, `total_tokens`, `cost` (Numeric 20,8), `currency`,
+`latency_ms`, `region`, `metadata` (JSONB), `ingested_at`,
+`request_timestamp`, plus standard `created_at`/`updated_at`/
+`deleted_at`/`deleted_by`. Unique constraint on
+`(organization_id, request_id)` — the database-level idempotency
+guarantee, not just an application-level check.
+
+This is intentionally a separate table from EP-08's `usage_events` /
+EP-09's `usage_cost_records`: those are built by *our* provider-collection
+pipeline (we call the provider, we compute cost via PricingEngine);
+`usage_records` is pushed *to* us by an already-billed caller reporting
+their own cost directly. Cost here is caller-reported, never recomputed —
+requiring a price-catalog entry for every ingested provider/model would
+defeat the point of accepting a value the caller already knows.
+
+### API Contract
+
+`POST /v1/ingest/usage` — `Authorization: Bearer costorah_live_...`
+(`usage:write` scope required).
+
+| Status | Body | When |
+|---|---|---|
+| 200 | `{success:true, usage_id, request_id, processed_at, duplicate:false}` | New record stored |
+| 200 | `{success:true, usage_id, request_id, processed_at, duplicate:true}` | `request_id` already seen for this org — original record returned, not an error |
+| 401 | `{detail:"Invalid API Key"}` | Missing/malformed header, empty token, unknown or revoked key |
+| 401 | `{detail:"API Key expired"}` | Key's `expires_at` has passed |
+| 403 | `{detail:"Organization suspended"}` | Owning organization not ACTIVE |
+| 403 | `{detail:"Insufficient API Key permissions"}` | Key lacks `usage:write` |
+| 404 | `{detail:"project_id does not exist in this organization"}` | `project_id` given but not found / wrong org |
+| 422 | Pydantic validation error body | Payload fails schema/business-rule validation |
+
+**Deliberate deviation from the ticket's abstract error table**: the
+ticket lists "400 Invalid payload" and "409 Duplicate request" as
+possible responses, but its own literal JSON examples show duplicates
+returning `success:true` (i.e. 200, not 409) and this app's existing
+convention uses 422 (not 400) for Pydantic validation failures on every
+other endpoint (e.g. `organizations.py`'s role parsing). This
+implementation follows the literal examples + existing app convention
+over the abstract table — flagged here explicitly in case 409/400 was
+actually intended and this needs revisiting.
+
+### Provider Catalog
+
+`ProviderType` (`app/models/provider_connection.py`) extended from 7 to
+10 values (+ cohere, bedrock, mistral) so ingestion validation reuses the
+existing catalog instead of a hardcoded 4-provider allowlist, per the
+ticket's explicit instruction. The 3 new values have no adapter
+(EP-06/EP-07) — ingestion doesn't need one, since the caller pushes
+pre-computed data rather than us calling the provider's API.
+`Permission.USAGE_WRITE` added to `app/auth/rbac.py` (ADMIN/OWNER),
+automatically selectable in the EP-14 Create-API-Key permission checklist
+with no frontend change, since that list is sourced live from
+`GET /v1/rbac/permissions`.
+
+### Security Review
+
+| Concern | Resolution |
+|---|---|
+| Never double-count | `(organization_id, request_id)` unique constraint — a database guarantee, not just a SELECT-then-INSERT check, which has a race window under concurrency |
+| Cross-tenant writes | `organization_id` comes from the authenticated `ApiKeyAuthContext`, never from the request body — a key can only ever write its own organization's data |
+| Cross-tenant reads via project_id | `project_id` (if given) is verified to belong to the authenticated organization before use; mismatch → 404, not silently ignored |
+| Oversized payloads | 16KB metadata cap (`MAX_METADATA_BYTES`) plus per-field `max_length` on every string field bounds total request size without a separate raw-body-size middleware |
+| Sensitive data in logs | Every log line (`usage_ingested`) includes organization, provider, model, request_id, and duration — never the API key, its hash, or metadata contents |
+| Malformed input | Every Pydantic validator rejects rather than coerces silently (e.g. an unrecognized provider is a 422, not stored as free text) |
+
+### Performance Review
+
+Target vs. measured (hermetic, mocked I/O — see Test Results):
+
+| Step | Target | Notes |
+|---|---|---|
+| Authentication | <5ms | EP-15, unchanged: 2 SELECTs + 1 UPDATE |
+| Validation | <10ms | Pure Pydantic, no I/O |
+| Insert | <20ms | 1 SELECT (dedup check) + 1 INSERT, when not a duplicate |
+| Total request | <100ms | Full `ingest()` (dedup + ownership + insert + dashboard-feed) measured well under 250ms with mocked I/O in `TestPerformance`; real-DB latency is additive but the query count is fixed regardless of load |
+
+Query budget for a **new** (non-duplicate) record: 1 SELECT (dedup check)
++ 1 SELECT (project ownership, only if `project_id` given) + 1 INSERT
+(UsageRecord) + 1 UPSERT (UsageEvent) + 1 UPSERT (UsageCostRecord) + N
+SELECT/UPSERT pairs inside `AggregationService.build_daily_summaries`
+(bounded to the (organization, day) group count — never a full-table
+scan, and identical to the query shape the existing nightly aggregation
+cron already runs). For a **duplicate**: exactly 1 SELECT, no writes.
+
+No batching in this phase (explicitly out of scope) — one HTTP request
+ingests exactly one record.
+
+### Test Results
+
+```
+EP-16 test suite:    65 passed
+Full backend suite: 1260 passed, 30 skipped (integration — no live DB), 0 failed
+ruff: clean on every EP-16 file · mypy: 0 new errors (pre-existing
+      list[dict]-generic-args pattern matched from UsageCostRecordRepository)
+```
+
+Also fixed, while writing these tests: a pre-existing test-isolation bug
+in `tests/test_ep08.py` where three tests permanently reassigned
+`UsageEventRepository` (and two sibling repository classes) via raw
+module-attribute mutation with no teardown, leaking a `MagicMock` class
+into every test running afterward for the rest of the pytest session.
+Fixed with save/restore via `try`/`finally` — the full suite is no longer
+sensitive to file execution order.
+
+### Stop Condition
+
+EP-16 is complete. No Monitoring Agent, SDK, CLI, WebSocket, live
+dashboard, billing, or AI-recommendation work has been started.
+
+---
+
 ## [0.15.0] — EP-15 API Key Authentication Middleware (2026-07-02)
 
 ### Summary

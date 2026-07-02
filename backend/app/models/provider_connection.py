@@ -30,7 +30,12 @@ if TYPE_CHECKING:
 
 
 class ProviderType(enum.StrEnum):
-    """Supported AI provider types."""
+    """Supported AI provider types — the single catalog of provider slugs
+    used both for connected ProviderConnection rows and (EP-16) usage
+    ingestion validation. Cohere/Bedrock/Mistral have no adapter yet
+    (EP-06/EP-07 territory) but are valid ingestion sources today — a
+    caller can report usage for a provider we don't call out to ourselves.
+    """
 
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
@@ -39,6 +44,9 @@ class ProviderType(enum.StrEnum):
     AZURE_OPENAI = "azure_openai"
     OPENROUTER = "openrouter"
     OLLAMA = "ollama"
+    COHERE = "cohere"
+    BEDROCK = "bedrock"
+    MISTRAL = "mistral"
 
 
 class ProviderConnection(BaseModel):

@@ -17,6 +17,7 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -34,6 +35,7 @@ from app.models.organization import Organization, OrganizationStatus
 from app.models.organization_api_key import OrganizationApiKey
 from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
+from app.models.usage_record import UsageRecord, UsageRecordStatus
 from app.models.user import User, UserStatus
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
@@ -316,6 +318,53 @@ def make_api_key(
     obj.expires_at = None
     obj.created_at = datetime.now(UTC)
     obj.updated_at = obj.created_at
+    return obj
+
+
+def make_usage_record(
+    *,
+    org_id: uuid.UUID | None = None,
+    project_id: uuid.UUID | None = None,
+    api_key_id: uuid.UUID | None = None,
+    provider: str = "openai",
+    model: str = "gpt-4.1",
+    request_id: str = "req_123456",
+    status: UsageRecordStatus = UsageRecordStatus.SUCCESS,
+    input_tokens: int = 1200,
+    output_tokens: int = 320,
+    cached_tokens: int | None = 0,
+    total_tokens: int = 1520,
+    cost: Decimal | None = None,
+    currency: str = "USD",
+    latency_ms: int | None = 742,
+    region: str | None = None,
+    metadata: dict[str, object] | None = None,
+    request_timestamp: datetime | None = None,
+) -> UsageRecord:
+    """Return a transient UsageRecord instance."""
+    obj = UsageRecord()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.project_id = project_id
+    obj.api_key_id = api_key_id
+    obj.provider = provider
+    obj.model = model
+    obj.request_id = request_id
+    obj.status = status
+    obj.input_tokens = input_tokens
+    obj.output_tokens = output_tokens
+    obj.cached_tokens = cached_tokens
+    obj.total_tokens = total_tokens
+    obj.cost = cost if cost is not None else Decimal("0.0812")
+    obj.currency = currency
+    obj.latency_ms = latency_ms
+    obj.region = region
+    obj.usage_metadata = metadata if metadata is not None else {}
+    now = datetime.now(UTC)
+    obj.ingested_at = now
+    obj.request_timestamp = request_timestamp or now
+    obj.created_at = now
+    obj.updated_at = now
     return obj
 
 

@@ -51,3 +51,6 @@ from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401
 
 # EP-14 - Organization API keys (import after Organization and User; FK dependency)
 from app.models.organization_api_key import OrganizationApiKey  # noqa: F401
+
+# EP-16 - Usage ingestion (import after Organization, Project, OrganizationApiKey; FK dependency)
+from app.models.usage_record import UsageRecord, UsageRecordStatus  # noqa: F401

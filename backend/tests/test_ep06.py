@@ -548,10 +548,27 @@ class TestProviderRegistry:
         assert reg.get(ProviderType.OPENAI) is AnthropicProvider
 
     def test_all_registered_types_listed(self) -> None:
+        """The registry covers every ProviderType with a live adapter.
+
+        EP-16 widened ProviderType to 10 values (cohere/bedrock/mistral
+        added for usage-ingestion validation), but those three have no
+        adapter yet — so the registry is a subset of ProviderType, not
+        a 1:1 match.
+        """
         reg = ProviderFactory.build_default_registry()
         types = reg.registered_types()
+        adapter_backed = {
+            ProviderType.OPENAI,
+            ProviderType.ANTHROPIC,
+            ProviderType.GROK,
+            ProviderType.GOOGLE,
+            ProviderType.AZURE_OPENAI,
+            ProviderType.OPENROUTER,
+            ProviderType.OLLAMA,
+        }
         assert len(types) == 7
-        for pt in ProviderType:
+        assert set(types) == adapter_backed
+        for pt in adapter_backed:
             assert pt in types
 
 

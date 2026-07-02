@@ -11,9 +11,9 @@ GET /analytics/organizations/{org_id}/summary — combined org summary
 
 Authentication
 --------------
-Endpoints require a valid JWT (CurrentUser). Org membership verification
-is deferred to EP-10 — for now we validate the JWT and trust the
-organization_id query parameter.
+All endpoints require a valid JWT AND verified membership of the requested
+organization (OrgScopedMembership) — the organization_id query parameter is
+never trusted without a membership check.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import structlog
 from fastapi import APIRouter, Query
 
 from app.api.deps import DbDep
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentMembership, OrgScopedMembership
 from app.analytics.service import AnalyticsService
 from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
 from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
@@ -69,8 +69,7 @@ def _make_service(db: object) -> AnalyticsService:
 )
 async def get_usage_summary(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -92,8 +91,7 @@ async def get_usage_summary(
 )
 async def get_cost_summary(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -131,8 +129,7 @@ async def get_cost_summary(
 )
 async def get_provider_breakdown(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -167,8 +164,7 @@ async def get_provider_breakdown(
 )
 async def get_model_breakdown(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -210,8 +206,7 @@ async def get_model_breakdown(
 )
 async def get_project_breakdown(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -246,8 +241,7 @@ async def get_project_breakdown(
 async def get_org_summary(
     org_id: uuid.UUID,
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: CurrentMembership,
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
 ) -> OrgSummaryResponse:

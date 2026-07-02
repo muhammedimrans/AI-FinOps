@@ -1,4 +1,4 @@
-"""Organizations API — EP-12.1, EP-13, EP-14.
+"""Organizations API — EP-12.1, EP-13, EP-14, EP-15.
 
 Endpoints:
   GET    /v1/organizations                — orgs the current user belongs to
@@ -23,6 +23,12 @@ API keys (EP-14): read requires API_KEY_READ (every role); create/revoke
 require API_KEY_WRITE, granted only to ADMIN and OWNER. The raw key is
 generated in the service layer and returned exactly once, in the POST
 response — it is never persisted or retrievable again.
+
+EP-15: GET .../api-keys additionally accepts an Organization API Key
+(`Authorization: Bearer costorah_live_...`) in place of a JWT session, via
+RequireMembershipOrApiKeyPermission (app/auth/api_key_auth.py) — the first
+endpoint wired to the new API key authentication flow. POST/DELETE remain
+JWT-only; a key cannot mint or revoke other keys in this phase.
 """
 
 from __future__ import annotations
@@ -34,6 +40,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_
 
 from app.api.deps import DbDep
+from app.auth.api_key_auth import RequireMembershipOrApiKeyPermission
 from app.auth.dependencies import CurrentMembership, CurrentUser, RequirePermission
 from app.auth.rbac import Permission
 from app.db.mixins import uuid7
@@ -57,6 +64,7 @@ from app.schemas.organizations import (
     OrgMembershipItem,
     UpdateMemberRoleRequest,
 )
+from app.services.api_key_auth_service import ApiKeyAuthContext
 from app.services.organization_api_key_service import (
     InvalidPermissionError,
     OrganizationApiKeyService,
@@ -272,13 +280,22 @@ def _to_api_key_response(key: OrganizationApiKey) -> ApiKeyResponse:
     summary="List organization API keys",
     description=(
         "Returns every non-revoked API key for the organization. Never "
-        "includes the key hash or the raw key — only the display prefix."
+        "includes the key hash or the raw key — only the display prefix.\n\n"
+        "Accepts either a dashboard session (JWT) or an "
+        "`Authorization: Bearer costorah_live_...` Organization API Key "
+        "(EP-15) with the `api_key:read` scope — the first endpoint wired "
+        "to the new API key authentication flow, establishing the pattern "
+        "for future machine-to-machine endpoints."
     ),
+    openapi_extra={"security": [{"OAuth2PasswordBearer": []}, {"ApiKeyAuth": []}]},
 )
 async def list_api_keys(
     org_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[Membership, RequirePermission(Permission.API_KEY_READ)],
+    _auth: Annotated[
+        Membership | ApiKeyAuthContext,
+        RequireMembershipOrApiKeyPermission(Permission.API_KEY_READ),
+    ],
 ) -> ApiKeysListResponse:
     repo = OrganizationApiKeyRepository(db)
     keys = await repo.list(org_id)

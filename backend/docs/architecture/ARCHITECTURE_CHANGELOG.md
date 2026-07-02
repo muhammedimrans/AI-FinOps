@@ -1,5 +1,161 @@
 # Architecture Changelog
 
+## [0.15.0] — EP-15 API Key Authentication Middleware (2026-07-02)
+
+### Summary
+
+Wires the authentication half of EP-14's Organization API Keys: a request
+can now authenticate with `Authorization: Bearer costorah_live_...` instead
+of a JWT session, resolving to an organization, the key record, and its
+granted permission scopes — with zero changes to EP-14's model, repository,
+service, schemas, or API. This establishes the pattern every future
+machine-to-machine endpoint (usage ingestion, the Monitoring Agent, SDKs)
+will depend on.
+
+### Authentication Flow
+
+```
+Authorization: Bearer costorah_live_xxxxxxxxxxxxxxxxxxxxxxxxx
+        │
+        ▼
+_extract_bearer_token()          missing / no "Bearer " / empty → 401 Invalid API Key
+        │  raw key
+        ▼
+hash_token()  (SHA-256, reused from app.auth.tokens — same function EP-05
+               uses for refresh tokens and password-reset tokens)
+        │  key_hash
+        ▼
+OrganizationApiKeyRepository.get_by_hash()   ── SELECT #1
+        │
+        ├─ not found (never existed OR soft-deleted — indistinguishable
+        │  by design)                         → 401 Invalid API Key
+        │
+        ▼  key found
+OrganizationApiKeyService.is_expired(key)
+        │
+        ├─ expired                            → 401 API Key expired
+        │
+        ▼  not expired
+OrganizationRepository.get(key.organization_id)   ── SELECT #2
+        │
+        ├─ missing / SUSPENDED / ARCHIVED      → 403 Organization suspended
+        │
+        ▼  ACTIVE
+OrganizationApiKeyRepository.update_last_used()   ── UPDATE (flush)
+        │
+        ▼
+ApiKeyAuthContext(api_key, organization)
+        │  .permissions (parsed from key.permissions), .organization_id,
+        │  .api_key_id, .created_by — all resolved, zero further queries
+        ▼
+RequireApiKeyPermission(permission) / RequireMembershipOrApiKeyPermission
+        │
+        ├─ scope not granted                   → 403 Insufficient API Key
+        │                                          permissions
+        ▼
+route handler
+```
+
+Total query budget: **2 SELECTs + 1 UPDATE**, regardless of how many
+permission checks a route performs afterward — `ApiKeyAuthContext` is
+resolved once (FastAPI caches the `CurrentApiKey`/`get_membership_or_api_key`
+dependency per request) and reused.
+
+### Added
+
+- `app/auth/exceptions.py` — `InvalidApiKeyError`, `ApiKeyExpiredError`,
+  `OrganizationSuspendedError`, `InsufficientApiKeyPermissionsError`
+  (additive; existing EP-05 exceptions untouched).
+- `app/services/api_key_auth_service.py` — `ApiKeyAuthService.authenticate()`
+  and `ApiKeyAuthContext` (organization + key + parsed `frozenset[Permission]`
+  + `organization_id`/`api_key_id`/`created_by` convenience properties).
+  Composes `OrganizationApiKeyRepository`, `OrganizationRepository`, and
+  `OrganizationApiKeyService.is_expired()` — no EP-14 file was modified.
+- `app/auth/api_key_auth.py`:
+  - `CurrentApiKey` / `get_current_api_key` — mirrors `CurrentUser` from
+    `app/auth/dependencies.py`, but for API keys.
+  - `RequireApiKeyPermission(permission)` — mirrors `RequirePermission`.
+  - `get_membership_or_api_key` / `RequireMembershipOrApiKeyPermission` —
+    dual auth (JWT session OR API key), routed by a prefix sniff on the
+    token (`costorah_live_`). For an API key, also verifies the key's
+    `organization_id` matches the route's `org_id` path parameter.
+  - Structured logging on every successful authentication: organization id
+    + slug, key prefix, key id — never the raw key or its hash. Request ID,
+    endpoint, and timestamp are already attached by the existing
+    `RequestLoggingMiddleware` contextvars + `TimeStamper` processor
+    (EP-01), so this module doesn't duplicate that.
+- `app/api/v1/organizations.py` — the **one** deliberate touch to an EP-14
+  file: `GET .../api-keys`'s dependency changed from `RequirePermission`
+  (JWT-only) to `RequireMembershipOrApiKeyPermission` (JWT or API key),
+  required by EP-15's own success criterion. POST/DELETE are untouched —
+  still JWT-only.
+- `app/main.py` — custom `openapi()` override registering an `ApiKeyAuth`
+  (HTTP bearer) security scheme; the JWT scheme (`OAuth2PasswordBearer`) is
+  already auto-registered by FastAPI from the `CurrentUser` chain.
+- `tests/test_api_key_auth.py` — 43 tests (unit, integration, concurrency,
+  performance-smoke).
+
+### Security Review
+
+| Concern | Resolution |
+|---|---|
+| Raw key never logged | `_authenticate_api_key` logs only `key_prefix`, org id/slug, key id |
+| Raw key never in error responses | All 4 error paths return static, pre-built `HTTPException` objects with fixed `detail` strings — no interpolation of request data |
+| Timing attacks | No plaintext-secret string comparison exists anywhere in this flow — the raw key is SHA-256 hashed, then matched via an indexed DB equality lookup (same approach Stripe/GitHub use); there is nothing left to constant-time-compare |
+| Existence vs. revocation not distinguishable | `get_by_hash()` already filters `deleted_at IS NULL` (EP-14); a revoked key and a key that never existed both produce `InvalidApiKeyError` → the same 401 |
+| Cross-organization access | `RequireMembershipOrApiKeyPermission` checks `principal.organization_id == path org_id` before checking permissions — a valid key for org B gets 401 (not 403, to avoid confirming org A's `org_id` "exists" from org B's perspective in a way a 403 would) when presented against org A's URL |
+| Malformed/missing/empty Authorization headers | All three collapse to the same `InvalidApiKeyError` → 401 Invalid API Key; no header-shape-specific error text |
+| Internal details | Detail strings never include IDs, hashes, prefixes, or organization names |
+
+### Permission Review
+
+Reuses `app.auth.rbac.Permission` (no second permission system, per the
+ticket's explicit instruction). A key's scopes are whatever list of
+`Permission` values were chosen at creation time (EP-14); an unrecognized
+scope string (e.g. left over after a `Permission` value is retired) is
+silently dropped by `ApiKeyAuthContext.permissions` rather than granting
+anything or failing the request — fail-closed on the individual scope,
+fail-open on the rest of the key's still-valid scopes.
+
+### Performance Notes
+
+- Exactly 2 SELECTs + 1 UPDATE per `authenticate()` call — verified by
+  `TestPerformance.test_query_count_does_not_grow_across_repeated_authentications`
+  (20 iterations, constant count every time).
+- No caching layer (Redis or otherwise) in front of the hash lookup —
+  deliberately deferred; the ticket only requires "no unnecessary queries
+  within a request," not a cross-request cache, and premature caching of
+  an authorization decision is its own risk (stale suspension/revocation).
+- `ApiKeyAuthContext` is resolved once per request via FastAPI's per-request
+  dependency caching — a route with multiple `RequireApiKeyPermission`-style
+  checks does not re-authenticate.
+
+### Test Results
+
+```
+EP-15 test suite:    43 passed
+Full backend suite: 1192 passed, 30 skipped (integration — no live DB), 0 failed
+ruff: clean · mypy: 0 new errors (2 pre-existing-pattern no-any-return
+      warnings on Depends()-factory returns, matching app/auth/dependencies.py:208)
+```
+
+### Explicitly out of scope (Phase 2)
+
+- No endpoint actually ingests usage data yet — `CurrentApiKey`/
+  `RequireApiKeyPermission` exist for that endpoint to depend on, but no
+  such endpoint exists in this phase.
+- No per-key rate limiting.
+- No SDKs, monitoring agent, provider integrations, WebSockets, live
+  dashboard, or billing — unchanged from EP-14's own out-of-scope list.
+
+### Stop Condition
+
+EP-15 is complete. `GET /v1/organizations/{org_id}/api-keys` authenticates
+via either a JWT session or an Organization API Key. No other endpoint has
+been changed to require API key auth.
+
+---
+
 ## [0.14.0] — EP-14 Organization API Keys, Phase 1 (2026-07-02)
 
 ### Summary

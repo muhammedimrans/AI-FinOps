@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from app.api.router import api_router
@@ -88,6 +90,38 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # ─── Routers ─────────────────────────────────────────────────────────────
     app.include_router(api_router)
+
+    # ─── OpenAPI security schemes ────────────────────────────────────────────
+    # OAuth2PasswordBearer (JWT session auth) is registered automatically by
+    # FastAPI from the CurrentUser dependency chain. ApiKeyAuth (EP-15
+    # Organization API Keys) has no fastapi.security.* dependency backing it
+    # — Authorization is read via a plain Header() so the 401/403 response
+    # bodies stay under this app's control — so its scheme must be added
+    # explicitly for it to appear in /docs and /openapi.json.
+    def custom_openapi() -> dict[str, Any]:
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=APP_TITLE,
+            description=APP_DESCRIPTION,
+            version=APP_VERSION,
+            routes=app.routes,
+        )
+        schema.setdefault("components", {}).setdefault("securitySchemes", {})["ApiKeyAuth"] = {
+            "type": "http",
+            "scheme": "bearer",
+            "bearerFormat": "costorah_live_<random>",
+            "description": (
+                "Organization API Key (EP-15). Send as "
+                "`Authorization: Bearer costorah_live_<key>`. Issued via "
+                "POST /v1/organizations/{org_id}/api-keys — the raw key is "
+                "shown exactly once at creation and cannot be retrieved again."
+            ),
+        }
+        app.openapi_schema = schema
+        return app.openapi_schema
+
+    app.openapi = custom_openapi  # type: ignore[method-assign]
 
     # ─── Exception handlers ──────────────────────────────────────────────────
     @app.exception_handler(Exception)

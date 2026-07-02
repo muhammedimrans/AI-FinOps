@@ -2,6 +2,11 @@ import { useState, useMemo } from "react";
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
+  Cell,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -27,8 +32,8 @@ import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
-import { useTimeSeries, useModels } from "../hooks/useDashboard";
-import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName } from "../utils";
+import { useTimeSeries, useModels, useProviders } from "../hooks/useDashboard";
+import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
@@ -57,6 +62,7 @@ export default function Analytics() {
 
   const timeSeries = useTimeSeries();
   const models = useModels();
+  const providers = useProviders();
 
   const chartData = (timeSeries.data?.data ?? []).map((d) => ({
     date: formatDate(d.date),
@@ -65,6 +71,26 @@ export default function Analytics() {
     ),
     total: parseFloat(d.total_cost),
   }));
+
+  const providerCompareData = (providers.data?.providers ?? []).map((p) => ({
+    provider: p.provider,
+    name: providerDisplayName(p.provider),
+    cost: parseFloat(p.total_cost),
+    requests: p.request_count / 1000,
+  }));
+
+  // Weekly-aggregated cost, derived client-side from the daily time series —
+  // no dedicated weekly-granularity data is fetched for this view.
+  const weeklyTrendData = useMemo(() => {
+    const points = timeSeries.data?.data ?? [];
+    const weeks: { week: string; cost: number }[] = [];
+    for (let i = 0; i < points.length; i += 7) {
+      const chunk = points.slice(i, i + 7);
+      const cost = chunk.reduce((s, d) => s + parseFloat(d.total_cost), 0);
+      weeks.push({ week: `Week ${weeks.length + 1}`, cost });
+    }
+    return weeks;
+  }, [timeSeries.data]);
 
   const tableData = useMemo(
     () =>
@@ -278,6 +304,67 @@ export default function Analytics() {
           </AreaChart>
         </ResponsiveContainer>
       </ChartCard>
+
+      {/* Provider Comparison + Weekly Trend */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <ChartCard
+          title="Provider Comparison"
+          subtitle="Cost vs. request volume by provider"
+          loading={providers.isLoading}
+          minHeight={280}
+        >
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={providerCompareData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+              <XAxis dataKey="name" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: chrome.axis, fontSize: 10 }} axisLine={false} tickLine={false} width={48} />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: chrome.text }}
+                labelStyle={{ color: chrome.text }}
+                formatter={(v: number, name: string) =>
+                  name === "requests" ? [`${formatNumber(v * 1000, true)}`, "Requests"] : [formatCost(v, currency, true), "Cost"]
+                }
+              />
+              <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12, textTransform: "capitalize" }}>{v === "requests" ? "Requests (K)" : v}</span>} />
+              <Bar dataKey="cost" name="cost" radius={[4, 4, 0, 0]}>
+                {providerCompareData.map((entry) => (
+                  <Cell key={entry.provider} fill={PROVIDER_COLORS[entry.provider] ?? chrome.primary} />
+                ))}
+              </Bar>
+              <Bar dataKey="requests" name="requests" fill={chrome.grid} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <ChartCard
+          title="Weekly Trend"
+          subtitle="Cost aggregated into 7-day windows"
+          loading={timeSeries.isLoading}
+          minHeight={280}
+        >
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={weeklyTrendData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+              <XAxis dataKey="week" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fill: chrome.axis, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => formatCost(v, currency, true)}
+                width={48}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: chrome.text }}
+                labelStyle={{ color: chrome.text }}
+                formatter={(v: number) => formatCost(v, currency, true)}
+              />
+              <Line type="monotone" dataKey="cost" stroke={chrome.brand} strokeWidth={2.5} dot={{ r: 3, fill: chrome.brand }} animationDuration={800} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+      </div>
 
       {/* Data Table */}
       <Section

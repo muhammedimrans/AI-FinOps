@@ -8,6 +8,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  PieChart,
+  Pie,
 } from "recharts";
 import { motion } from "framer-motion";
 import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
@@ -20,6 +22,7 @@ import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
+import { PROVIDER_CATALOG } from "../lib/providerCatalog";
 
 type Metric = "cost" | "requests" | "tokens";
 
@@ -173,7 +176,8 @@ export default function Providers() {
         </div>
       )}
 
-      {/* Comparison Chart */}
+      {/* Comparison + Request Share */}
+      <div className="grid gap-4 lg:grid-cols-2">
       <ChartCard
         title="Provider Comparison"
         subtitle="Side-by-side provider metrics"
@@ -236,6 +240,66 @@ export default function Providers() {
           </BarChart>
         </ResponsiveContainer>
       </ChartCard>
+
+      <ChartCard
+        title="Request Share"
+        subtitle="Share of API calls by provider"
+        loading={providers.isLoading}
+        minHeight={300}
+      >
+        <ResponsiveContainer width="100%" height={300}>
+          <PieChart>
+            <Pie
+              data={chartData}
+              dataKey="requests"
+              nameKey="name"
+              innerRadius={55}
+              outerRadius={100}
+              paddingAngle={2}
+              animationDuration={800}
+              animationEasing="ease-out"
+            >
+              {chartData.map((entry) => (
+                <Cell key={entry.provider} fill={PROVIDER_COLORS[entry.provider] ?? chrome.primary} stroke="transparent" />
+              ))}
+            </Pie>
+            <Tooltip
+              contentStyle={tooltipStyle}
+              formatter={(v: number) => formatNumber(v, true)}
+              itemStyle={{ color: chrome.text }}
+              labelStyle={{ color: chrome.axis }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </ChartCard>
+      </div>
+
+      {/* Provider catalog — connected providers show live data; the rest render
+          as placeholders so the page reflects the full ecosystem without
+          fabricating cost/usage numbers the backend doesn't track. */}
+      {!providers.isLoading && (
+        <Section title="More Providers" description="Additional integrations available to connect">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            {PROVIDER_CATALOG.filter(
+              (p) => !providerList.some((live) => live.provider.toLowerCase() === p.id),
+            ).map((p) => (
+              <div
+                key={p.id}
+                className="rounded-xl border border-dashed border-border-subtle p-4 flex flex-col items-center text-center gap-2 opacity-70 hover:opacity-100 transition-opacity duration-base"
+              >
+                <div
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white flex-shrink-0"
+                  style={{ background: p.color }}
+                >
+                  {p.name.slice(0, 2).toUpperCase()}
+                </div>
+                <span className="text-xs font-medium text-tx-secondary">{p.name}</span>
+                <span className="badge bg-app-muted text-tx-muted text-[9px]">Not connected</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+      )}
 
       {/* Models by provider table */}
       <Section title="All Models" description="All active models across providers">

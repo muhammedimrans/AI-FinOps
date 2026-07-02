@@ -18,6 +18,7 @@ const Projects     = lazy(() => import("./features/Projects"));
 const Organization = lazy(() => import("./features/Organization"));
 const Settings     = lazy(() => import("./features/Settings"));
 const Support      = lazy(() => import("./features/Support"));
+const Connections  = lazy(() => import("./features/Connections"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -102,7 +103,7 @@ export default function App() {
         <Route path="users"       element={<Page><Placeholder title="Users" /></Page>} />
         <Route path="rbac"        element={<Page><Placeholder title="RBAC" description="Role-based access control management. Backend auth & RBAC (EP-05) is fully implemented." /></Page>} />
         <Route path="api-keys"    element={<Page><Placeholder title="API Keys" /></Page>} />
-        <Route path="connections" element={<Page><Placeholder title="Provider Connections" description="Configure and manage AI provider API keys and connections." /></Page>} />
+        <Route path="connections" element={<Page><Connections /></Page>} />
         <Route path="audit-logs"  element={<Page><Placeholder title="Audit Logs" /></Page>} />
         <Route path="settings"    element={<Page><Settings /></Page>} />
         <Route path="support"     element={<Page><Support /></Page>} />

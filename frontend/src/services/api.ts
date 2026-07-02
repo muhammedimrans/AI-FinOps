@@ -213,6 +213,69 @@ export async function getOrganizations(): Promise<BackendOrganizationsResponse> 
   return get<BackendOrganizationsResponse>("/v1/organizations");
 }
 
+// ── Provider connection intelligence (EP-07) ─────────────────────────────────
+
+export interface ProviderConnectionStatus {
+  is_connected: boolean;
+  health_status: string;
+  latency_ms: number | null;
+  error_message: string | null;
+  checked_at: string;
+}
+
+export interface TestConnectionResponse {
+  provider: string;
+  status: ProviderConnectionStatus;
+  auth_valid: boolean;
+}
+
+export interface ProviderModelMetadata {
+  id: string;
+  display_name: string;
+  provider_type: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  capabilities: string[];
+  input_cost_per_1k: number | null;
+  output_cost_per_1k: number | null;
+  is_deprecated: boolean;
+}
+
+export interface ProviderModelsResponse {
+  provider: string;
+  models: ProviderModelMetadata[];
+  count: number;
+}
+
+export interface ProviderInfoResponse {
+  provider: string;
+  display_name: string;
+  version: string;
+  api_version: string | null;
+  authentication_type: string;
+  documentation_url: string | null;
+  health: string;
+  supports_streaming: boolean;
+  supports_tool_calling: boolean;
+  supports_vision: boolean;
+  supports_usage_api: boolean;
+  supports_fine_tuning: boolean;
+  max_context_window: number | null;
+  supported_model_ids: string[];
+}
+
+export async function getProviderInfo(provider: string): Promise<ProviderInfoResponse> {
+  return get<ProviderInfoResponse>(`/v1/providers/${provider}/info`);
+}
+
+export async function testProviderConnection(provider: string): Promise<TestConnectionResponse> {
+  return post<TestConnectionResponse>(`/v1/providers/${provider}/test`, {});
+}
+
+export async function getProviderModels(provider: string): Promise<ProviderModelsResponse> {
+  return get<ProviderModelsResponse>(`/v1/providers/${provider}/models`);
+}
+
 // ── Dashboard params ──────────────────────────────────────────────────────────
 
 export interface OverviewParams {

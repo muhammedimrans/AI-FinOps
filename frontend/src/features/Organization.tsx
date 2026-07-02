@@ -2,6 +2,7 @@ import { motion } from "framer-motion";
 import { Building2, Users, FolderOpen, ArrowUpDown, ArrowDown, ArrowUp, Wallet, Gauge } from "lucide-react";
 import { useState } from "react";
 import BudgetBar from "../components/BudgetBar";
+import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useOrganization } from "../hooks/useDashboard";
@@ -47,6 +48,8 @@ export default function Organization() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Organization" description="Departmental budget utilization and cost allocation." />
+
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>

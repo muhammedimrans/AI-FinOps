@@ -13,6 +13,7 @@ import {
 import { motion } from "framer-motion";
 import { Medal, Search } from "lucide-react";
 import ChartCard from "../components/ChartCard";
+import PageHeader from "../components/PageHeader";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, modelDisplayName, cn } from "../utils";
@@ -105,6 +106,8 @@ export default function Models() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Models" description="Rank every model by spend and evaluate cost efficiency." />
+
       {/* Leaderboard */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}

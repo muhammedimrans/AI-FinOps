@@ -115,7 +115,7 @@ function SidebarBody({
               transition={{ duration: 0.15 }}
               className="flex flex-col min-w-0"
             >
-              <span className="text-sm font-bold tracking-wide text-tx-primary leading-tight truncate">
+              <span className="font-display text-sm font-bold tracking-wide text-tx-primary leading-tight truncate">
                 COSTORAH
               </span>
               <span className="text-[10px] text-tx-muted leading-tight">
@@ -183,11 +183,18 @@ function SidebarItem({
       title={collapsed ? item.label : undefined}
       className={cn(
         "nav-item mx-2 my-0.5 relative",
-        active && "bg-brand-subtle text-brand font-medium",
+        active ? "text-brand font-medium" : undefined,
         collapsed && "justify-center px-2",
       )}
     >
-      <Icon size={16} className="flex-shrink-0" />
+      {active && (
+        <motion.div
+          layoutId="nav-indicator"
+          className="absolute inset-0 rounded-lg bg-brand-subtle shadow-glow-brand"
+          transition={{ type: "spring", stiffness: 380, damping: 32 }}
+        />
+      )}
+      <Icon size={16} className="relative z-10 flex-shrink-0" />
       <AnimatePresence>
         {!collapsed && (
           <motion.span
@@ -195,18 +202,12 @@ function SidebarItem({
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: -6 }}
             transition={{ duration: 0.15 }}
-            className="text-sm truncate"
+            className="relative z-10 text-sm truncate"
           >
             {item.label}
           </motion.span>
         )}
       </AnimatePresence>
-      {active && (
-        <motion.div
-          layoutId="nav-indicator"
-          className="absolute left-0 w-0.5 h-5 bg-brand rounded-r-full"
-        />
-      )}
     </NavLink>
   );
 }

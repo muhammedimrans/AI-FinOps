@@ -50,7 +50,7 @@ export default function OrgSelector() {
       >
         <div className="flex items-center gap-2.5 justify-center mb-6">
           <CostorahMark className="w-8 h-8" />
-          <span className="text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+          <span className="font-display text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
         </div>
 
         <div className="glass-panel shadow-glow-brand p-8">

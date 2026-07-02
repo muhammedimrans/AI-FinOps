@@ -35,6 +35,7 @@ class Permission(enum.StrEnum):
 
     # Usage & billing
     USAGE_READ = "usage:read"
+    USAGE_WRITE = "usage:write"
     BILLING_READ = "billing:read"
     BILLING_WRITE = "billing:write"
 
@@ -58,6 +59,7 @@ _ADMIN_PERMS: frozenset[Permission] = frozenset(
         Permission.PROVIDER_WRITE,
         Permission.PROVIDER_DELETE,
         Permission.USAGE_READ,
+        Permission.USAGE_WRITE,
         Permission.BILLING_READ,
         Permission.API_KEY_READ,
         Permission.API_KEY_WRITE,

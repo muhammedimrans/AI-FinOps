@@ -334,8 +334,19 @@ class TestProviderType:
     def test_has_ollama(self) -> None:
         assert ProviderType.OLLAMA == "ollama"
 
-    def test_exactly_seven_values(self) -> None:
-        assert len(list(ProviderType)) == 7
+    def test_has_cohere(self) -> None:
+        assert ProviderType.COHERE == "cohere"
+
+    def test_has_bedrock(self) -> None:
+        assert ProviderType.BEDROCK == "bedrock"
+
+    def test_has_mistral(self) -> None:
+        assert ProviderType.MISTRAL == "mistral"
+
+    def test_exactly_ten_values(self) -> None:
+        """EP-16 extended the catalog from 7 to 10 (cohere/bedrock/mistral)
+        for usage-ingestion validation; these three have no adapter yet."""
+        assert len(list(ProviderType)) == 10
 
 
 # ── ProviderConnection model ───────────────────────────────────────────────────

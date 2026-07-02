@@ -841,5 +841,40 @@ depend on, without needing a JWT.
 
 ---
 
+## [0.16.0] — EP-16 — 2026-07-02
+
+### Change
+
+Backend-only: adds `POST /v1/ingest/usage`, authenticated by the EP-15 API
+Key middleware. Accepted usage is written into the same tables the
+existing Overview/Analytics/Providers/Models/Projects endpoints already
+read, so ingested data appears on those pages with no frontend code
+changed and no new dashboard endpoints. `ProviderType` (backend catalog)
+widened from 7 to 10 providers; the frontend's own provider display-name
+catalog was already broader than this and needed no change.
+
+### Reason
+
+EP-15 built the authentication mechanism but nothing used it yet. EP-16
+gives it a first real consumer and, more importantly, proves that data
+pushed through it becomes visible on the existing dashboard without any
+UI work — the load-bearing assumption behind eventually shipping a
+Monitoring Agent or SDKs that report usage from outside COSTORAH.
+
+### Impact
+
+- No breaking changes to any existing frontend-facing endpoint or contract.
+- No new frontend routes, components, or API client functions.
+- Existing dashboard pages will show ingested usage automatically once
+  any integration starts calling the new endpoint.
+
+### Related Documents
+
+- backend/docs/architecture/ARCHITECTURE_CHANGELOG.md (EP-16 entry — full
+  ingestion flow diagram, schema, API contract, security/performance review)
+- ROADMAP.md (EP-16 Phase 2 — Monitoring Agent / SDKs / CLI — listed under Medium)
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

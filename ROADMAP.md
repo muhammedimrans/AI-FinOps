@@ -37,9 +37,14 @@ High-level, ordered by priority. See `docs/knowledge/` for per-episode status re
   organization status, granted scopes, `last_used_at`) and are ready for any
   future endpoint to depend on. `GET /v1/organizations/{org_id}/api-keys`
   is the first endpoint wired to accept it (alongside the existing JWT
-  session), proving the flow end-to-end. **Not yet done**: no endpoint
-  other than that one GET actually requires an API key yet — see EP-15
-  Phase 2 (usage ingestion) below.
+  session), proving the flow end-to-end.
+- ~~Usage ingestion endpoint~~ — **done (EP-16)**: `POST /v1/ingest/usage`,
+  authenticated by an Organization API Key with `usage:write`. Validates,
+  deduplicates by `request_id` (never double-counts, even under concurrent
+  retries), stores a `usage_records` row, and feeds the existing EP-08/EP-09
+  tables so Overview/Analytics/Providers/Models/Projects reflect ingested
+  usage immediately with zero frontend or dashboard-endpoint changes.
+  **Not yet done**: no SDKs, no Monitoring Agent, no per-key rate limiting.
 - **Audit-log query API** — `GET /v1/organizations/{org_id}/audit-logs`.
   Structured audit logging exists server-side but isn't queryable.
 - Provider health/latency endpoint to replace static "Active" badges on the
@@ -48,15 +53,17 @@ High-level, ordered by priority. See `docs/knowledge/` for per-episode status re
 
 ## Medium
 
-- **EP-15 Phase 2 — usage ingestion via API keys**: the authentication
-  middleware is done (EP-15); what's missing is an actual ingestion
-  endpoint that requires `CurrentApiKey`/`RequireApiKeyPermission` and does
-  something with the request (write usage events). Also still open:
-  per-key rate limiting (the login rate limiter's sliding-window approach
-  is the obvious template) and a Redis/in-memory cache in front of the
-  hash lookup if per-key traffic ever justifies it (no caching exists yet —
-  every authenticated request still does 2 SELECTs + 1 UPDATE). No SDKs or
-  provider integrations are in scope for that phase either.
+- **EP-16 Phase 2 — Monitoring Agent, SDKs, CLI**: `POST /v1/ingest/usage`
+  and its auth are done; nothing yet actually *calls* it from a real
+  integration. Also still open: per-key rate limiting on the ingest
+  endpoint specifically (the login rate limiter's sliding-window approach
+  is the obvious template) and a Redis/in-memory cache in front of the API
+  key hash lookup if per-key traffic ever justifies it (no caching exists
+  yet — every authenticated request does 2 SELECTs + 1 UPDATE, and
+  ingestion adds 2 more SELECTs + up to 3 more writes on top of that for
+  the dashboard-table feed).
+- Batch/bulk ingestion (`POST /v1/ingest/usage/batch`) — explicitly out of
+  scope for EP-16, which only accepts one record per request.
 - Server-side cost forecasting + anomaly detection endpoints. The Analytics
   page ships an **in-app** linear forecast and rolling-σ anomaly detector
   (labeled as client-side); a server model would improve accuracy and enable

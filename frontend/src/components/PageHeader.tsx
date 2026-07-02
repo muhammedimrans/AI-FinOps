@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 
 interface PageHeaderProps {
   title: string;
-  description?: string;
+  description?: string | undefined;
   actions?: ReactNode;
 }
 

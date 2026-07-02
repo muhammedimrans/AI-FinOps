@@ -180,6 +180,23 @@ export async function login(credentials: LoginCredentials): Promise<BackendLogin
   return post<BackendLoginResponse>("/v1/auth/login", credentials, true);
 }
 
+export interface MessageResponse {
+  message: string;
+}
+
+/** Anti-enumeration: resolves with a generic message whether or not the email exists. */
+export async function requestPasswordReset(email: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/request-password-reset", { email }, true);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/reset-password", { token, new_password: newPassword }, true);
+}
+
+export async function verifyEmail(token: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/verify-email", { token }, true);
+}
+
 export async function logout(): Promise<void> {
   try {
     await request<void>("POST", "/v1/auth/logout", { body: {} });
@@ -194,6 +211,128 @@ export async function logout(): Promise<void> {
 
 export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
   return get<BackendOrganizationsResponse>("/v1/organizations");
+}
+
+// ── Provider connection intelligence (EP-07) ─────────────────────────────────
+
+export interface ProviderConnectionStatus {
+  is_connected: boolean;
+  health_status: string;
+  latency_ms: number | null;
+  error_message: string | null;
+  checked_at: string;
+}
+
+export interface TestConnectionResponse {
+  provider: string;
+  status: ProviderConnectionStatus;
+  auth_valid: boolean;
+}
+
+export interface ProviderModelMetadata {
+  id: string;
+  display_name: string;
+  provider_type: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  capabilities: string[];
+  input_cost_per_1k: number | null;
+  output_cost_per_1k: number | null;
+  is_deprecated: boolean;
+}
+
+export interface ProviderModelsResponse {
+  provider: string;
+  models: ProviderModelMetadata[];
+  count: number;
+}
+
+export interface ProviderInfoResponse {
+  provider: string;
+  display_name: string;
+  version: string;
+  api_version: string | null;
+  authentication_type: string;
+  documentation_url: string | null;
+  health: string;
+  supports_streaming: boolean;
+  supports_tool_calling: boolean;
+  supports_vision: boolean;
+  supports_usage_api: boolean;
+  supports_fine_tuning: boolean;
+  max_context_window: number | null;
+  supported_model_ids: string[];
+}
+
+export async function getProviderInfo(provider: string): Promise<ProviderInfoResponse> {
+  return get<ProviderInfoResponse>(`/v1/providers/${provider}/info`);
+}
+
+export async function testProviderConnection(provider: string): Promise<TestConnectionResponse> {
+  return post<TestConnectionResponse>(`/v1/providers/${provider}/test`, {});
+}
+
+export async function getProviderModels(provider: string): Promise<ProviderModelsResponse> {
+  return get<ProviderModelsResponse>(`/v1/providers/${provider}/models`);
+}
+
+// ── Pricing catalog + calculator (EP-09) ─────────────────────────────────────
+
+export interface ModelPricingRecord {
+  id: string;
+  external_id: string;
+  provider: string;
+  model: string;
+  version: string;
+  currency: string;
+  effective_from: string;
+  effective_to: string | null;
+  prompt_token_price: string;
+  completion_token_price: string;
+  cached_token_price: string | null;
+  is_active: boolean;
+}
+
+export interface ModelPricingListResponse {
+  items: ModelPricingRecord[];
+  total: number;
+  has_more: boolean;
+}
+
+export interface PriceCalculationResult {
+  provider: string;
+  model: string;
+  currency: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number | null;
+  total_tokens: number;
+  prompt_cost: string;
+  completion_cost: string;
+  cached_cost: string | null;
+  total_cost: string;
+  pricing_date: string;
+}
+
+export async function listModelPricing(organizationId: string, limit = 100): Promise<ModelPricingListResponse> {
+  return get<ModelPricingListResponse>("/v1/pricing/models", {
+    organization_id: organizationId,
+    limit: String(limit),
+  });
+}
+
+export async function listPricingProviders(): Promise<string[]> {
+  return get<string[]>("/v1/pricing/providers");
+}
+
+export async function calculatePrice(body: {
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens?: number;
+}): Promise<PriceCalculationResult> {
+  return post<PriceCalculationResult>("/v1/pricing/calculate", body);
 }
 
 // ── Dashboard params ──────────────────────────────────────────────────────────

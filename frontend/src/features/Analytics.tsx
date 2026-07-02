@@ -26,7 +26,7 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
@@ -34,6 +34,7 @@ import MetricCard from "../components/MetricCard";
 import ProviderBadge from "../components/ProviderBadge";
 import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import { useTimeSeries, useModels, useProviders } from "../hooks/useDashboard";
+import { linearForecast, detectAnomalies } from "../lib/insights";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
@@ -100,6 +101,36 @@ export default function Analytics() {
     }
     return weeks;
   }, [timeSeries.data]);
+
+  // ── In-app spend intelligence (computed from the real daily series) ────────
+  const dailySeries = useMemo(
+    () =>
+      (timeSeries.data?.data ?? []).map((d) => ({
+        date: d.date,
+        value: parseFloat(d.total_cost),
+      })),
+    [timeSeries.data],
+  );
+
+  const forecast = useMemo(() => linearForecast(dailySeries, 14), [dailySeries]);
+
+  const forecastChartData = useMemo(() => {
+    if (!forecast) return [];
+    const actual = dailySeries.map((p) => ({ date: formatDate(p.date), actual: p.value }));
+    const last = actual[actual.length - 1]!;
+    return [
+      ...actual.slice(0, -1),
+      // Bridge point: the last actual day carries both keys so the dashed
+      // projection visually connects to the solid line.
+      { ...last, projected: last.actual },
+      ...forecast.points.map((p) => ({ date: formatDate(p.date), projected: p.value })),
+    ];
+  }, [dailySeries, forecast]);
+
+  const anomalies = useMemo(
+    () => detectAnomalies(dailySeries, { window: 7, threshold: 2 }).slice(-8).reverse(),
+    [dailySeries],
+  );
 
   const tableData = useMemo(
     () =>
@@ -376,6 +407,90 @@ export default function Analytics() {
             </LineChart>
           </ResponsiveContainer>
         </ChartCard>
+      </div>
+
+      {/* Forecast + anomalies — computed in-app from the real daily series */}
+      <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+        <ChartCard
+          title="Spend Forecast"
+          subtitle={
+            forecast
+              ? `Linear trend fit to the visible period, projected 14 days — computed in-app, ${forecast.dailySlope >= 0 ? "+" : "−"}${formatCost(Math.abs(forecast.dailySlope), currency, true)}/day`
+              : "Linear trend projection — needs at least 7 days of data"
+          }
+          loading={timeSeries.isLoading}
+          empty={!forecast}
+          emptyMessage="Select a period with at least 7 days of usage to fit a trend."
+          minHeight={280}
+        >
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={forecastChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+              <XAxis dataKey="date" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis
+                tick={{ fill: chrome.axis, fontSize: 10 }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={(v: number) => formatCost(v, currency, true)}
+                width={52}
+              />
+              <Tooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: chrome.text }}
+                labelStyle={{ color: chrome.text }}
+                formatter={(v: number, name: string) => [formatCost(v, currency, true), name === "projected" ? "Projected" : "Actual"]}
+              />
+              <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12 }}>{v === "projected" ? "Projected (linear)" : "Actual"}</span>} />
+              <Line type="monotone" dataKey="actual" name="actual" stroke={chrome.brand} strokeWidth={2.5} dot={false} animationDuration={800} />
+              <Line type="monotone" dataKey="projected" name="projected" stroke={chrome.brand} strokeWidth={2} strokeDasharray="6 4" strokeOpacity={0.6} dot={false} animationDuration={800} />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        <Section
+          title="Detected Anomalies"
+          description="Days deviating >2σ from the trailing 7-day average — computed in-app"
+          icon={Sparkles}
+        >
+          <div className="p-5 pt-0">
+            {timeSeries.isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-10 skeleton rounded-lg" />)}
+              </div>
+            ) : anomalies.length === 0 ? (
+              <p className="text-sm text-tx-muted py-6 text-center">
+                No anomalous days in the selected period.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {anomalies.map((a) => {
+                  const spike = a.sigma > 0;
+                  return (
+                    <li
+                      key={a.date}
+                      className="flex items-start gap-2.5 rounded-xl border border-border-subtle bg-app-bg p-3"
+                    >
+                      <AlertTriangle
+                        size={14}
+                        className={spike ? "text-warning mt-0.5 flex-shrink-0" : "text-info mt-0.5 flex-shrink-0"}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-medium text-tx-primary">
+                          {formatDate(a.date)} — {formatCost(a.value, currency, true)}
+                        </p>
+                        <p className="text-[11px] text-tx-muted mt-0.5">
+                          {Number.isFinite(a.sigma) ? `${Math.abs(a.sigma).toFixed(1)}σ` : "sharp"}{" "}
+                          {spike ? "above" : "below"} the trailing average of{" "}
+                          {formatCost(a.expected, currency, true)}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </Section>
       </div>
 
       {/* Data Table */}

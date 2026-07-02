@@ -14,7 +14,7 @@ import {
   Bar,
 } from "recharts";
 import { motion } from "framer-motion";
-import { DollarSign, Activity, Layers, Zap, Clock } from "lucide-react";
+import { DollarSign, Activity, Layers, Zap, Clock, Download } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge from "../components/ProviderBadge";
@@ -40,6 +40,7 @@ import {
 } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
+import { toast } from "../stores/toast";
 import type { Granularity } from "../types/api";
 
 interface TooltipPayloadEntry {
@@ -155,9 +156,64 @@ export default function Overview() {
       cost: parseFloat(m.total_cost),
     }));
 
+  const hasData = providerList.length > 0 || tsData.length > 0;
+
+  function exportReport() {
+    if (!hasData) {
+      toast.warning("Nothing to export", "There is no spend data for the selected period.");
+      return;
+    }
+    const lines: string[] = [];
+    lines.push("COSTORAH Spend Report");
+    lines.push(`Currency,${currency}`);
+    if (kpi) {
+      lines.push("");
+      lines.push("Summary");
+      lines.push("Metric,Value");
+      lines.push(`Total Spend,${kpi.total_cost}`);
+      lines.push(`Total Requests,${kpi.total_requests}`);
+      lines.push(`Input Tokens,${kpi.total_input_tokens}`);
+      lines.push(`Output Tokens,${kpi.total_output_tokens}`);
+      lines.push(`Avg Cost / Request,${kpi.avg_cost_per_request}`);
+      lines.push(`Active Providers,${kpi.active_providers}`);
+      lines.push(`Active Models,${kpi.active_models}`);
+    }
+    lines.push("");
+    lines.push("Spend by Provider");
+    lines.push("Provider,Total Cost,Requests,Cost Share %");
+    for (const p of providerList) {
+      lines.push(`${providerDisplayName(p.provider)},${p.total_cost},${p.request_count},${p.cost_share_pct}`);
+    }
+    lines.push("");
+    lines.push("Daily Spend");
+    lines.push("Date,Total Cost,Total Tokens,Requests");
+    for (const d of tsData) {
+      lines.push(`${d.date},${d.total_cost},${d.total_tokens},${d.total_requests}`);
+    }
+
+    const csv = lines.join("\n");
+    const a = document.createElement("a");
+    a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
+    a.download = `costorah-report-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    toast.success("Report ready", "Spend report exported to CSV.");
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      <PageHeader title="Overview" description="Real-time AI spend across every provider and project." />
+      <PageHeader
+        title="Overview"
+        description="Real-time AI spend across every provider and project."
+        actions={
+          <button
+            onClick={exportReport}
+            disabled={overview.isLoading}
+            className="btn-outline h-9 text-sm px-3.5"
+          >
+            <Download size={14} /> Export report
+          </button>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

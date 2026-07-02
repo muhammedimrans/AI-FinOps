@@ -6,7 +6,10 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import OrgSelector from "./components/OrgSelector";
 import { useOrgStore } from "./stores/org";
 
-const Login        = lazy(() => import("./features/Login"));
+const Login          = lazy(() => import("./features/Login"));
+const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
+const ResetPassword  = lazy(() => import("./features/ResetPassword"));
+const VerifyEmail    = lazy(() => import("./features/VerifyEmail"));
 const Overview     = lazy(() => import("./features/Overview"));
 const Analytics    = lazy(() => import("./features/Analytics"));
 const Providers    = lazy(() => import("./features/Providers"));
@@ -15,6 +18,8 @@ const Projects     = lazy(() => import("./features/Projects"));
 const Organization = lazy(() => import("./features/Organization"));
 const Settings     = lazy(() => import("./features/Settings"));
 const Support      = lazy(() => import("./features/Support"));
+const Connections  = lazy(() => import("./features/Connections"));
+const Pricing      = lazy(() => import("./features/Pricing"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -62,6 +67,20 @@ export default function App() {
         }
       />
 
+      {["/forgot-password", "/reset-password", "/verify-email"].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                {path === "/forgot-password" ? <ForgotPassword /> : path === "/reset-password" ? <ResetPassword /> : <VerifyEmail />}
+              </Suspense>
+            </ErrorBoundary>
+          }
+        />
+      ))}
+
       {/* Protected shell */}
       <Route
         path="/"
@@ -81,12 +100,53 @@ export default function App() {
           <Route path="models"       element={<Page><Models /></Page>} />
           <Route path="projects"     element={<Page><Projects /></Page>} />
           <Route path="organization" element={<Page><Organization /></Page>} />
+          <Route path="pricing"      element={<Page><Pricing /></Page>} />
         </Route>
-        <Route path="users"       element={<Page><Placeholder title="Users" /></Page>} />
-        <Route path="rbac"        element={<Page><Placeholder title="RBAC" description="Role-based access control management. Backend auth & RBAC (EP-05) is fully implemented." /></Page>} />
-        <Route path="api-keys"    element={<Page><Placeholder title="API Keys" /></Page>} />
-        <Route path="connections" element={<Page><Placeholder title="Provider Connections" description="Configure and manage AI provider API keys and connections." /></Page>} />
-        <Route path="audit-logs"  element={<Page><Placeholder title="Audit Logs" /></Page>} />
+        <Route path="users" element={
+          <Page><Placeholder
+            title="Users"
+            description="Invite teammates, manage members, and assign roles within your organization. The membership and role model exists in the backend, but no member-management API is exposed yet."
+            requiredEndpoints={[
+              "GET  /v1/organizations/{org_id}/members",
+              "POST /v1/organizations/{org_id}/invitations",
+              "PATCH /v1/organizations/{org_id}/members/{id}",
+              "DELETE /v1/organizations/{org_id}/members/{id}",
+            ]}
+          /></Page>
+        } />
+        <Route path="rbac" element={
+          <Page><Placeholder
+            title="RBAC"
+            description="View and edit role-to-permission mappings. The RBAC engine (roles, permissions, enforcement) is fully implemented in the backend (EP-05), but there is no endpoint to read or modify the mappings from the UI."
+            status="ui-pending"
+            requiredEndpoints={[
+              "GET  /v1/rbac/roles",
+              "GET  /v1/rbac/permissions",
+              "PUT  /v1/organizations/{org_id}/members/{id}/role",
+            ]}
+          /></Page>
+        } />
+        <Route path="api-keys" element={
+          <Page><Placeholder
+            title="API Keys"
+            description="Issue and revoke programmatic API keys for ingesting usage. No API-key issuance endpoint exists yet — keys generated in Settings are local placeholders only."
+            requiredEndpoints={[
+              "GET    /v1/organizations/{org_id}/api-keys",
+              "POST   /v1/organizations/{org_id}/api-keys",
+              "DELETE /v1/organizations/{org_id}/api-keys/{id}",
+            ]}
+          /></Page>
+        } />
+        <Route path="connections" element={<Page><Connections /></Page>} />
+        <Route path="audit-logs" element={
+          <Page><Placeholder
+            title="Audit Logs"
+            description="Review a chronological record of sensitive actions (logins, role changes, key issuance). Structured audit logging exists server-side, but no queryable audit-log endpoint is exposed."
+            requiredEndpoints={[
+              "GET /v1/organizations/{org_id}/audit-logs",
+            ]}
+          /></Page>
+        } />
         <Route path="settings"    element={<Page><Settings /></Page>} />
         <Route path="support"     element={<Page><Support /></Page>} />
         <Route path="*"           element={<Page><NotFound /></Page>} />

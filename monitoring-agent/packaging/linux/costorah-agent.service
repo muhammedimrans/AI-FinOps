@@ -1,0 +1,31 @@
+[Unit]
+Description=COSTORAH Monitoring Agent
+Documentation=https://github.com/muhammedimrans/ai-finops/tree/main/monitoring-agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=costorah-agent
+Group=costorah-agent
+WorkingDirectory=/etc/costorah-agent
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/local/bin/costorah-agent start --config /etc/costorah-agent/config.yaml --pid-file /run/costorah-agent/costorah-agent.pid
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# Hardening — the agent process only needs to read its config, write its
+# queue database and logs, and make outbound HTTPS connections.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/costorah-agent /var/log/costorah-agent /run/costorah-agent
+RuntimeDirectory=costorah-agent
+StateDirectory=costorah-agent
+LogsDirectory=costorah-agent
+
+[Install]
+WantedBy=multi-user.target

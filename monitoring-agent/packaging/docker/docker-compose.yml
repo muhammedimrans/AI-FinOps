@@ -1,0 +1,34 @@
+# COSTORAH Monitoring Agent — standalone Docker Compose deployment.
+#
+# Usage:
+#   cp ../../config.example.yaml ./config.yaml   # then edit organization.api_key
+#   docker compose up -d
+#   curl http://localhost:9091/health
+#
+# The API key is better supplied via the environment (see .env below) than
+# baked into config.yaml, which this compose file mounts read-only.
+
+services:
+  costorah-agent:
+    build:
+      context: ../..
+      dockerfile: packaging/docker/Dockerfile
+    image: costorah-agent:latest
+    container_name: costorah-agent
+    restart: unless-stopped
+    environment:
+      COSTORAH_AGENT_ORGANIZATION__API_KEY: "${COSTORAH_AGENT_API_KEY:?set COSTORAH_AGENT_API_KEY in .env}"
+    volumes:
+      - ./config.yaml:/etc/costorah-agent/config.yaml:ro
+      - costorah-agent-data:/var/lib/costorah-agent
+    ports:
+      - "127.0.0.1:9091:9091"
+    healthcheck:
+      test: ["CMD", "costorah-agent", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  costorah-agent-data:

@@ -11,41 +11,48 @@
  * so a theme change re-paints the whole app without a rebuild.
  */
 @layer base {
+  /*
+   * Colors below are ported from the costorah-dashboard reference project's
+   * OKLCH design tokens (src/styles.css), converted to sRGB so they drop into
+   * our existing CSS-variable-per-theme system without touching Tailwind
+   * major version or component internals. neon-cyber <- their `.cyber`,
+   * professional-light <- their `:root`, professional-dark <- their `.dark`.
+   */
   :root,
   [data-theme="neon-cyber"] {
-    --color-app-bg: 10 10 15;
-    --color-app-card: 18 18 26;
-    --color-app-muted: 26 26 38;
-    --color-app-hover: 30 30 46;
+    --color-app-bg: 3 4 15;
+    --color-app-card: 9 11 30;
+    --color-app-muted: 12 15 39;
+    --color-app-hover: 18 22 48;
 
-    --color-primary: 79 70 229;
-    --color-primary-hover: 67 56 202;
-    --color-primary-light: 99 102 241;
-    --color-primary-dim: 49 46 129;
+    --color-primary: 207 129 255;
+    --color-primary-hover: 184 96 240;
+    --color-primary-light: 224 173 255;
+    --color-primary-dim: 22 15 46;
 
-    --color-brand: 40 224 194;
-    --color-brand-hover: 0 229 184;
-    --color-brand-light: 92 235 212;
-    --color-brand-dim: 10 61 52;
-    --color-brand-purple: 124 58 237;
+    --color-brand: 0 230 232;
+    --color-brand-hover: 0 192 195;
+    --color-brand-light: 118 241 211;
+    --color-brand-dim: 0 37 39;
+    --color-brand-purple: 207 129 255;
 
-    --color-success: 16 185 129;
-    --color-success-light: 52 211 153;
-    --color-warning: 245 158 11;
-    --color-warning-light: 252 211 77;
-    --color-danger: 239 68 68;
-    --color-danger-light: 248 113 113;
-    --color-info: 59 130 246;
-    --color-info-light: 96 165 250;
+    --color-success: 0 220 137;
+    --color-success-light: 54 241 164;
+    --color-warning: 255 194 0;
+    --color-warning-light: 255 213 76;
+    --color-danger: 255 57 106;
+    --color-danger-light: 255 109 137;
+    --color-info: 0 230 232;
+    --color-info-light: 59 244 244;
 
-    --color-tx-primary: 248 250 252;
-    --color-tx-secondary: 148 163 184;
-    --color-tx-muted: 71 85 105;
-    --color-tx-disabled: 51 65 85;
+    --color-tx-primary: 227 246 247;
+    --color-tx-secondary: 161 204 219;
+    --color-tx-muted: 137 169 193;
+    --color-tx-disabled: 83 100 128;
 
-    --color-border-subtle: 30 41 59;
-    --color-border: 51 65 85;
-    --color-border-strong: 71 85 105;
+    --color-border-subtle: 7 40 47;
+    --color-border: 7 50 66;
+    --color-border-strong: 6 77 91;
 
     --shadow-rgb: 0 0 0;
     --shadow-a-1: 0.4;  --shadow-a-2: 0.3;  --shadow-a-3: 0.5;
@@ -56,94 +63,94 @@
     --aurora-a: 0.2; --aurora-a-2: 0.16; --aurora-a-3: 0.1;
     --glass-blur: 12px;
     --glass-panel-blur: 28px;
-    --scrollbar-track: 18 18 26;
-    --scrollbar-thumb: 51 65 85;
-    --scrollbar-thumb-hover: 71 85 105;
+    --scrollbar-track: 9 11 30;
+    --scrollbar-thumb: 7 50 66;
+    --scrollbar-thumb-hover: 6 77 91;
   }
 
   [data-theme="professional-light"] {
-    --color-app-bg: 250 250 252;
+    --color-app-bg: 249 250 252;
     --color-app-card: 255 255 255;
-    --color-app-muted: 244 245 247;
-    --color-app-hover: 237 238 241;
+    --color-app-muted: 243 245 248;
+    --color-app-hover: 236 239 243;
 
-    --color-primary: 37 99 235;
-    --color-primary-hover: 29 78 216;
-    --color-primary-light: 96 165 250;
-    --color-primary-dim: 219 234 254;
+    --color-primary: 116 87 209;
+    --color-primary-hover: 98 70 191;
+    --color-primary-light: 145 121 224;
+    --color-primary-dim: 235 231 250;
 
-    --color-brand: 37 99 235;
-    --color-brand-hover: 29 78 216;
-    --color-brand-light: 96 165 250;
-    --color-brand-dim: 219 234 254;
-    --color-brand-purple: 99 102 241;
+    --color-brand: 0 181 147;
+    --color-brand-hover: 0 157 123;
+    --color-brand-light: 63 225 191;
+    --color-brand-dim: 201 247 233;
+    --color-brand-purple: 116 87 209;
 
-    --color-success: 5 150 105;
-    --color-success-light: 16 185 129;
-    --color-warning: 217 119 6;
-    --color-warning-light: 245 158 11;
-    --color-danger: 220 38 38;
-    --color-danger-light: 239 68 68;
-    --color-info: 37 99 235;
-    --color-info-light: 59 130 246;
+    --color-success: 0 172 95;
+    --color-success-light: 0 142 62;
+    --color-warning: 232 157 0;
+    --color-warning-light: 215 131 0;
+    --color-danger: 238 15 31;
+    --color-danger-light: 208 0 0;
+    --color-info: 0 146 215;
+    --color-info-light: 0 124 202;
 
-    --color-tx-primary: 15 23 42;
-    --color-tx-secondary: 71 85 105;
-    --color-tx-muted: 148 163 184;
-    --color-tx-disabled: 203 213 225;
+    --color-tx-primary: 12 18 26;
+    --color-tx-secondary: 65 72 83;
+    --color-tx-muted: 93 100 111;
+    --color-tx-disabled: 171 174 179;
 
-    --color-border-subtle: 226 232 240;
-    --color-border: 203 213 225;
-    --color-border-strong: 148 163 184;
+    --color-border-subtle: 233 236 240;
+    --color-border: 225 229 234;
+    --color-border-strong: 195 200 208;
 
     --shadow-rgb: 15 23 42;
     --shadow-a-1: 0.06; --shadow-a-2: 0.04; --shadow-a-3: 0.08;
     --shadow-a-4: 0.1;  --shadow-a-5: 0.14;
-    --glow-a: 0; --glow-a-lg: 0; --glow-a-sm: 0;
+    --glow-a: 0.07; --glow-a-lg: 0.05; --glow-a-sm: 0.03;
     --glass-edge-rgb: 15 23 42; --glass-edge-a: 0.06; --glass-edge-a-lg: 0.08;
     --glass-tint-rgb: 15 23 42; --glass-a-1: 0.02; --glass-a-2: 0.005;
     --aurora-a: 0.04; --aurora-a-2: 0.03; --aurora-a-3: 0.02;
     --glass-blur: 0px;
     --glass-panel-blur: 8px;
-    --scrollbar-track: 244 245 247;
-    --scrollbar-thumb: 203 213 225;
-    --scrollbar-thumb-hover: 148 163 184;
+    --scrollbar-track: 243 245 248;
+    --scrollbar-thumb: 225 229 234;
+    --scrollbar-thumb-hover: 195 200 208;
   }
 
   [data-theme="professional-dark"] {
-    --color-app-bg: 13 16 20;
-    --color-app-card: 20 24 29;
-    --color-app-muted: 27 32 38;
-    --color-app-hover: 34 40 47;
+    --color-app-bg: 3 9 9;
+    --color-app-card: 10 20 20;
+    --color-app-muted: 13 24 25;
+    --color-app-hover: 20 32 33;
 
-    --color-primary: 14 165 233;
-    --color-primary-hover: 2 132 199;
-    --color-primary-light: 125 211 252;
-    --color-primary-dim: 12 40 54;
+    --color-primary: 164 148 246;
+    --color-primary-hover: 140 120 235;
+    --color-primary-light: 190 178 250;
+    --color-primary-dim: 26 21 51;
 
-    --color-brand: 14 165 233;
-    --color-brand-hover: 2 132 199;
-    --color-brand-light: 125 211 252;
-    --color-brand-dim: 12 40 54;
-    --color-brand-purple: 129 140 248;
+    --color-brand: 63 225 191;
+    --color-brand-hover: 0 196 159;
+    --color-brand-light: 118 241 211;
+    --color-brand-dim: 0 36 25;
+    --color-brand-purple: 164 148 246;
 
-    --color-success: 52 211 153;
-    --color-success-light: 110 231 183;
-    --color-warning: 251 191 36;
-    --color-warning-light: 253 224 71;
-    --color-danger: 248 113 113;
-    --color-danger-light: 252 165 165;
-    --color-info: 56 189 248;
-    --color-info-light: 125 211 252;
+    --color-success: 27 215 158;
+    --color-success-light: 100 234 183;
+    --color-warning: 242 166 24;
+    --color-warning-light: 255 192 90;
+    --color-danger: 249 65 68;
+    --color-danger-light: 255 121 114;
+    --color-info: 0 172 243;
+    --color-info-light: 72 197 255;
 
-    --color-tx-primary: 236 239 244;
-    --color-tx-secondary: 156 168 186;
-    --color-tx-muted: 107 122 141;
-    --color-tx-disabled: 74 84 99;
+    --color-tx-primary: 235 244 243;
+    --color-tx-secondary: 184 190 200;
+    --color-tx-muted: 145 153 165;
+    --color-tx-disabled: 65 72 83;
 
-    --color-border-subtle: 32 38 46;
-    --color-border: 46 53 63;
-    --color-border-strong: 63 72 84;
+    --color-border-subtle: 24 33 33;
+    --color-border: 30 39 39;
+    --color-border-strong: 48 58 58;
 
     --shadow-rgb: 0 0 0;
     --shadow-a-1: 0.35; --shadow-a-2: 0.25; --shadow-a-3: 0.4;
@@ -154,9 +161,9 @@
     --aurora-a: 0.1; --aurora-a-2: 0.08; --aurora-a-3: 0.05;
     --glass-blur: 14px;
     --glass-panel-blur: 22px;
-    --scrollbar-track: 20 24 29;
-    --scrollbar-thumb: 46 53 63;
-    --scrollbar-thumb-hover: 63 72 84;
+    --scrollbar-track: 10 20 20;
+    --scrollbar-thumb: 30 39 39;
+    --scrollbar-thumb-hover: 48 58 58;
   }
 
   :root {

@@ -3,9 +3,9 @@ import { useThemeStore, type ThemeId } from "../stores/theme";
 
 /** Categorical data-series colors, tuned per theme so charts stay legible against each background. */
 const CHART_PALETTES: Record<ThemeId, string[]> = {
-  "neon-cyber": ["#28E0C2", "#7C3AED", "#00E5B8", "#5CEBD4", "#A78BFA", "#22D3EE"],
-  "professional-light": ["#2563EB", "#059669", "#4F46E5", "#0EA5E9", "#7C3AED", "#0D9488"],
-  "professional-dark": ["#22D3EE", "#818CF8", "#A78BFA", "#38BDF8", "#C084FC", "#2DD4BF"],
+  "neon-cyber": ["#00E6E8", "#CF81FF", "#36F1A4", "#FFC200", "#FF6D8A", "#76F1D3"],
+  "professional-light": ["#00B593", "#7457D1", "#0092D7", "#E89D00", "#EE0F1F", "#00AC5F"],
+  "professional-dark": ["#3FE1BF", "#A494F6", "#00ACF3", "#F2A618", "#F94144", "#1BD79E"],
 };
 
 /** Chrome colors (grid lines, axis ticks, tooltip surface) resolved from the live theme CSS variables. */

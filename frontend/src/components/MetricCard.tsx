@@ -26,7 +26,7 @@ const GRADIENT_CLASSES: Record<GradientVariant, string> = {
   emerald: "metric-gradient-emerald border-success/20",
   amber:   "metric-gradient-amber  border-warning/20",
   blue:    "metric-gradient-blue   border-info/20",
-  purple:  "metric-gradient-purple border-[#A855F7]/20",
+  purple:  "metric-gradient-purple border-primary/20",
 };
 
 const ICON_BG: Record<GradientVariant, string> = {
@@ -35,7 +35,7 @@ const ICON_BG: Record<GradientVariant, string> = {
   emerald: "bg-success-dim text-success-light",
   amber:   "bg-warning-dim text-warning-light",
   blue:    "bg-info-dim text-info-light",
-  purple:  "bg-[rgba(168,85,247,0.12)] text-[#C084FC]",
+  purple:  "bg-primary-subtle text-primary-light",
 };
 
 const ICON_GLOW: Record<GradientVariant, string> = {
@@ -44,7 +44,7 @@ const ICON_GLOW: Record<GradientVariant, string> = {
   emerald: "shadow-[0_0_16px_rgb(var(--color-success)/var(--glow-a))]",
   amber:   "shadow-[0_0_16px_rgb(var(--color-warning)/var(--glow-a))]",
   blue:    "shadow-[0_0_16px_rgb(var(--color-info)/var(--glow-a))]",
-  purple:  "shadow-[0_0_16px_rgba(168,85,247,var(--glow-a))]",
+  purple:  "shadow-[0_0_16px_rgb(var(--color-primary)/var(--glow-a))]",
 };
 
 const SPARK_COLORS: Record<GradientVariant, string> = {
@@ -53,7 +53,7 @@ const SPARK_COLORS: Record<GradientVariant, string> = {
   emerald: "rgb(var(--color-success))",
   amber:   "rgb(var(--color-warning))",
   blue:    "rgb(var(--color-info))",
-  purple:  "#A855F7",
+  purple:  "rgb(var(--color-primary))",
 };
 
 function Sparkline({ data, color }: { data: number[]; color: string }) {

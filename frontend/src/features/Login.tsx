@@ -35,14 +35,19 @@ export default function Login() {
     setLoading(true);
     try {
       const data = await login({ email, password });
-      setLogin(data.access_token, data.refresh_token, {
-        id: data.user.id,
-        email: data.user.email,
-        username: data.user.username,
-        display_name: data.user.display_name,
-        status: data.user.status,
-        email_verified: data.user.email_verified,
-      });
+      setLogin(
+        data.access_token,
+        data.refresh_token,
+        {
+          id: data.user.id,
+          email: data.user.email,
+          username: data.user.username,
+          display_name: data.user.display_name,
+          status: data.user.status,
+          email_verified: data.user.email_verified,
+        },
+        rememberMe,
+      );
       // Auto-select org when the user belongs to exactly one.
       // For multi-org or zero-org cases, OrgSelector handles it after redirect.
       try {

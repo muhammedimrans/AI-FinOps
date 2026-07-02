@@ -3,6 +3,7 @@ import { Building2, Users, FolderOpen, ArrowUpDown, ArrowDown, ArrowUp, Wallet, 
 import { useState } from "react";
 import BudgetBar from "../components/BudgetBar";
 import PageHeader from "../components/PageHeader";
+import OrgLogo from "../components/OrgLogo";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useOrganization } from "../hooks/useDashboard";
@@ -48,7 +49,11 @@ export default function Organization() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      <PageHeader title="Organization" description="Departmental budget utilization and cost allocation." />
+      <PageHeader
+        title="Organization"
+        description="Departmental budget utilization and cost allocation."
+        actions={<OrgLogo size={40} />}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

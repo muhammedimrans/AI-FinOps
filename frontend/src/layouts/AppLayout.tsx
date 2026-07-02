@@ -5,6 +5,7 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import CommandPalette from "../components/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
+import OnboardingModal from "../components/OnboardingModal";
 
 function PageSkeleton() {
   return (
@@ -41,6 +42,7 @@ export default function AppLayout() {
       </a>
       <CommandPalette />
       <ToastContainer />
+      <OnboardingModal />
       <Sidebar mobileOpen={mobileNavOpen} onCloseMobile={() => setMobileNavOpen(false)} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header onMenuClick={() => setMobileNavOpen(true)} />

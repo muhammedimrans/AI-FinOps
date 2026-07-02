@@ -182,6 +182,7 @@ export default function Providers() {
         title="Provider Comparison"
         subtitle="Side-by-side provider metrics"
         loading={providers.isLoading}
+        empty={chartData.length === 0}
         minHeight={300}
         actions={
           <div className="flex gap-1 bg-app-bg rounded-lg p-0.5">
@@ -245,6 +246,7 @@ export default function Providers() {
         title="Request Share"
         subtitle="Share of API calls by provider"
         loading={providers.isLoading}
+        empty={chartData.length === 0}
         minHeight={300}
       >
         <ResponsiveContainer width="100%" height={300}>

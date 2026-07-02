@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { motion } from "framer-motion";
+import { BarChart3 } from "lucide-react";
 import { cn } from "../utils";
 
 interface ChartCardProps {
@@ -10,6 +11,9 @@ interface ChartCardProps {
   legend?: ReactNode;
   loading?: boolean;
   error?: string | null;
+  /** True when the query succeeded but returned no rows for the period. */
+  empty?: boolean;
+  emptyMessage?: string;
   className?: string;
   bodyClassName?: string;
   minHeight?: number;
@@ -31,6 +35,18 @@ function ChartSkeleton({ height }: { height: number }) {
   );
 }
 
+function ChartEmpty({ height, message }: { height: number; message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center px-6" style={{ height }}>
+      <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+        <BarChart3 size={18} className="text-tx-muted" />
+      </div>
+      <p className="text-sm font-medium text-tx-primary mb-0.5">No data for this period</p>
+      <p className="text-xs text-tx-muted leading-relaxed max-w-xs">{message}</p>
+    </div>
+  );
+}
+
 export default function ChartCard({
   title,
   subtitle,
@@ -39,6 +55,8 @@ export default function ChartCard({
   legend,
   loading = false,
   error,
+  empty = false,
+  emptyMessage = "Try a wider date range, or check back once usage has been recorded.",
   className,
   bodyClassName,
   minHeight = 280,
@@ -78,6 +96,8 @@ export default function ChartCard({
           <div className="flex items-center justify-center h-full text-tx-muted text-sm">
             <span className="text-danger mr-1">⚠</span> Failed to load chart data
           </div>
+        ) : empty ? (
+          <ChartEmpty height={minHeight} message={emptyMessage} />
         ) : (
           children
         )}

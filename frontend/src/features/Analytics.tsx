@@ -258,6 +258,7 @@ export default function Analytics() {
         title="Spend by Provider"
         subtitle="Stacked area chart showing daily cost breakdown"
         loading={timeSeries.isLoading}
+        empty={chartData.length === 0}
         minHeight={300}
         actions={
           <div className="flex gap-1 bg-app-bg rounded-lg p-0.5">
@@ -320,6 +321,7 @@ export default function Analytics() {
           title="Provider Comparison"
           subtitle="Cost vs. request volume by provider"
           loading={providers.isLoading}
+          empty={providerCompareData.length === 0}
           minHeight={280}
         >
           <ResponsiveContainer width="100%" height={280}>
@@ -350,6 +352,7 @@ export default function Analytics() {
           title="Weekly Trend"
           subtitle="Cost aggregated into 7-day windows"
           loading={timeSeries.isLoading}
+          empty={weeklyTrendData.length === 0}
           minHeight={280}
         >
           <ResponsiveContainer width="100%" height={280}>

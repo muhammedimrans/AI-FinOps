@@ -13,13 +13,8 @@ import {
   Upload,
   Trash2,
   Shield,
-  KeyRound,
   Building2,
   CreditCard,
-  Eye,
-  EyeOff,
-  Copy,
-  Plus,
   Monitor,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
@@ -95,19 +90,11 @@ const SECTIONS = [
   { id: "appearance",    label: "Appearance",     icon: Palette },
   { id: "notifications", label: "Notifications",  icon: Bell },
   { id: "security",      label: "Security",       icon: Shield },
-  { id: "api-keys",      label: "API Keys",       icon: KeyRound },
   { id: "organization",  label: "Organization",   icon: Building2 },
   { id: "data",          label: "Data",           icon: RefreshCw },
   { id: "billing",       label: "Billing",        icon: CreditCard },
   { id: "api",           label: "Developer API",  icon: Globe },
 ];
-
-interface ApiKey {
-  id: string;
-  name: string;
-  key: string;
-  created: string;
-}
 
 interface Session {
   id: string;
@@ -242,14 +229,6 @@ function TextField({
   );
 }
 
-function generateApiKey(): string {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let out = "ctk_demo_";
-  for (const b of bytes) out += chars[b % chars.length];
-  return out;
-}
-
 export default function Settings() {
   const { currency, setCurrency } = useUIStore();
   const { theme, setTheme } = useThemeStore();
@@ -267,10 +246,6 @@ export default function Settings() {
   const [passwordSaved, setPasswordSaved] = useState(false);
   const [sessions, setSessions] = useState<Session[]>(INITIAL_SESSIONS);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-
-  // API Keys tab — local-only mock keys; no backend endpoint exists for these yet.
-  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
-  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
 
   // Organization tab — local-only preferences.
   const { organizationId, organizationName, organizationLogos, setOrganizationLogo } = useOrgStore();
@@ -422,28 +397,6 @@ export default function Settings() {
   function revokeSession(id: string) {
     setSessions((prev) => prev.filter((s) => s.id !== id));
     toast.success("Session revoked");
-  }
-
-  function createApiKey() {
-    const key: ApiKey = {
-      id: `${Date.now()}`,
-      name: `Key ${apiKeys.length + 1}`,
-      key: generateApiKey(),
-      created: "Just now",
-    };
-    setApiKeys((prev) => [key, ...prev]);
-    setVisibleKeys((prev) => ({ ...prev, [key.id]: true }));
-    toast.success("API key generated", "Copy it now — you won't be able to see it again.");
-  }
-
-  function revokeApiKey(id: string) {
-    setApiKeys((prev) => prev.filter((k) => k.id !== id));
-    toast.info("API key revoked");
-  }
-
-  function copyApiKey(key: string) {
-    void navigator.clipboard?.writeText(key);
-    toast.success("Copied to clipboard");
   }
 
   function onSaveOrganization() {
@@ -740,68 +693,6 @@ export default function Settings() {
                 </ul>
               </SectionCard>
             </>
-          )}
-
-          {active === "api-keys" && (
-            <SectionCard
-              title="API Keys"
-              description="Preview — keys generated here are local placeholders and cannot authenticate API calls yet"
-              icon={KeyRound}
-              preview
-              actions={
-                <button onClick={createApiKey} className="btn-primary h-8 text-xs px-3">
-                  <Plus size={13} />
-                  Generate key
-                </button>
-              }
-            >
-              {apiKeys.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-8 text-center">
-                  <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
-                    <KeyRound size={18} className="text-tx-muted" />
-                  </div>
-                  <p className="text-sm font-medium text-tx-primary mb-1">No API keys yet</p>
-                  <p className="text-xs text-tx-muted">Generate one to start calling the Costorah API.</p>
-                </div>
-              ) : (
-                <ul className="divide-y divide-border-subtle -mt-1">
-                  {apiKeys.map((k) => (
-                    <li key={k.id} className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-tx-primary">{k.name}</p>
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <code className="rounded-md bg-app-muted px-2 py-1 text-xs font-mono text-tx-secondary">
-                            {visibleKeys[k.id] ? k.key : `${k.key.slice(0, 9)}${"•".repeat(16)}`}
-                          </code>
-                          <button
-                            onClick={() => setVisibleKeys((prev) => ({ ...prev, [k.id]: !prev[k.id] }))}
-                            aria-label={visibleKeys[k.id] ? "Hide key" : "Show key"}
-                            className="btn-ghost h-7 w-7 p-0 justify-center"
-                          >
-                            {visibleKeys[k.id] ? <EyeOff size={13} /> : <Eye size={13} />}
-                          </button>
-                          <button
-                            onClick={() => copyApiKey(k.key)}
-                            aria-label="Copy key"
-                            className="btn-ghost h-7 w-7 p-0 justify-center"
-                          >
-                            <Copy size={13} />
-                          </button>
-                        </div>
-                        <p className="mt-1 text-[11px] text-tx-muted">Created {k.created}</p>
-                      </div>
-                      <button
-                        onClick={() => revokeApiKey(k.id)}
-                        className="btn-outline h-8 text-xs px-3 text-danger hover:bg-danger-dim hover:border-danger/40 flex-shrink-0"
-                      >
-                        <Trash2 size={13} />
-                        Revoke
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </SectionCard>
           )}
 
           {active === "organization" && (

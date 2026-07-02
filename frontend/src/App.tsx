@@ -22,6 +22,7 @@ const Connections  = lazy(() => import("./features/Connections"));
 const Pricing      = lazy(() => import("./features/Pricing"));
 const Users        = lazy(() => import("./features/Users"));
 const RBAC         = lazy(() => import("./features/RBAC"));
+const ApiKeys      = lazy(() => import("./features/ApiKeys"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -106,17 +107,7 @@ export default function App() {
         </Route>
         <Route path="users" element={<Page><Users /></Page>} />
         <Route path="rbac" element={<Page><RBAC /></Page>} />
-        <Route path="api-keys" element={
-          <Page><Placeholder
-            title="API Keys"
-            description="Issue and revoke programmatic API keys for ingesting usage. No API-key issuance endpoint exists yet — keys generated in Settings are local placeholders only."
-            requiredEndpoints={[
-              "GET    /v1/organizations/{org_id}/api-keys",
-              "POST   /v1/organizations/{org_id}/api-keys",
-              "DELETE /v1/organizations/{org_id}/api-keys/{id}",
-            ]}
-          /></Page>
-        } />
+        <Route path="api-keys" element={<Page><ApiKeys /></Page>} />
         <Route path="connections" element={<Page><Connections /></Page>} />
         <Route path="audit-logs" element={
           <Page><Placeholder

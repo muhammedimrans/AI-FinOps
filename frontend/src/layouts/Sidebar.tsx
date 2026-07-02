@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Building2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Building2, UserCircle, X } from "lucide-react";
 import { cn } from "../utils";
 import Avatar from "../components/Avatar";
 import OrgLogo from "../components/OrgLogo";
@@ -275,6 +275,18 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
                 </div>
               </div>
             )}
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                navigate("/settings");
+              }}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-tx-secondary
+                         hover:bg-app-hover hover:text-tx-primary transition-colors duration-fast"
+            >
+              <UserCircle size={14} />
+              Profile &amp; settings
+            </button>
             <button
               role="menuitem"
               onClick={handleSwitchOrg}

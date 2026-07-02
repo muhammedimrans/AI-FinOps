@@ -236,15 +236,20 @@ export default function Header({ onMenuClick }: HeaderProps) {
             align="end"
             className="w-72 glass-card rounded-xl shadow-elevated z-[1000] origin-top-right overflow-hidden"
           >
-            <div className="px-4 py-3 border-b border-border-subtle">
+            <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
               <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
+              <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
+                Coming soon
+              </span>
             </div>
             <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
               <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
                 <BellOff size={18} className="text-tx-muted" />
               </div>
-              <p className="text-sm font-medium text-tx-primary mb-1">You&apos;re all caught up</p>
-              <p className="text-xs text-tx-muted leading-relaxed">No new notifications right now.</p>
+              <p className="text-sm font-medium text-tx-primary mb-1">Notifications are coming soon</p>
+              <p className="text-xs text-tx-muted leading-relaxed">
+                Budget and anomaly alerts will appear here in a future release.
+              </p>
             </div>
           </Popover>
         </div>

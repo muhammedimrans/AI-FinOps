@@ -21,7 +21,6 @@ import {
   Copy,
   Plus,
   Monitor,
-  Smartphone,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
 import { THEMES, useThemeStore } from "../stores/theme";
@@ -119,10 +118,20 @@ interface Session {
   icon: React.ElementType;
 }
 
+// Only the session we actually know about — the one in use. Cross-device
+// session listing needs a backend endpoint (sessions table already exists).
 const INITIAL_SESSIONS: Session[] = [
   { id: "s1", device: "This device", location: "Current session", lastActive: "Active now", current: true, icon: Monitor },
-  { id: "s2", device: "iPhone · Safari", location: "Last seen recently", lastActive: "2h ago", current: false, icon: Smartphone },
 ];
+
+/** Small badge marking features that are not yet backed by a real API. */
+export function PreviewBadge() {
+  return (
+    <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
+      Preview
+    </span>
+  );
+}
 
 function SectionCard({
   title,
@@ -130,12 +139,14 @@ function SectionCard({
   icon: Icon,
   actions,
   children,
+  preview = false,
 }: {
   title: string;
   description?: string;
   icon: React.ElementType;
   actions?: React.ReactNode;
   children: React.ReactNode;
+  preview?: boolean;
 }) {
   return (
     <motion.div
@@ -149,6 +160,7 @@ function SectionCard({
           <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
             <Icon size={14} className="text-tx-muted" />
             {title}
+            {preview && <PreviewBadge />}
           </h3>
           {description && <p className="text-xs text-tx-muted mt-1">{description}</p>}
         </div>
@@ -233,7 +245,7 @@ function TextField({
 function generateApiKey(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = crypto.getRandomValues(new Uint8Array(32));
-  let out = "ctk_live_";
+  let out = "ctk_demo_";
   for (const b of bytes) out += chars[b % chars.length];
   return out;
 }
@@ -733,8 +745,9 @@ export default function Settings() {
           {active === "api-keys" && (
             <SectionCard
               title="API Keys"
-              description="Use these to authenticate programmatic access to the Costorah API"
+              description="Preview — keys generated here are local placeholders and cannot authenticate API calls yet"
               icon={KeyRound}
+              preview
               actions={
                 <button onClick={createApiKey} className="btn-primary h-8 text-xs px-3">
                   <Plus size={13} />
@@ -879,7 +892,7 @@ export default function Settings() {
 
           {active === "billing" && (
             <>
-              <SectionCard title="Current Plan" icon={CreditCard}>
+              <SectionCard title="Current Plan" icon={CreditCard} preview>
                 <div className="flex flex-col gap-4 rounded-xl bg-gradient-brand p-5 text-app-bg md:flex-row md:items-center md:justify-between">
                   <div>
                     <p className="text-xs uppercase tracking-widest opacity-80">Current plan</p>
@@ -891,7 +904,7 @@ export default function Settings() {
                   </button>
                 </div>
               </SectionCard>
-              <SectionCard title="Payment Method" icon={CreditCard}>
+              <SectionCard title="Payment Method" icon={CreditCard} preview>
                 <div className="flex items-center gap-4 rounded-xl border border-border-subtle bg-app-bg p-4">
                   <div className="grid h-10 w-14 place-items-center rounded-md bg-tx-primary text-xs font-bold text-app-bg flex-shrink-0">
                     VISA
@@ -902,7 +915,7 @@ export default function Settings() {
                   </div>
                   <button className="btn-outline h-8 text-xs px-3 flex-shrink-0">Update</button>
                 </div>
-                <p className="text-xs text-tx-muted">Billing is a preview — connect a payment provider to enable this.</p>
+                <p className="text-xs text-tx-muted">Billing is a preview with sample data — no payment provider is connected yet.</p>
               </SectionCard>
             </>
           )}

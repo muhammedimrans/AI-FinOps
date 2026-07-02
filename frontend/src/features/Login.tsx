@@ -92,14 +92,14 @@ export default function Login() {
               <div className="absolute inset-0 bg-brand/30 blur-xl rounded-full animate-glow-pulse" />
               <CostorahMark className="w-12 h-12 relative" />
             </div>
-            <span className="text-xl font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+            <span className="font-display text-xl font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
           </motion.div>
 
           <motion.h2
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-            className="text-h1 text-tx-primary mb-4 leading-[1.15] tracking-tight"
+            className="font-display text-h1 text-tx-primary mb-4 leading-[1.15] tracking-tight"
           >
             Track, analyze, and{" "}
             <span className="bg-gradient-brand bg-clip-text text-transparent">optimize</span>{" "}
@@ -137,10 +137,10 @@ export default function Login() {
           <div className="glass-panel shadow-glow-brand-lg p-8 sm:p-11 relative">
             <div className="hidden lg:flex items-center gap-2.5 mb-8">
               <CostorahMark className="w-8 h-8" />
-              <span className="text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+              <span className="font-display text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
             </div>
 
-            <h1 className="text-h3 font-bold text-tx-primary mb-2">Welcome back</h1>
+            <h1 className="font-display text-h3 font-bold text-tx-primary mb-2">Welcome back</h1>
             <p className="text-sm text-tx-muted mb-8">Sign in to your account to continue</p>
 
             <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5" noValidate>

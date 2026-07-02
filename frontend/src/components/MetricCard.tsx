@@ -159,8 +159,13 @@ export default function MetricCard({
         "transition-shadow duration-base hover:shadow-elevated",
       )}
     >
+      <div
+        className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-brand opacity-0 blur-2xl transition-opacity duration-slow group-hover:opacity-20"
+        aria-hidden="true"
+      />
+
       {/* Header row */}
-      <div className="flex items-start justify-between mb-4">
+      <div className="relative flex items-start justify-between mb-4">
         {Icon && (
           <div
             className={cn(

@@ -23,6 +23,7 @@ import {
 import { motion } from "framer-motion";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp } from "lucide-react";
 import ChartCard from "../components/ChartCard";
+import PageHeader from "../components/PageHeader";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
@@ -162,6 +163,8 @@ export default function Analytics() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Cost Analytics" description="Break down spend trends and model-level cost efficiency." />
+
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>

@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { AlertTriangle, FolderOpen, TrendingUp, TrendingDown, FolderKanban, DollarSign, Wallet, AlertOctagon } from "lucide-react";
 import BudgetBar from "../components/BudgetBar";
+import PageHeader from "../components/PageHeader";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useProjects } from "../hooks/useDashboard";
@@ -45,6 +46,8 @@ export default function Projects() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Projects" description="Track budget utilization and spend by project." />
+
       {/* Alert banner */}
       {!projects.isLoading && (overBudget.length > 0 || nearBudget.length > 0) && (
         <motion.div

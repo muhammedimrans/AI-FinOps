@@ -18,6 +18,7 @@ import { DollarSign, Activity, Layers, Zap, Clock } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
+import PageHeader from "../components/PageHeader";
 import {
   useOverview,
   useTimeSeries,
@@ -149,6 +150,8 @@ export default function Overview() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Overview" description="Real-time AI spend across every provider and project." />
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>

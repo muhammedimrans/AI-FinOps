@@ -13,6 +13,7 @@ import { motion } from "framer-motion";
 import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import EmptyState from "../components/EmptyState";
+import PageHeader from "../components/PageHeader";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
@@ -62,6 +63,8 @@ export default function Providers() {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+      <PageHeader title="Providers" description="Compare cost, requests, and usage across every connected AI provider." />
+
       {/* Provider Cards */}
       {providers.isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">

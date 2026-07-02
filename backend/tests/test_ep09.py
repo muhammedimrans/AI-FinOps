@@ -24,6 +24,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+
+async def _mock_org_membership() -> object:
+    """Bypass the org-membership guard — authz behavior is tested in test_authz.py."""
+    from unittest.mock import MagicMock
+
+    from app.models.membership import Membership
+
+    return MagicMock(spec=Membership)
+
 # ── Import test subjects ───────────────────────────────────────────────────────
 
 from app.models.model_pricing import ModelPricing
@@ -1545,7 +1554,7 @@ class TestPricingAPI:
     async def test_list_models_with_mock_auth(self, app: Any) -> None:
         """GET /pricing/models returns 200 with mocked auth + DB."""
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1565,6 +1574,7 @@ class TestPricingAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1584,7 +1594,7 @@ class TestPricingAPI:
     async def test_list_providers_with_mock_auth(self, app: Any) -> None:
         """GET /pricing/providers returns 200 with mocked auth + DB."""
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1604,6 +1614,7 @@ class TestPricingAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1623,7 +1634,7 @@ class TestPricingAPI:
     async def test_calculate_price_not_found_with_mock(self, app: Any) -> None:
         """POST /pricing/calculate returns 404 when no pricing found."""
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1643,6 +1654,7 @@ class TestPricingAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1665,7 +1677,7 @@ class TestPricingAPI:
     async def test_calculate_price_success_with_mock(self, app: Any) -> None:
         """POST /pricing/calculate returns 200 with valid pricing."""
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1689,6 +1701,7 @@ class TestPricingAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1814,7 +1827,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_usage_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1840,6 +1853,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1863,7 +1877,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_cost_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1890,6 +1904,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1913,7 +1928,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_provider_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1933,6 +1948,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1954,7 +1970,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_model_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -1974,6 +1990,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -1995,7 +2012,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_project_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -2015,6 +2032,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(
@@ -2036,7 +2054,7 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_org_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
-        from app.auth.dependencies import get_current_user
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
         from app.api.deps import get_db
 
@@ -2062,6 +2080,7 @@ class TestAnalyticsAPI:
             yield mock_session
 
         app.dependency_overrides[get_current_user] = mock_get_user
+        app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
             async with AsyncClient(

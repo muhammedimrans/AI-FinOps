@@ -1,4 +1,4 @@
-"""Organizations API — EP-12.1, EP-13.
+"""Organizations API — EP-12.1, EP-13, EP-14.
 
 Endpoints:
   GET    /v1/organizations                — orgs the current user belongs to
@@ -6,15 +6,23 @@ Endpoints:
   POST   /v1/organizations/{org_id}/members                 — add/invite a member
   PATCH  /v1/organizations/{org_id}/members/{membership_id} — change a member's role
   DELETE /v1/organizations/{org_id}/members/{membership_id} — remove a member
+  GET    /v1/organizations/{org_id}/api-keys                — list API keys
+  POST   /v1/organizations/{org_id}/api-keys                — create an API key
+  DELETE /v1/organizations/{org_id}/api-keys/{key_id}        — revoke an API key
 
 Authorization
 --------------
-Read (list) requires membership in the organization (any role). Write
-operations (invite / change role / remove) require ORG_MANAGE_MEMBERS,
+Members: read (list) requires membership in the organization (any role).
+Write operations (invite / change role / remove) require ORG_MANAGE_MEMBERS,
 granted to ADMIN and OWNER. Only an existing OWNER may grant the OWNER role
 to someone else — otherwise an ADMIN could invite a co-equal owner, a
 privilege escalation. The organization's last remaining OWNER can never be
 demoted or removed, to prevent an organization becoming ownerless.
+
+API keys (EP-14): read requires API_KEY_READ (every role); create/revoke
+require API_KEY_WRITE, granted only to ADMIN and OWNER. The raw key is
+generated in the service layer and returned exactly once, in the POST
+response — it is never persisted or retrievable again.
 """
 
 from __future__ import annotations
@@ -30,9 +38,17 @@ from app.auth.dependencies import CurrentMembership, CurrentUser, RequirePermiss
 from app.auth.rbac import Permission
 from app.db.mixins import uuid7
 from app.models.membership import Membership, MembershipRole
+from app.models.organization_api_key import OrganizationApiKey
 from app.models.user import User
 from app.repositories.membership_repository import MembershipRepository
+from app.repositories.organization_api_key_repository import OrganizationApiKeyRepository
 from app.repositories.user_repository import UserRepository
+from app.schemas.organization_api_keys import (
+    ApiKeyCreatedResponse,
+    ApiKeyResponse,
+    ApiKeysListResponse,
+    CreateApiKeyRequest,
+)
 from app.schemas.organizations import (
     InviteMemberRequest,
     MemberResponse,
@@ -40,6 +56,10 @@ from app.schemas.organizations import (
     OrganizationsResponse,
     OrgMembershipItem,
     UpdateMemberRoleRequest,
+)
+from app.services.organization_api_key_service import (
+    InvalidPermissionError,
+    OrganizationApiKeyService,
 )
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
@@ -226,3 +246,107 @@ async def remove_member(
         )
 
     await repo.soft_delete(target)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# API keys (EP-14 Phase 1)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _to_api_key_response(key: OrganizationApiKey) -> ApiKeyResponse:
+    return ApiKeyResponse(
+        id=key.id,
+        name=key.name,
+        description=key.description,
+        prefix=key.key_prefix,
+        permissions=key.permissions,
+        created_at=key.created_at,
+        expires_at=key.expires_at,
+        last_used_at=key.last_used_at,
+    )
+
+
+@router.get(
+    "/{org_id}/api-keys",
+    response_model=ApiKeysListResponse,
+    summary="List organization API keys",
+    description=(
+        "Returns every non-revoked API key for the organization. Never "
+        "includes the key hash or the raw key — only the display prefix."
+    ),
+)
+async def list_api_keys(
+    org_id: uuid.UUID,
+    db: DbDep,
+    _member: Annotated[Membership, RequirePermission(Permission.API_KEY_READ)],
+) -> ApiKeysListResponse:
+    repo = OrganizationApiKeyRepository(db)
+    keys = await repo.list(org_id)
+    items = [_to_api_key_response(k) for k in keys]
+    return ApiKeysListResponse(keys=items, total=len(items))
+
+
+@router.post(
+    "/{org_id}/api-keys",
+    response_model=ApiKeyCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an API key",
+    description=(
+        "Generates a new key and returns the full raw secret exactly once, "
+        "in this response. It cannot be retrieved again — only its prefix "
+        "and metadata are available afterward via GET."
+    ),
+)
+async def create_api_key(
+    org_id: uuid.UUID,
+    body: CreateApiKeyRequest,
+    db: DbDep,
+    current_user: CurrentUser,
+    _caller: Annotated[Membership, RequirePermission(Permission.API_KEY_WRITE)],
+) -> ApiKeyCreatedResponse:
+    service = OrganizationApiKeyService(db)
+    try:
+        record, raw_key = await service.create_key(
+            organization_id=org_id,
+            name=body.name,
+            description=body.description,
+            permissions=body.permissions,
+            expiration=body.expiration,
+            created_by=current_user.id,
+        )
+    except InvalidPermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unrecognized permission scope: {exc}",
+        ) from exc
+
+    return ApiKeyCreatedResponse(
+        id=record.id,
+        api_key=raw_key,
+        prefix=record.key_prefix,
+        name=record.name,
+        permissions=record.permissions,
+        created_at=record.created_at,
+        expires_at=record.expires_at,
+    )
+
+
+@router.delete(
+    "/{org_id}/api-keys/{key_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke an API key",
+)
+async def delete_api_key(
+    org_id: uuid.UUID,
+    key_id: uuid.UUID,
+    db: DbDep,
+    current_user: CurrentUser,
+    _caller: Annotated[Membership, RequirePermission(Permission.API_KEY_WRITE)],
+) -> None:
+    repo = OrganizationApiKeyRepository(db)
+    target = await repo.get(key_id)
+    if target is None or target.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    service = OrganizationApiKeyService(db)
+    await service.delete_key(target, deleted_by=current_user.id)

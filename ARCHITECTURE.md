@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document is a concise reference. The authoritative specification is in [Docs/SDD/](Docs/SDD/).
+This document is a concise reference. The authoritative specification is in [docs/SDD/](docs/SDD/).
 
 ## Architectural Style
 
@@ -42,4 +42,4 @@ Event-driven system with CQRS-style read/write separation.
 4. Structured JSON logging everywhere
 5. Health, readiness, and metrics endpoints on every service
 
-For the full design, see the [SDD](Docs/SDD/).
+For the full design, see the [SDD](docs/SDD/).

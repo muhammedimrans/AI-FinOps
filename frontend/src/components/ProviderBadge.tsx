@@ -43,12 +43,3 @@ export function ProviderDot({ provider, size = 8 }: { provider: string; size?: n
     />
   );
 }
-
-export const PROVIDER_COLORS: Record<string, string> = {
-  openai:    "#10A37F",
-  anthropic: "#D4A574",
-  google:    "#4285F4",
-  azure:     "#0078D4",
-  bedrock:   "#FF9900",
-  cohere:    "#9B5DE5",
-};

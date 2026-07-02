@@ -31,15 +31,14 @@ import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
-import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
+import ProviderBadge from "../components/ProviderBadge";
+import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import { useTimeSeries, useModels, useProviders } from "../hooks/useDashboard";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import type { Granularity, ModelSummary } from "../types/api";
-
-const PROVIDERS = ["openai", "anthropic", "google", "azure"];
 
 const columnHelper = createColumnHelper<ModelSummary & { rank: number }>();
 
@@ -64,10 +63,20 @@ export default function Analytics() {
   const models = useModels();
   const providers = useProviders();
 
+  // Providers present in the time series — derived from the data rather than a
+  // hardcoded list so every provider the backend reports gets a chart series.
+  const seriesProviders = useMemo(() => {
+    const keys = new Set<string>();
+    for (const d of timeSeries.data?.data ?? []) {
+      for (const k of Object.keys(d.provider_breakdown)) keys.add(k);
+    }
+    return [...keys].sort();
+  }, [timeSeries.data]);
+
   const chartData = (timeSeries.data?.data ?? []).map((d) => ({
     date: formatDate(d.date),
     ...Object.fromEntries(
-      PROVIDERS.map((p) => [p, parseFloat(d.provider_breakdown[p] ?? "0")]),
+      seriesProviders.map((p) => [p, parseFloat(d.provider_breakdown[p] ?? "0")]),
     ),
     total: parseFloat(d.total_cost),
   }));
@@ -271,7 +280,7 @@ export default function Analytics() {
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={chartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
             <defs>
-              {PROVIDERS.map((p) => (
+              {seriesProviders.map((p) => (
                 <linearGradient key={p} id={`grad-${p}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%"  stopColor={PROVIDER_COLORS[p]} stopOpacity={0.3} />
                   <stop offset="95%" stopColor={PROVIDER_COLORS[p]} stopOpacity={0} />
@@ -288,7 +297,7 @@ export default function Analytics() {
               formatter={(v: number) => formatCost(v, currency, true)}
             />
             <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
-            {PROVIDERS.map((p) => (
+            {seriesProviders.map((p) => (
               <Area
                 key={p}
                 type="monotone"

@@ -232,8 +232,9 @@ function TextField({
 
 function generateApiKey(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
   let out = "ctk_live_";
-  for (let i = 0; i < 32; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  for (const b of bytes) out += chars[b % chars.length];
   return out;
 }
 

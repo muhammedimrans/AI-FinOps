@@ -42,3 +42,9 @@ export const SUPPORTED_PROVIDER_IDS = new Set([
   "bedrock",
   "cohere",
 ]);
+
+// Chart/badge accent color per provider id — single source of truth, derived
+// from the catalog so badge dots, pie slices, and bars always agree.
+export const PROVIDER_COLORS: Record<string, string> = Object.fromEntries(
+  PROVIDER_CATALOG.map((p) => [p.id, p.color]),
+);

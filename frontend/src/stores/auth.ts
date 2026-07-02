@@ -15,11 +15,13 @@ interface AuthState {
   // On page reload it is null; ProtectedRoute will re-obtain it via the refresh token.
   accessToken: string | null;
 
-  // Refresh token and user info ARE persisted so the session survives page reloads.
+  // Refresh token and user info are persisted so the session survives page
+  // reloads — but only when the user chose "Remember me" at login.
   refreshToken: string | null;
   user: AuthUser | null;
+  remember: boolean;
 
-  setLogin: (accessToken: string, refreshToken: string, user: AuthUser) => void;
+  setLogin: (accessToken: string, refreshToken: string, user: AuthUser, remember?: boolean) => void;
   setAccessToken: (token: string) => void;
   updateUser: (patch: Partial<AuthUser>) => void;
   clearAuth: () => void;
@@ -32,9 +34,12 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       refreshToken: null,
       user: null,
+      remember: true,
 
-      setLogin: (accessToken, refreshToken, user) =>
-        set({ accessToken, refreshToken, user }),
+      // `remember` is only passed by the login form; token-refresh flows omit
+      // it and keep whatever the user chose when they signed in.
+      setLogin: (accessToken, refreshToken, user, remember) =>
+        set((s) => ({ accessToken, refreshToken, user, remember: remember ?? s.remember })),
 
       setAccessToken: (accessToken) => set({ accessToken }),
 
@@ -46,12 +51,13 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "ai-finops-auth",
-      partialize: (s) => ({
-        // Persist only what survives page reload.
+      partialize: (s) =>
         // accessToken intentionally excluded — memory-only for XSS mitigation.
-        refreshToken: s.refreshToken,
-        user: s.user,
-      }),
+        // Without "Remember me", the refresh token stays memory-only too, so
+        // closing the tab genuinely ends the session.
+        s.remember
+          ? { refreshToken: s.refreshToken, user: s.user, remember: s.remember }
+          : { remember: s.remember },
     },
   ),
 );

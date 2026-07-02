@@ -180,6 +180,23 @@ export async function login(credentials: LoginCredentials): Promise<BackendLogin
   return post<BackendLoginResponse>("/v1/auth/login", credentials, true);
 }
 
+export interface MessageResponse {
+  message: string;
+}
+
+/** Anti-enumeration: resolves with a generic message whether or not the email exists. */
+export async function requestPasswordReset(email: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/request-password-reset", { email }, true);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/reset-password", { token, new_password: newPassword }, true);
+}
+
+export async function verifyEmail(token: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/verify-email", { token }, true);
+}
+
 export async function logout(): Promise<void> {
   try {
     await request<void>("POST", "/v1/auth/logout", { body: {} });

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Check, TrendingUp, Sparkles, Layers, ArrowRight } from "lucide-react";
 import { login, getOrganizations } from "../services/api";
@@ -22,7 +22,6 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [forgotNotice, setForgotNotice] = useState(false);
 
   // Already authenticated — go straight to dashboard
   if (isAuthenticated()) {
@@ -181,13 +180,12 @@ export default function Login() {
                   <label htmlFor="password" className="block text-xs font-medium text-tx-secondary">
                     Password
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setForgotNotice(true)}
+                  <Link
+                    to="/forgot-password"
                     className="text-xs font-medium text-brand hover:text-brand-light transition-colors duration-fast"
                   >
                     Forgot password?
-                  </button>
+                  </Link>
                 </div>
                 <div className="relative group">
                   <Lock
@@ -270,27 +268,6 @@ export default function Login() {
               </div>
 
               <AnimatePresence mode="popLayout">
-                {forgotNotice && (
-                  <motion.div
-                    key="forgot-notice"
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.2 }}
-                    className="overflow-hidden"
-                  >
-                    <div
-                      role="status"
-                      className="flex items-start gap-2 p-3 rounded-xl bg-info-dim border border-info/20"
-                    >
-                      <AlertCircle size={14} className="text-info mt-0.5 flex-shrink-0" />
-                      <p className="text-xs text-info">
-                        Contact your administrator to reset your password.
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-
                 {error && (
                   <motion.div
                     key="error"

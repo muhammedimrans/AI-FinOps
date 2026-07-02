@@ -6,7 +6,10 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import OrgSelector from "./components/OrgSelector";
 import { useOrgStore } from "./stores/org";
 
-const Login        = lazy(() => import("./features/Login"));
+const Login          = lazy(() => import("./features/Login"));
+const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
+const ResetPassword  = lazy(() => import("./features/ResetPassword"));
+const VerifyEmail    = lazy(() => import("./features/VerifyEmail"));
 const Overview     = lazy(() => import("./features/Overview"));
 const Analytics    = lazy(() => import("./features/Analytics"));
 const Providers    = lazy(() => import("./features/Providers"));
@@ -61,6 +64,20 @@ export default function App() {
           </ErrorBoundary>
         }
       />
+
+      {["/forgot-password", "/reset-password", "/verify-email"].map((path) => (
+        <Route
+          key={path}
+          path={path}
+          element={
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                {path === "/forgot-password" ? <ForgotPassword /> : path === "/reset-password" ? <ResetPassword /> : <VerifyEmail />}
+              </Suspense>
+            </ErrorBoundary>
+          }
+        />
+      ))}
 
       {/* Protected shell */}
       <Route

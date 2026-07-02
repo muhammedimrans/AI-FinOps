@@ -8,8 +8,12 @@ One email may hold memberships in multiple organizations.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from sqlalchemy import and_, select
+from sqlalchemy import update as sql_update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -120,3 +124,42 @@ class MembershipRepository(BaseRepository[Membership]):
                 Membership.role == role,
             ),
         )
+
+    async def list_by_org_with_users(self, org_id: uuid.UUID) -> list[Membership]:
+        """Return every active Membership for an org with User eagerly loaded.
+
+        Org member lists are small (tens, not thousands) so this is
+        unpaginated, unlike list_by_org. Ordered oldest-first (owner/founding
+        members typically first).
+        """
+        stmt = (
+            select(Membership)
+            .options(selectinload(Membership.user))
+            .where(
+                Membership.deleted_at.is_(None),
+                Membership.organization_id == org_id,
+            )
+            .order_by(Membership.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def link_pending_by_email(self, email: str, user_id: uuid.UUID) -> int:
+        """
+        Link every unlinked ("invited") Membership for `email` to `user_id`.
+
+        Called on successful login so an invitation created before the
+        invitee's account existed becomes active the first time they sign in.
+        Returns the number of memberships linked.
+        """
+        stmt = (
+            sql_update(Membership)
+            .where(
+                Membership.user_email == email,
+                Membership.user_id.is_(None),
+                Membership.deleted_at.is_(None),
+            )
+            .values(user_id=user_id, updated_at=datetime.now(UTC))
+        )
+        result = cast("CursorResult[Any]", await self._session.execute(stmt))
+        return result.rowcount or 0

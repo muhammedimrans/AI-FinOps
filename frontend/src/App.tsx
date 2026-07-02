@@ -20,6 +20,8 @@ const Settings     = lazy(() => import("./features/Settings"));
 const Support      = lazy(() => import("./features/Support"));
 const Connections  = lazy(() => import("./features/Connections"));
 const Pricing      = lazy(() => import("./features/Pricing"));
+const Users        = lazy(() => import("./features/Users"));
+const RBAC         = lazy(() => import("./features/RBAC"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -102,30 +104,8 @@ export default function App() {
           <Route path="organization" element={<Page><Organization /></Page>} />
           <Route path="pricing"      element={<Page><Pricing /></Page>} />
         </Route>
-        <Route path="users" element={
-          <Page><Placeholder
-            title="Users"
-            description="Invite teammates, manage members, and assign roles within your organization. The membership and role model exists in the backend, but no member-management API is exposed yet."
-            requiredEndpoints={[
-              "GET  /v1/organizations/{org_id}/members",
-              "POST /v1/organizations/{org_id}/invitations",
-              "PATCH /v1/organizations/{org_id}/members/{id}",
-              "DELETE /v1/organizations/{org_id}/members/{id}",
-            ]}
-          /></Page>
-        } />
-        <Route path="rbac" element={
-          <Page><Placeholder
-            title="RBAC"
-            description="View and edit role-to-permission mappings. The RBAC engine (roles, permissions, enforcement) is fully implemented in the backend (EP-05), but there is no endpoint to read or modify the mappings from the UI."
-            status="ui-pending"
-            requiredEndpoints={[
-              "GET  /v1/rbac/roles",
-              "GET  /v1/rbac/permissions",
-              "PUT  /v1/organizations/{org_id}/members/{id}/role",
-            ]}
-          /></Page>
-        } />
+        <Route path="users" element={<Page><Users /></Page>} />
+        <Route path="rbac" element={<Page><RBAC /></Page>} />
         <Route path="api-keys" element={
           <Page><Placeholder
             title="API Keys"

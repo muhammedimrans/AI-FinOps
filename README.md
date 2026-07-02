@@ -19,7 +19,7 @@ Provider APIs pull ────────────────────�
 
 - **Ingestion plane** — push (SDK/gateway) + pull (adapter workers)
 - **Processing plane** — normalization, cost attribution, reconciliation, forecasting
-- **Serving plane** — REST/GraphQL API, real-time WebSocket updates
+- **Serving plane** — REST API serving dashboard read models
 - **Frontend** — React + TypeScript dashboard
 
 ## Technology Stack
@@ -61,8 +61,7 @@ AI-FinOps/
 ├── deployment/           # Docker, Kubernetes, Terraform, Nginx
 ├── scripts/              # Developer and CI scripts
 ├── tests/                # Integration, E2E, and load tests
-├── docs/                 # Architecture docs, ADRs, runbooks
-└── Docs/                 # SDD and engineering specs
+└── docs/                 # SDD, architecture docs, ADRs, runbooks
 ```
 
 ## Quick Start
@@ -105,7 +104,7 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for full setup instructions, coding convent
 
 | Document | Location |
 |---|---|
-| Software Design Document | [Docs/SDD/](Docs/SDD/) |
+| Software Design Document | [docs/SDD/](docs/SDD/) |
 | Architecture Decision Records | [docs/ADR/](docs/ADR/) |
 | API Reference | [docs/API/](docs/API/) |
 | Runbooks | [docs/Runbooks/](docs/Runbooks/) |

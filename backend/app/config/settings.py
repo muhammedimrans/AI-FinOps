@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     def _enforce_secret_in_production(self) -> Settings:
         if self.app_env == "production" and self.app_secret_key.get_secret_value() == _DEV_SECRET:
             raise ValueError("APP_SECRET_KEY must be set to a secure random value in production.")
+        if self.app_env == "production" and len(self.jwt_secret.get_secret_value()) < 32:
+            raise ValueError(
+                "JWT_SECRET must be set to a secure random value of at least 32 characters "
+                "in production — an empty or short secret makes access tokens forgeable."
+            )
         return self
 
     # Accepts both LOG_LEVEL and APP_LOG_LEVEL for flexibility.

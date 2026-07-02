@@ -765,5 +765,50 @@ was correctness (all 4 bugs) over polish (no visual redesign).
 
 ---
 
+## [0.14.0] — EP-14 — 2026-07-02
+
+### Change
+
+Frontend: `/api-keys` — previously a `Placeholder` stub route (per the
+EP-11 admin-routes note above) — is now a real page (`ApiKeys.tsx`)
+backed by the new EP-14 backend endpoints
+(`GET/POST/DELETE /v1/organizations/{org_id}/api-keys`): a list table
+(name/prefix/permissions/created/expires/last-used), a create dialog with
+permission-scope checkboxes and an expiration choice, a one-time
+raw-key-reveal dialog, and delete behind a confirmation dialog. Also adds
+`Dialog.tsx`, a generic form-dialog wrapper alongside the existing
+`ConfirmDialog`, and removes the local-only mock "API Keys" section from
+Settings that generated fake, non-authenticating keys.
+
+Fixed in the same pass: `ConfirmDialog`'s (and the new `Dialog`'s)
+focus-on-open effect depended on an inline `onCancel`/`onClose` callback,
+so it re-ran — and re-stole focus — on every parent re-render, breaking
+multi-character typing into any input rendered inside the dialog. Both
+now focus only on the actual open transition.
+
+### Reason
+
+`/users` and `/rbac` (EP-13, not separately logged here) and now
+`/api-keys` (EP-14) close out the "Admin routes" placeholder gap called
+out in the EP-11 entry above — the backend member/RBAC/API-key APIs now
+exist and are wired to real UI. `/connections` was already real as of
+EP-11.5; `/audit-logs` remains a placeholder pending a queryable
+audit-log endpoint (see ROADMAP.md).
+
+### Impact
+
+- `/api-keys` is a fully functional page, no longer a stub.
+- Settings no longer has a second, fake "API Keys" surface.
+- The dialog focus fix applies to every current and future use of
+  `Dialog`/`ConfirmDialog`, not just this page.
+- No breaking API changes to any existing route.
+
+### Related Documents
+
+- backend/docs/architecture/ARCHITECTURE_CHANGELOG.md (EP-14 backend entry)
+- ROADMAP.md (EP-14 Phase 2 — usage ingestion — listed under Medium)
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

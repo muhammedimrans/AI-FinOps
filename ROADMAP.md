@@ -18,15 +18,20 @@ High-level, ordered by priority. See `docs/knowledge/` for per-episode status re
 - ~~Notifications feed behind the header bell~~ — **done (client-derived)**:
   alerts computed live from budget + spend data. A server-side feed can
   replace the `useAlerts` hook without UI changes.
-- **Member management API** — needed to build the Users page:
-  `GET/POST/PATCH/DELETE /v1/organizations/{org_id}/members` and
-  `/invitations`. The membership + role model already exists.
-- **RBAC read/write API** — the enforcement engine (EP-05) exists but has no
-  endpoint to read roles/permissions or change a member's role:
-  `GET /v1/rbac/roles`, `GET /v1/rbac/permissions`,
-  `PUT /v1/organizations/{org_id}/members/{id}/role`.
-- **API-key issuance API** — `GET/POST/DELETE /v1/organizations/{org_id}/api-keys`.
-  Until it exists, the Settings "API Keys" section is a labeled preview.
+- ~~Member management API~~ — **done (EP-13)**:
+  `GET/POST/PATCH/DELETE /v1/organizations/{org_id}/members`, wired to a real
+  Users page (invite, role change, remove; last-owner and privilege-
+  escalation guards).
+- ~~RBAC read API~~ — **done (EP-13)**: `GET /v1/rbac/roles`,
+  `GET /v1/rbac/permissions`, wired to a real RBAC page (role cards +
+  permission matrix). Role *editing* is done via the member-role endpoint
+  above, not a separate RBAC write endpoint.
+- ~~API-key issuance API~~ — **done (EP-14 Phase 1)**:
+  `GET/POST/DELETE /v1/organizations/{org_id}/api-keys`, wired to a real API
+  Keys page (create with scoped permissions + expiration, one-time secret
+  reveal, revoke). The raw key is never persisted — only a SHA-256 hash and a
+  display prefix. **Not yet done**: nothing authenticates inbound requests
+  with one of these keys — see EP-14 Phase 2 below.
 - **Audit-log query API** — `GET /v1/organizations/{org_id}/audit-logs`.
   Structured audit logging exists server-side but isn't queryable.
 - Provider health/latency endpoint to replace static "Active" badges on the
@@ -35,6 +40,12 @@ High-level, ordered by priority. See `docs/knowledge/` for per-episode status re
 
 ## Medium
 
+- **EP-14 Phase 2 — usage ingestion via API keys**: authenticate an inbound
+  request with an `organization_api_key` (the service already has
+  `validate_key()` / `touch_last_used()` ready for this), enforce the key's
+  granted `permissions` scopes, rate-limit per key, and record `last_used_at`
+  on each authenticated call. No SDKs or provider integrations are in scope
+  for that phase either — see EP-14's own remaining-work notes.
 - Server-side cost forecasting + anomaly detection endpoints. The Analytics
   page ships an **in-app** linear forecast and rolling-σ anomaly detector
   (labeled as client-side); a server model would improve accuracy and enable

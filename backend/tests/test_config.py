@@ -73,7 +73,7 @@ class TestSettings:
         assert settings.is_production is False
 
     def test_is_production_true_in_prod(self) -> None:
-        settings = Settings(app_secret_key="a" * 32, app_env="production")
+        settings = Settings(app_secret_key="a" * 32, jwt_secret="j" * 32, app_env="production")
         assert settings.is_production is True
         assert settings.is_development is False
 
@@ -92,6 +92,22 @@ class TestSettings:
 
         with pytest.raises(ValidationError, match="APP_SECRET_KEY"):
             Settings(app_env="production")
+
+    def test_empty_jwt_secret_rejected_in_production(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="JWT_SECRET"):
+            Settings(app_secret_key="a" * 32, app_env="production")
+
+    def test_short_jwt_secret_rejected_in_production(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="JWT_SECRET"):
+            Settings(app_secret_key="a" * 32, jwt_secret="short", app_env="production")
+
+    def test_jwt_secret_not_required_in_development(self) -> None:
+        settings = Settings(app_secret_key="a" * 32, app_env="development")
+        assert settings.is_development is True
 
     def test_api_port_range_enforced(self) -> None:
         from pydantic import ValidationError

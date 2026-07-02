@@ -13,6 +13,7 @@ from app.config.settings import Settings, get_settings
 from app.core.container import AppContainer
 from app.core.logging import configure_from_settings
 from app.middleware.request_logging import RequestLoggingMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 
 APP_TITLE = "AI FinOps API"
 APP_DESCRIPTION = (
@@ -83,6 +84,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.is_production)
 
     # ─── Routers ─────────────────────────────────────────────────────────────
     app.include_router(api_router)

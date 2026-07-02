@@ -5,6 +5,7 @@ from app.api.v1 import (
     auth,
     dashboard,
     health,
+    ingest,
     organizations,
     pricing,
     providers,
@@ -35,3 +36,6 @@ api_router.include_router(organizations.router, prefix="/v1")
 
 # EP-13 — Member Management & RBAC
 api_router.include_router(rbac.router, prefix="/v1")
+
+# EP-16 — Usage Ingestion Platform
+api_router.include_router(ingest.router, prefix="/v1")

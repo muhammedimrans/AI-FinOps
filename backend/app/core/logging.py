@@ -24,8 +24,18 @@ def configure_logging(log_level: str = "INFO", environment: str = "development")
         structlog.processors.format_exc_info,
     ]
 
-    if environment in ("development", "testing"):
-        renderer: Any = structlog.dev.ConsoleRenderer(colors=True)
+    if environment == "testing":
+        # Rich's default exception formatter pretty-prints every local variable
+        # in every frame (show_locals=True). In tests, tracebacks routinely
+        # pass through unittest.mock objects — any attribute access on a
+        # MagicMock returns another MagicMock, so rich's recursive pretty-
+        # printer can take pathologically long (observed: multi-minute hangs
+        # rendering a single exception). Plain-text tracebacks are instant.
+        renderer: Any = structlog.dev.ConsoleRenderer(
+            colors=False, exception_formatter=structlog.dev.plain_traceback
+        )
+    elif environment == "development":
+        renderer = structlog.dev.ConsoleRenderer(colors=True)
     else:
         renderer = structlog.processors.JSONRenderer()
 

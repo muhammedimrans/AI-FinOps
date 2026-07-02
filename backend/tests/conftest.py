@@ -25,6 +25,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.config.settings import Settings
 from app.core.container import AppContainer
+from app.core.logging import configure_logging
 from app.db.mixins import uuid7
 from app.main import create_app
 from app.models.membership import Membership, MembershipRole
@@ -32,6 +33,28 @@ from app.models.organization import Organization, OrganizationStatus
 from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
 from app.models.user import User, UserStatus
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _configure_test_logging() -> None:
+    """
+    Configure structlog once for the whole test session.
+
+    The `app` fixture deliberately skips the real application lifespan (no
+    network I/O), so `configure_from_settings` — which would normally set
+    this up on startup — never runs. Without it, structlog falls back to its
+    library default: a rich-backed ConsoleRenderer with show_locals=True.
+    Tests routinely let exceptions propagate through unittest.mock objects
+    (e.g. an endpoint test with an intentionally-invalid mock), and rich's
+    recursive pretty-printer can take pathologically long — even hang for
+    minutes — trying to render a MagicMock's locals (every attribute access
+    on a MagicMock returns another MagicMock). configure_logging("testing")
+    uses a plain-text exception formatter instead, which is instant.
+    """
+    configure_logging(environment="testing")
+
 
 # ─── Environment isolation ────────────────────────────────────────────────────
 

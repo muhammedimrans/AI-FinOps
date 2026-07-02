@@ -14,42 +14,51 @@ JSON only, so the header set is tuned for an API origin:
 - ``Permissions-Policy`` — no browser features are used by API responses.
 - ``Cache-Control: no-store`` is set only for /v1/auth/* responses so tokens
   are never cached by intermediaries; data endpoints keep their own caching.
+
+Implemented as raw ASGI middleware (not BaseHTTPMiddleware) — see the
+docstring in request_logging.py for why: stacking BaseHTTPMiddleware
+subclasses hangs the connection when an unhandled exception occurs beneath
+them, instead of letting Starlette's exception handling produce a response.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import Response
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+class SecurityHeadersMiddleware:
     """Attach standard security headers to every response."""
 
-    def __init__(self, app: object, *, hsts: bool = False) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+    def __init__(self, app: ASGIApp, *, hsts: bool = False) -> None:
+        self.app = app
         self._hsts = hsts
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        response = await call_next(request)
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
 
-        headers = response.headers
-        headers.setdefault("X-Content-Type-Options", "nosniff")
-        headers.setdefault("X-Frame-Options", "DENY")
-        headers.setdefault("Referrer-Policy", "no-referrer")
-        headers.setdefault("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-        headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        path = scope.get("path", "")
 
-        if self._hsts:
-            headers.setdefault(
-                "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
-            )
+        async def send_wrapper(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("X-Frame-Options", "DENY")
+                headers.setdefault("Referrer-Policy", "no-referrer")
+                headers.setdefault(
+                    "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
+                )
+                headers.setdefault(
+                    "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
+                )
+                if self._hsts:
+                    headers.setdefault(
+                        "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
+                    )
+                if path.startswith("/v1/auth/"):
+                    headers.setdefault("Cache-Control", "no-store")
+            await send(message)
 
-        if request.url.path.startswith("/v1/auth/"):
-            headers.setdefault("Cache-Control", "no-store")
-
-        return response
+        await self.app(scope, receive, send_wrapper)

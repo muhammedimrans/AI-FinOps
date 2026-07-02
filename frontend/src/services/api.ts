@@ -303,6 +303,51 @@ export async function listPermissions(): Promise<PermissionsResponse> {
   return get<PermissionsResponse>("/v1/rbac/permissions");
 }
 
+// ── Organization API keys (EP-14) ────────────────────────────────────────────
+
+export interface ApiKey {
+  id: string;
+  name: string;
+  description: string | null;
+  prefix: string;
+  permissions: string[];
+  created_at: string;
+  expires_at: string | null;
+  last_used_at: string | null;
+}
+
+export interface ApiKeysListResponse {
+  keys: ApiKey[];
+  total: number;
+}
+
+export type ApiKeyExpiration = "never" | "30d" | "90d";
+
+export interface ApiKeyCreatedResponse {
+  id: string;
+  api_key: string;
+  prefix: string;
+  name: string;
+  permissions: string[];
+  created_at: string;
+  expires_at: string | null;
+}
+
+export async function listApiKeys(organizationId: string): Promise<ApiKeysListResponse> {
+  return get<ApiKeysListResponse>(`/v1/organizations/${organizationId}/api-keys`);
+}
+
+export async function createApiKey(
+  organizationId: string,
+  body: { name: string; description?: string; permissions: string[]; expiration: ApiKeyExpiration },
+): Promise<ApiKeyCreatedResponse> {
+  return post<ApiKeyCreatedResponse>(`/v1/organizations/${organizationId}/api-keys`, body);
+}
+
+export async function revokeApiKey(organizationId: string, keyId: string): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}/api-keys/${keyId}`);
+}
+
 // ── Provider connection intelligence (EP-07) ─────────────────────────────────
 
 export interface ProviderConnectionStatus {

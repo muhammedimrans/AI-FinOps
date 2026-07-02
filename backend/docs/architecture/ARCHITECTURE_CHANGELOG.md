@@ -1,5 +1,82 @@
 # Architecture Changelog
 
+## [0.14.0] — EP-14 Organization API Keys, Phase 1 (2026-07-02)
+
+### Summary
+
+Adds a production-grade Organization API Key Management system: issuance,
+listing, and revocation, following the existing repository / service /
+Pydantic-schema layering. No new architecture was introduced — the RBAC
+system (EP-05), soft-delete/cursor `BaseModel` conventions (EP-02/EP-03),
+and the existing `app/api/v1/organizations.py` router were reused and
+extended rather than duplicated.
+
+### Added
+
+- `app/models/organization_api_key.py` — `OrganizationApiKey` (BaseModel:
+  UUID7 PK, soft delete, cursor index). Stores only a SHA-256 `key_hash`
+  (unique) and a non-secret `key_prefix` — never the raw key.
+- `migrations/versions/20260702_1522_f415de1082f8_ep14_organization_api_keys.py`
+- `app/repositories/organization_api_key_repository.py` — `list()`,
+  `get_by_hash()`, `delete()` (soft), `update_last_used()`; `create()` and
+  `get()` inherited from `BaseRepository`.
+- `app/services/organization_api_key_service.py` — `OrganizationApiKeyService`:
+  key generation (`costorah_live_<random>`), hashing, permission-scope and
+  expiration validation, `validate_key()` / `touch_last_used()` (ready for
+  Phase 2 request authentication, not yet wired to any endpoint).
+- `app/schemas/organization_api_keys.py` — `CreateApiKeyRequest`,
+  `ApiKeyResponse`, `ApiKeysListResponse`, `ApiKeyCreatedResponse`.
+- Three endpoints on the existing organizations router:
+  `GET/POST /v1/organizations/{org_id}/api-keys`,
+  `DELETE /v1/organizations/{org_id}/api-keys/{key_id}`.
+- `Permission.API_KEY_READ` / `Permission.API_KEY_WRITE` added to
+  `app/auth/rbac.py` — READ granted to every role, WRITE to OWNER/ADMIN only
+  (reuses `ROLE_PERMISSIONS` / `RequirePermission`, no parallel authz system).
+- `tests/test_api_keys.py` — 40 tests: repository, service (including a
+  raw-key-never-persisted assertion and a two-keys-never-collide check),
+  API (auth/RBAC-by-role/ownership/validation), all hermetic.
+- Frontend: `frontend/src/features/ApiKeys.tsx` (real page, replacing the
+  `Placeholder` route and the local-only mock "API Keys" tab in Settings
+  that generated fake, non-authenticating keys), `frontend/src/components/
+  Dialog.tsx` (generic form-dialog chrome, alongside the existing
+  `ConfirmDialog`).
+
+### Security
+
+- The raw key is generated in the service layer, returned exactly once in
+  the `POST` response body, and never persisted anywhere — only its
+  SHA-256 hash and an 8-character display prefix are stored.
+- `key_hash` is uniquely indexed; no two keys can ever collide.
+- List/GET responses are schema-constrained (`ApiKeyResponse`) and
+  structurally cannot include `key_hash` or the raw secret.
+- Create/delete require `API_KEY_WRITE` (OWNER/ADMIN); list requires
+  `API_KEY_READ` (any role) — enforced via the existing `RequirePermission`
+  dependency, identical pattern to every other write endpoint in the app.
+- Deletion is soft (`deleted_at`), matching every other entity — a revoked
+  key's audit trail is preserved.
+
+### Explicitly out of scope (Phase 2)
+
+- Nothing in the codebase authenticates an inbound request with one of
+  these keys yet. `OrganizationApiKeyService.validate_key()` and
+  `touch_last_used()` exist for that purpose but are unwired.
+- No SDKs, no provider integrations, no usage-ingestion endpoint.
+
+### Test Results
+
+```
+EP-14 test suite:    40 passed
+Full backend suite: 1149 passed, 30 skipped (integration — no live DB), 0 failed
+Frontend: tsc clean, eslint clean (0 warnings), 46 vitest passed, production build clean
+```
+
+### Stop Condition
+
+EP-14 Phase 1 is complete. Phase 2 (usage ingestion authenticated by these
+keys) has not been started.
+
+---
+
 ## [0.10.2] — EP-10 Release Hardening (2026-06-30)
 
 ### Sprint Outcome

@@ -48,3 +48,6 @@ from app.models.provider_usage_summary import ProviderUsageSummary  # noqa: F401
 from app.models.model_pricing import ModelPricing  # noqa: F401
 from app.models.usage_cost_record import UsageCostRecord  # noqa: F401
 from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401
+
+# EP-14 - Organization API keys (import after Organization and User; FK dependency)
+from app.models.organization_api_key import OrganizationApiKey  # noqa: F401

@@ -38,6 +38,10 @@ class Permission(enum.StrEnum):
     BILLING_READ = "billing:read"
     BILLING_WRITE = "billing:write"
 
+    # Organization API keys (EP-14)
+    API_KEY_READ = "api_key:read"
+    API_KEY_WRITE = "api_key:write"
+
 
 # Every permission granted to each role. Higher roles include all lower-role permissions.
 _OWNER_PERMS: frozenset[Permission] = frozenset(Permission)
@@ -55,6 +59,8 @@ _ADMIN_PERMS: frozenset[Permission] = frozenset(
         Permission.PROVIDER_DELETE,
         Permission.USAGE_READ,
         Permission.BILLING_READ,
+        Permission.API_KEY_READ,
+        Permission.API_KEY_WRITE,
     ]
 )
 
@@ -65,6 +71,7 @@ _MEMBER_PERMS: frozenset[Permission] = frozenset(
         Permission.PROJECT_WRITE,
         Permission.PROVIDER_READ,
         Permission.USAGE_READ,
+        Permission.API_KEY_READ,
     ]
 )
 
@@ -74,6 +81,7 @@ _VIEWER_PERMS: frozenset[Permission] = frozenset(
         Permission.PROJECT_READ,
         Permission.PROVIDER_READ,
         Permission.USAGE_READ,
+        Permission.API_KEY_READ,
     ]
 )
 

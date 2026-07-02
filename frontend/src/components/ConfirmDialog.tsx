@@ -29,9 +29,14 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // Focus only on the open transition — depending on onCancel/loading here
+  // would re-run this (and steal focus back) on every parent re-render.
+  useEffect(() => {
+    if (open) dialogRef.current?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return undefined;
-    dialogRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && !loading) onCancel();
     }

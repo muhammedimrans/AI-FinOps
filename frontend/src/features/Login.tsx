@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Check, TrendingUp, Sparkles, Layers, ArrowRight } from "lucide-react";
-import { login, getOrganizations } from "../services/api";
+import { login, getOrganizations, ApiError } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
 import { cn } from "../utils";
@@ -60,10 +60,12 @@ export default function Login() {
       }
       navigate("/dashboard", { replace: true });
     } catch (err) {
-      if (err instanceof Error && err.message.includes("401")) {
+      if (err instanceof ApiError && err.status === 401) {
         setError("Invalid email or password.");
-      } else if (err instanceof Error && err.message.includes("403")) {
+      } else if (err instanceof ApiError && err.status === 403) {
         setError("Your account has been disabled.");
+      } else if (err instanceof ApiError && err.status === 429) {
+        setError("Too many attempts. Please wait a moment and try again.");
       } else {
         setError("Unable to connect to the server. Please try again.");
       }

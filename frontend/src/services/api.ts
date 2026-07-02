@@ -106,7 +106,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   options: {
     params?: Record<string, string | undefined>;
@@ -153,7 +153,18 @@ async function request<T>(
   }
 
   if (!res.ok) {
-    throw new ApiError(res.status, `API ${res.status}: ${res.statusText}`);
+    let detail = res.statusText;
+    try {
+      const body = (await res.clone().json()) as { detail?: string };
+      if (body.detail) detail = body.detail;
+    } catch {
+      // Non-JSON error body — fall back to statusText.
+    }
+    throw new ApiError(res.status, detail);
+  }
+
+  if (res.status === 204) {
+    return undefined as T;
   }
 
   return res.json() as Promise<T>;
@@ -167,6 +178,14 @@ function get<T>(path: string, params?: Record<string, string | undefined>): Prom
 
 function post<T>(path: string, body: unknown, skipAuth = false): Promise<T> {
   return request<T>("POST", path, { body, skipAuth });
+}
+
+function patch<T>(path: string, body: unknown): Promise<T> {
+  return request<T>("PATCH", path, { body });
+}
+
+function del<T>(path: string): Promise<T> {
+  return request<T>("DELETE", path);
 }
 
 // ── Auth endpoints ────────────────────────────────────────────────────────────
@@ -211,6 +230,77 @@ export async function logout(): Promise<void> {
 
 export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
   return get<BackendOrganizationsResponse>("/v1/organizations");
+}
+
+// ── Member management (EP-13) ─────────────────────────────────────────────────
+
+export interface Member {
+  id: string;
+  user_id: string | null;
+  email: string;
+  display_name: string | null;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "active" | "invited";
+  created_at: string;
+}
+
+export interface MembersListResponse {
+  members: Member[];
+  total: number;
+}
+
+export async function listMembers(organizationId: string): Promise<MembersListResponse> {
+  return get<MembersListResponse>(`/v1/organizations/${organizationId}/members`);
+}
+
+export async function inviteMember(
+  organizationId: string,
+  email: string,
+  role: string,
+): Promise<Member> {
+  return post<Member>(`/v1/organizations/${organizationId}/members`, { email, role });
+}
+
+export async function updateMemberRole(
+  organizationId: string,
+  membershipId: string,
+  role: string,
+): Promise<Member> {
+  return patch<Member>(`/v1/organizations/${organizationId}/members/${membershipId}`, { role });
+}
+
+export async function removeMember(organizationId: string, membershipId: string): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}/members/${membershipId}`);
+}
+
+// ── RBAC introspection (EP-13) ─────────────────────────────────────────────────
+
+export interface RoleInfo {
+  role: string;
+  label: string;
+  permissions: string[];
+}
+
+export interface RolesResponse {
+  roles: RoleInfo[];
+}
+
+export interface PermissionInfo {
+  permission: string;
+  domain: string;
+  action: string;
+}
+
+export interface PermissionsResponse {
+  permissions: PermissionInfo[];
+}
+
+export async function listRoles(): Promise<RolesResponse> {
+  return get<RolesResponse>("/v1/rbac/roles");
+}
+
+export async function listPermissions(): Promise<PermissionsResponse> {
+  return get<PermissionsResponse>("/v1/rbac/permissions");
 }
 
 // ── Provider connection intelligence (EP-07) ─────────────────────────────────

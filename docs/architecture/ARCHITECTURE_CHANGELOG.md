@@ -810,5 +810,36 @@ audit-log endpoint (see ROADMAP.md).
 
 ---
 
+## [0.15.0] — EP-15 — 2026-07-02
+
+### Change
+
+Backend-only: adds an Organization API Key authentication path
+(`Authorization: Bearer costorah_live_...`) alongside the existing JWT
+session auth. `GET /v1/organizations/{org_id}/api-keys` now accepts either.
+No frontend code changed — the API Keys page built in EP-14 already
+authenticates with the dashboard's JWT session and continues to.
+
+### Reason
+
+EP-14 issued and stored API keys but nothing could authenticate with one.
+EP-15 closes that gap so a future usage-ingestion endpoint (or the eventual
+Monitoring Agent / SDKs) has a working, tested authentication mechanism to
+depend on, without needing a JWT.
+
+### Impact
+
+- No breaking changes to any existing frontend-facing endpoint or contract.
+- New `ApiKeyAuth` OpenAPI security scheme visible in `/docs`.
+
+### Related Documents
+
+- backend/docs/architecture/ARCHITECTURE_CHANGELOG.md (EP-15 entry — full
+  authentication flow diagram, security review, permission review,
+  performance notes)
+- ROADMAP.md (EP-15 Phase 2 — usage ingestion — listed under Medium)
+
+---
+
 *This changelog is maintained by the engineering team. All architectural changes
 must be recorded here before the corresponding Epic is marked complete.*

@@ -28,6 +28,7 @@ const ROUTE_LABELS: Record<string, string> = {
   "/connections":            "Provider Connections",
   "/audit-logs":             "Audit Logs",
   "/settings":               "Settings",
+  "/support":                "Support",
 };
 
 const DATE_PRESETS = [
@@ -156,7 +157,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                   aria-selected={p.value === datePreset}
                   onClick={() => selectPreset(p)}
                   className={cn(
-                    "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
+                    "w-[calc(100%-8px)] text-left px-3 py-2 text-xs transition-colors rounded-md mx-1",
                     p.value === datePreset
                       ? "text-brand bg-brand-subtle font-medium"
                       : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
@@ -199,7 +200,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                   aria-selected={c === currency}
                   onClick={() => { setCurrency(c); setCurrencyOpen(false); }}
                   className={cn(
-                    "w-full text-left px-3 py-2 text-xs transition-colors rounded-md mx-1 w-[calc(100%-8px)]",
+                    "w-[calc(100%-8px)] text-left px-3 py-2 text-xs transition-colors rounded-md mx-1",
                     c === currency
                       ? "text-brand bg-brand-subtle font-medium"
                       : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",

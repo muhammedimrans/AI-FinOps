@@ -17,7 +17,7 @@ import Section from "../components/Section";
 import ProviderBadge from "../components/ProviderBadge";
 import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import { useModels } from "../hooks/useDashboard";
-import { formatCost, formatNumber, formatTokens, modelDisplayName, cn } from "../utils";
+import { formatCost, formatNumber, formatTokens, modelDisplayName, providerDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 
@@ -201,10 +201,10 @@ export default function Models() {
         minHeight={320}
         legend={
           <div className="flex flex-wrap gap-3">
-            {["openai", "anthropic", "google", "azure"].map((p) => (
+            {[...new Set(sorted.map((m) => m.provider))].map((p) => (
               <div key={p} className="flex items-center gap-1.5 text-xs text-tx-muted">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PROVIDER_COLORS[p] }} />
-                {p.charAt(0).toUpperCase() + p.slice(1)}
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: PROVIDER_COLORS[p] ?? chrome.primary }} />
+                {providerDisplayName(p)}
               </div>
             ))}
           </div>

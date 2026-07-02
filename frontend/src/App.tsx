@@ -14,6 +14,7 @@ const Models       = lazy(() => import("./features/Models"));
 const Projects     = lazy(() => import("./features/Projects"));
 const Organization = lazy(() => import("./features/Organization"));
 const Settings     = lazy(() => import("./features/Settings"));
+const Support      = lazy(() => import("./features/Support"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -87,6 +88,7 @@ export default function App() {
         <Route path="connections" element={<Page><Placeholder title="Provider Connections" description="Configure and manage AI provider API keys and connections." /></Page>} />
         <Route path="audit-logs"  element={<Page><Placeholder title="Audit Logs" /></Page>} />
         <Route path="settings"    element={<Page><Settings /></Page>} />
+        <Route path="support"     element={<Page><Support /></Page>} />
         <Route path="*"           element={<Page><NotFound /></Page>} />
       </Route>
 

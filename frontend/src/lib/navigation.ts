@@ -11,6 +11,7 @@ import {
   PlugZap,
   ScrollText,
   Settings,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 
@@ -36,6 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/connections",            icon: PlugZap,         label: "Connections",    group: "Admin", keywords: "provider integration" },
   { to: "/audit-logs",             icon: ScrollText,      label: "Audit Logs",     group: "Admin", keywords: "history activity" },
   { to: "/settings",               icon: Settings,        label: "Settings",       group: "System", keywords: "preferences profile" },
+  { to: "/support",                icon: LifeBuoy,        label: "Support",        group: "System", keywords: "help faq contact docs" },
 ];
 
 export const NAV_GROUPS = ["Analytics", "Admin", "System"];

@@ -27,7 +27,9 @@ import { useUIStore } from "../stores/ui";
 import { THEMES, useThemeStore } from "../stores/theme";
 import { useAuthStore } from "../stores/auth";
 import { useProfileStore } from "../stores/profile";
+import { useOrgStore } from "../stores/org";
 import Avatar from "../components/Avatar";
+import OrgLogo from "../components/OrgLogo";
 import PageHeader from "../components/PageHeader";
 import { cn } from "../utils";
 import { toast } from "../stores/toast";
@@ -258,9 +260,12 @@ export default function Settings() {
   const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
 
   // Organization tab — local-only preferences.
-  const [orgName, setOrgName] = useState("Acme Corp");
+  const { organizationId, organizationName, organizationLogos, setOrganizationLogo } = useOrgStore();
+  const [orgName, setOrgName] = useState(organizationName || "Acme Corp");
   const [budgetAlerts, setBudgetAlerts] = useState(true);
   const [orgSaved, setOrgSaved] = useState(false);
+  const orgLogoInputRef = useRef<HTMLInputElement>(null);
+  const orgLogoUrl = organizationId ? organizationLogos[organizationId] : undefined;
 
   const displayName = user?.display_name ?? "";
 
@@ -302,6 +307,33 @@ export default function Settings() {
   function removeAvatar() {
     setAvatar(null);
     toast.info("Profile photo removed");
+  }
+
+  function onOrgLogoSelected(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !organizationId) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Invalid file", "Please choose an image file.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast.error("Image too large", "Please choose an image under 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setOrganizationLogo(organizationId, reader.result as string);
+      toast.success("Organization logo updated");
+    };
+    reader.onerror = () => toast.error("Couldn't read that image", "Please try a different file.");
+    reader.readAsDataURL(file);
+  }
+
+  function removeOrgLogo() {
+    if (!organizationId) return;
+    setOrganizationLogo(organizationId, null);
+    toast.info("Organization logo removed");
   }
 
   function onSaveProfile(data: ProfileForm) {
@@ -402,6 +434,9 @@ export default function Settings() {
   }
 
   function onSaveOrganization() {
+    if (organizationId && orgName.trim()) {
+      useOrgStore.getState().setOrganization(organizationId, orgName.trim());
+    }
     setOrgSaved(true);
     toast.success("Organization preferences saved");
     setTimeout(() => setOrgSaved(false), 2500);
@@ -757,6 +792,44 @@ export default function Settings() {
 
           {active === "organization" && (
             <SectionCard title="Organization Preferences" icon={Building2}>
+              <div className="flex items-center gap-4">
+                <OrgLogo size={64} />
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => orgLogoInputRef.current?.click()}
+                      disabled={!organizationId}
+                      className="btn-outline h-8 text-xs px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Upload size={13} />
+                      {orgLogoUrl ? "Replace logo" : "Upload logo"}
+                    </button>
+                    {orgLogoUrl && (
+                      <button
+                        type="button"
+                        onClick={removeOrgLogo}
+                        aria-label="Remove organization logo"
+                        className="btn-ghost h-8 w-8 p-0 justify-center text-danger hover:bg-danger-dim"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-xs text-tx-muted">
+                    {organizationId ? "PNG, JPG or GIF. Max 2MB." : "Select an organization to set a logo."}
+                  </p>
+                  <input
+                    ref={orgLogoInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={onOrgLogoSelected}
+                    className="sr-only"
+                    aria-label="Upload organization logo"
+                  />
+                </div>
+              </div>
+
               <TextField label="Organization name" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
               <SettingRow label="Budget alerts" description="Notify admins when org-wide spend approaches budget">
                 <Toggle value={budgetAlerts} onChange={setBudgetAlerts} label="Budget alerts" />

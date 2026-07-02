@@ -12,9 +12,12 @@ import { persist } from "zustand/middleware";
 interface OrgState {
   organizationId: string | null;
   organizationName: string | null;
+  // Keyed by organizationId so switching orgs doesn't mix up logos.
+  organizationLogos: Record<string, string>;
 
   setOrganization: (id: string, name?: string) => void;
   clearOrganization: () => void;
+  setOrganizationLogo: (organizationId: string, dataUrl: string | null) => void;
 }
 
 export const useOrgStore = create<OrgState>()(
@@ -22,12 +25,21 @@ export const useOrgStore = create<OrgState>()(
     (set) => ({
       organizationId: null,
       organizationName: null,
+      organizationLogos: {},
 
       setOrganization: (organizationId, organizationName = "") =>
         set({ organizationId, organizationName }),
 
       clearOrganization: () =>
         set({ organizationId: null, organizationName: null }),
+
+      setOrganizationLogo: (organizationId, dataUrl) =>
+        set((s) => {
+          const next = { ...s.organizationLogos };
+          if (dataUrl) next[organizationId] = dataUrl;
+          else delete next[organizationId];
+          return { organizationLogos: next };
+        }),
     }),
     {
       name: "ai-finops-org",

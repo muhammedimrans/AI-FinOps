@@ -4,6 +4,7 @@ import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, ChevronsUpDown, LogOut, Building2, X } from "lucide-react";
 import { cn } from "../utils";
 import Avatar from "../components/Avatar";
+import OrgLogo from "../components/OrgLogo";
 import { useUIStore } from "../stores/ui";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
@@ -266,9 +267,12 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
                        rounded-lg shadow-elevated overflow-hidden z-20"
           >
             {organizationName && (
-              <div className="px-3 py-2 border-b border-border-subtle">
-                <p className="text-[10px] text-tx-muted uppercase tracking-wide">Organization</p>
-                <p className="text-xs font-medium text-tx-primary truncate">{organizationName}</p>
+              <div className="flex items-center gap-2.5 px-3 py-2 border-b border-border-subtle">
+                <OrgLogo size={24} />
+                <div className="min-w-0">
+                  <p className="text-[10px] text-tx-muted uppercase tracking-wide">Organization</p>
+                  <p className="text-xs font-medium text-tx-primary truncate">{organizationName}</p>
+                </div>
               </div>
             )}
             <button

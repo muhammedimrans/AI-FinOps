@@ -27,8 +27,8 @@ const ToastItem = forwardRef<HTMLDivElement, { toast: Toast }>(function ToastIte
     <motion.div
       ref={ref}
       layout
-      role="status"
-      aria-live="polite"
+      role={toast.variant === "error" ? "alert" : "status"}
+      aria-live={toast.variant === "error" ? "assertive" : "polite"}
       initial={{ opacity: 0, y: 16, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, x: 64, scale: 0.95, transition: { duration: 0.15 } }}

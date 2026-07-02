@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, BarChart3, Boxes, Check, FolderKanban, Sparkles } from "lucide-react";
 import { CostorahMark } from "./CostorahLogo";
@@ -21,6 +21,18 @@ export default function OnboardingModal() {
   const { user } = useAuthStore();
   const { theme, setTheme } = useThemeStore();
   const [step, setStep] = useState(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Move focus into the dialog on open; Escape skips the tour.
+  useEffect(() => {
+    if (completed) return undefined;
+    dialogRef.current?.focus();
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") complete();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [completed, complete]);
 
   if (completed) return null;
 
@@ -38,6 +50,8 @@ export default function OnboardingModal() {
         />
 
         <motion.div
+          ref={dialogRef}
+          tabIndex={-1}
           role="dialog"
           aria-modal="true"
           aria-label="Welcome to Costorah"

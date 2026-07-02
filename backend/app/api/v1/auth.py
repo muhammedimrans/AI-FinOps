@@ -25,6 +25,7 @@ from app.auth.exceptions import (
     InvalidCredentialsError,
 )
 from app.auth.exceptions import InvalidTokenError as AuthInvalidTokenError
+from app.auth.rate_limit import LoginRateLimiter
 from app.auth.service import AuthService
 from app.auth.tokens import decode_access_token
 from app.schemas.auth import (
@@ -40,6 +41,21 @@ from app.schemas.auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
+
+
+def _get_login_rate_limiter(request: Request) -> LoginRateLimiter:
+    """Return the app-wide login rate limiter (lazily created, Redis-backed).
+
+    Stored on app.state so the sliding windows and lockout counters are shared
+    across requests within a worker; Redis (when reachable) shares them across
+    all workers.
+    """
+    limiter = getattr(request.app.state, "login_rate_limiter", None)
+    if limiter is None:
+        container = getattr(request.app.state, "container", None)
+        limiter = LoginRateLimiter(redis=getattr(container, "redis", None))
+        request.app.state.login_rate_limiter = limiter
+    return limiter
 
 
 def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
@@ -67,6 +83,16 @@ async def login(
     svc = AuthService(db, settings)
     ip = request.client.host if request.client else None
     ua = request.headers.get("user-agent")
+
+    limiter = _get_login_rate_limiter(request)
+    decision = await limiter.check(ip=ip, email=body.email)
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+
     try:
         pair, user = await svc.login(
             email=body.email,
@@ -75,6 +101,7 @@ async def login(
             user_agent=ua,
         )
     except InvalidCredentialsError as exc:
+        await limiter.record_failure(email=body.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -85,6 +112,7 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been disabled",
         ) from exc
+    await limiter.record_success(email=body.email)
     return LoginResponse(
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,

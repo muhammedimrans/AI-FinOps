@@ -4,6 +4,7 @@ import { useState } from "react";
 import BudgetBar from "../components/BudgetBar";
 import PageHeader from "../components/PageHeader";
 import OrgLogo from "../components/OrgLogo";
+import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import { useOrganization } from "../hooks/useDashboard";
@@ -107,14 +108,15 @@ export default function Organization() {
 
       {/* Overall budget bar */}
       {!org.isLoading && (
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="glass-card rounded-card-lg border border-border-subtle p-5 relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-tx-primary">Organization Budget Overview</h3>
+        <Section
+          title="Organization Budget Overview"
+          actions={
             <span className="text-xs text-tx-muted">
               {formatCost(totalCost, currency, true)} of {formatCost(totalBudget, currency, true)}
             </span>
-          </div>
+          }
+          bodyClassName="p-5"
+        >
           <BudgetBar
             used={totalCost}
             total={totalBudget}
@@ -122,20 +124,11 @@ export default function Organization() {
             currency={currency}
             showLabels={false}
           />
-        </motion.div>
+        </Section>
       )}
 
       {/* Department Table */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-        <div className="px-5 py-4 border-b border-border-subtle">
-          <h3 className="text-sm font-semibold text-tx-primary">Department Breakdown</h3>
-          <p className="text-xs text-tx-muted mt-0.5">Cost and budget utilization by department</p>
-        </div>
+      <Section title="Department Breakdown" description="Cost and budget utilization by department">
         <div className="overflow-x-auto">
           <table className="w-full data-table">
             <thead>
@@ -245,7 +238,7 @@ export default function Organization() {
             </tbody>
           </table>
         </div>
-      </motion.div>
+      </Section>
     </div>
   );
 }

@@ -79,19 +79,23 @@
     --color-primary-light: 145 121 224;
     --color-primary-dim: 235 231 250;
 
-    --color-brand: 0 181 147;
-    --color-brand-hover: 0 157 123;
+    /* Darkened from the reference's raw oklch conversion to clear 4.5:1 body-text
+       contrast against white/off-white (WCAG AA) — the reference used these as
+       badge/icon accents on tinted backgrounds, where the lighter values were fine,
+       but our tokens double as link/label text color. */
+    --color-brand: 0 130 100;
+    --color-brand-hover: 0 111 85;
     --color-brand-light: 63 225 191;
     --color-brand-dim: 201 247 233;
     --color-brand-purple: 116 87 209;
 
-    --color-success: 0 172 95;
+    --color-success: 0 132 58;
     --color-success-light: 0 142 62;
-    --color-warning: 232 157 0;
+    --color-warning: 168 97 0;
     --color-warning-light: 215 131 0;
-    --color-danger: 238 15 31;
+    --color-danger: 229 0 21;
     --color-danger-light: 208 0 0;
-    --color-info: 0 146 215;
+    --color-info: 0 120 187;
     --color-info-light: 0 124 202;
 
     --color-tx-primary: 12 18 26;

@@ -13,9 +13,9 @@ GET  /usage/providers/{provider}/status   — provider collection status
 
 Authentication
 --------------
-``organization_id`` is a required query/body parameter that enforces tenant
-isolation at the API boundary.  Production deployments should derive it from
-the JWT access token claims instead.
+All endpoints require a valid JWT. Query endpoints verify membership of the
+``organization_id`` query parameter (OrgScopedMembership); collection triggers
+verify membership of ``body.organization_id`` before running.
 
 Do NOT implement pricing, analytics, or dashboards here (EP-09 / EP-10).
 """
@@ -27,8 +27,11 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from app.api.deps import DbDep
+from app.auth.dependencies import CurrentUser, OrgScopedMembership, ensure_org_membership
+from app.models.membership import Membership
 from app.models.usage_collection_run import CollectionRunStatus
 from app.schemas.usage import (
     CheckpointListResponse,
@@ -47,6 +50,18 @@ router = APIRouter(prefix="/usage", tags=["usage"])
 
 # Providers that support active collection in EP-08.
 _COLLECTION_PROVIDERS = frozenset({"openai", "anthropic"})
+
+
+async def get_body_org_membership(
+    body: CollectUsageRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+) -> Membership:
+    """Verify the caller is a member of ``body.organization_id`` (collect triggers)."""
+    return await ensure_org_membership(db, user=current_user, org_id=body.organization_id)
+
+
+BodyOrgMembership = Annotated[Membership, Depends(get_body_org_membership)]
 
 
 def _require_collection_provider(provider: str) -> str:
@@ -74,7 +89,10 @@ def _require_collection_provider(provider: str) -> str:
         "provider. Returns the list of completed CollectionRun records."
     ),
 )
-async def collect_all(body: CollectUsageRequest) -> list[CollectionRunResponse]:
+async def collect_all(
+    body: CollectUsageRequest,
+    _member: BodyOrgMembership,
+) -> list[CollectionRunResponse]:
     """Trigger collection for all supported providers."""
     from app.usage.service import UsageCollectionService
 
@@ -114,6 +132,7 @@ async def collect_all(body: CollectUsageRequest) -> list[CollectionRunResponse]:
 async def collect_provider(
     provider: str,
     body: CollectUsageRequest,
+    _member: BodyOrgMembership,
 ) -> CollectionRunResponse:
     """Trigger collection for a single provider."""
     _require_collection_provider(provider)
@@ -229,6 +248,7 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
     responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_events(
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     provider: Annotated[str | None, Query()] = None,
     model: Annotated[str | None, Query()] = None,
@@ -250,6 +270,7 @@ async def list_events(
 )
 async def get_event(
     event_id: uuid.UUID,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> UsageEventResponse:
     raise HTTPException(
@@ -273,6 +294,7 @@ async def get_event(
     responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_runs(
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     provider: Annotated[str | None, Query()] = None,
     run_status: Annotated[CollectionRunStatus | None, Query(alias="status")] = None,
@@ -292,6 +314,7 @@ async def list_runs(
 )
 async def get_run(
     run_id: uuid.UUID,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> CollectionRunResponse:
     raise HTTPException(
@@ -315,6 +338,7 @@ async def get_run(
     responses={501: {"description": "Not Implemented — available in EP-09"}},
 )
 async def list_checkpoints(
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     provider: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -343,6 +367,7 @@ async def list_checkpoints(
 )
 async def get_provider_status(
     provider: str,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> ProviderCollectionStatusResponse:
     _require_collection_provider(provider)

@@ -13,7 +13,7 @@ const FAQS = [
   },
   {
     q: "Can I set budgets per project?",
-    a: "Yes. Each project supports soft and hard budgets, with alert thresholds at 50%, 75%, 90%, and 100%.",
+    a: "Yes. Each project has a budget with utilization tracked on the dashboard; alert notifications are planned for a future release.",
   },
   {
     q: "Which providers are supported?",
@@ -25,8 +25,8 @@ const FAQS = [
 
 const CONTACT_CARDS = [
   { icon: BookOpen, title: "Documentation", desc: "Guides, references, and integrations" },
-  { icon: MessageCircle, title: "Live chat", desc: "Avg response 4 minutes" },
-  { icon: LifeBuoy, title: "Enterprise support", desc: "24/7 priority queue" },
+  { icon: MessageCircle, title: "Live chat", desc: "Planned for a future release" },
+  { icon: LifeBuoy, title: "Enterprise support", desc: "Available with enterprise plans" },
 ];
 
 function FaqItem({ q, a }: { q: string; a: string }) {
@@ -61,9 +61,11 @@ export default function Support() {
       toast.warning("Missing details", "Please fill in both a subject and a message.");
       return;
     }
-    toast.success("Message sent", "Our team will get back to you within 4 hours.");
-    setSubject("");
-    setMessage("");
+    // No support-ticket backend exists yet — never pretend a message was sent.
+    toast.info(
+      "Support inbox coming soon",
+      "Direct ticketing isn't wired up yet — please reach us through your account manager.",
+    );
   }
 
   return (
@@ -117,7 +119,15 @@ export default function Support() {
           </ul>
         </Section>
 
-        <Section title="Contact us" description="We reply within 4 hours on business days.">
+        <Section
+          title="Contact us"
+          description="Ticketing launches in a future release — reach us via your account manager for now."
+          actions={
+            <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
+              Coming soon
+            </span>
+          }
+        >
           <form className="space-y-3" onSubmit={handleSubmit}>
             <div>
               <label className="text-xs text-tx-muted block mb-1.5">Subject</label>

@@ -12,9 +12,9 @@ GET /dashboard/kpis                 — F-066 derived KPIs
 
 Authentication
 --------------
-All endpoints require a valid JWT (CurrentUser). Org membership verification
-is deferred to EP-11 — for now we validate the JWT and trust the
-organization_id query parameter, matching the EP-09 pattern.
+All endpoints require a valid JWT AND verified membership of the requested
+organization (OrgScopedMembership) — the organization_id query parameter is
+never trusted without a membership check.
 """
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import DbDep
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import OrgScopedMembership
 from app.dashboard.service import DashboardService
 from app.schemas.dashboard import (
     KPIResponse,
@@ -83,7 +83,7 @@ class Granularity(str, enum.Enum):
 )
 async def get_overview(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     currency: Annotated[str, Query(description="Target currency")] = "USD",
 ) -> OverviewResponse:
@@ -118,7 +118,7 @@ async def get_overview(
 )
 async def get_time_series(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -177,7 +177,7 @@ async def get_time_series(
 )
 async def get_provider_breakdown(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -225,7 +225,7 @@ async def get_provider_breakdown(
 )
 async def get_model_breakdown(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -278,7 +278,7 @@ async def get_model_breakdown(
 )
 async def get_organization_dashboard(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date | None, Query(description="Start date (defaults to first of current month)")] = None,
     end_date: Annotated[date | None, Query(description="End date (defaults to today)")] = None,
@@ -390,7 +390,7 @@ async def get_organization_dashboard(
 )
 async def get_project_breakdown(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
@@ -440,7 +440,7 @@ async def get_project_breakdown(
 )
 async def get_kpis(
     db: DbDep,
-    _user: CurrentUser,
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],

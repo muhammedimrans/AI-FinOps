@@ -97,6 +97,10 @@ export default function CommandPalette() {
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search pages…"
+                role="combobox"
+                aria-expanded="true"
+                aria-controls="command-palette-results"
+                aria-activedescendant={results[activeIndex] ? `cp-option-${activeIndex}` : undefined}
                 className="flex-1 bg-transparent text-sm text-tx-primary placeholder:text-tx-muted focus:outline-none"
               />
               <kbd className="hidden sm:inline-flex items-center px-1.5 h-5 rounded border border-border-subtle text-[10px] text-tx-muted">
@@ -104,7 +108,7 @@ export default function CommandPalette() {
               </kbd>
             </div>
 
-            <div className="max-h-80 overflow-y-auto py-1.5">
+            <div id="command-palette-results" role="listbox" aria-label="Pages" className="max-h-80 overflow-y-auto py-1.5">
               {results.length === 0 && (
                 <p className="px-4 py-6 text-center text-sm text-tx-muted">
                   No pages match &ldquo;{query}&rdquo;.
@@ -115,6 +119,9 @@ export default function CommandPalette() {
                 return (
                   <button
                     key={item.to}
+                    id={`cp-option-${i}`}
+                    role="option"
+                    aria-selected={i === activeIndex}
                     onClick={() => go(item)}
                     onMouseEnter={() => setActiveIndex(i)}
                     className={cn(

@@ -198,6 +198,7 @@ export default function Models() {
         title="Performance Matrix"
         subtitle="Cost efficiency vs usage volume — bubble size = total spend"
         loading={models.isLoading}
+        empty={scatterData.length === 0}
         minHeight={320}
         legend={
           <div className="flex flex-wrap gap-3">

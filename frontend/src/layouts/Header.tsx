@@ -11,25 +11,10 @@ import {
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { routeLabel } from "../lib/navigation";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import Popover from "../components/Popover";
 import type { Currency } from "../types/api";
-
-const ROUTE_LABELS: Record<string, string> = {
-  "/dashboard":              "Overview",
-  "/dashboard/analytics":    "Cost Analytics",
-  "/dashboard/providers":    "Providers",
-  "/dashboard/models":       "Models",
-  "/dashboard/projects":     "Projects",
-  "/dashboard/organization": "Organization",
-  "/users":                  "Users",
-  "/rbac":                   "RBAC",
-  "/api-keys":               "API Keys",
-  "/connections":            "Provider Connections",
-  "/audit-logs":             "Audit Logs",
-  "/settings":               "Settings",
-  "/support":                "Support",
-};
 
 const DATE_PRESETS = [
   { label: "Today",     value: "today",     start: () => getToday(),                              end: () => getToday() },
@@ -59,7 +44,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const currencyRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const pageLabel = ROUTE_LABELS[location.pathname] ?? "Dashboard";
+  const pageLabel = routeLabel(location.pathname) ?? "Dashboard";
   const breadcrumb = location.pathname.split("/").filter(Boolean);
   const currentPreset = DATE_PRESETS.find((p) => p.value === datePreset);
 
@@ -236,15 +221,20 @@ export default function Header({ onMenuClick }: HeaderProps) {
             align="end"
             className="w-72 glass-card rounded-xl shadow-elevated z-[1000] origin-top-right overflow-hidden"
           >
-            <div className="px-4 py-3 border-b border-border-subtle">
+            <div className="px-4 py-3 border-b border-border-subtle flex items-center gap-2">
               <h3 className="text-sm font-semibold text-tx-primary">Notifications</h3>
+              <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
+                Coming soon
+              </span>
             </div>
             <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
               <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
                 <BellOff size={18} className="text-tx-muted" />
               </div>
-              <p className="text-sm font-medium text-tx-primary mb-1">You&apos;re all caught up</p>
-              <p className="text-xs text-tx-muted leading-relaxed">No new notifications right now.</p>
+              <p className="text-sm font-medium text-tx-primary mb-1">Notifications are coming soon</p>
+              <p className="text-xs text-tx-muted leading-relaxed">
+                Budget and anomaly alerts will appear here in a future release.
+              </p>
             </div>
           </Popover>
         </div>

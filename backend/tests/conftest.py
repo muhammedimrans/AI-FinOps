@@ -154,6 +154,49 @@ async def client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
         yield ac
 
 
+@pytest.fixture
+async def auth_client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
+    """
+    Authenticated test client: bypasses JWT validation and the org-membership
+    guard so endpoint behavior can be tested in isolation. Authorization
+    semantics themselves are covered in tests/test_authz.py.
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.api.deps import get_db
+    from app.api.v1.usage import get_body_org_membership
+    from app.auth.dependencies import get_current_user, get_query_org_membership
+    from app.models.membership import Membership
+    from app.models.user import User
+
+    async def _mock_user() -> User:
+        user = MagicMock(spec=User)
+        user.email = "testuser@example.com"
+        return user
+
+    async def _mock_membership() -> Membership:
+        return MagicMock(spec=Membership)
+
+    async def _mock_db() -> AsyncGenerator[AsyncMock]:
+        yield AsyncMock()
+
+    app.dependency_overrides[get_current_user] = _mock_user
+    app.dependency_overrides[get_query_org_membership] = _mock_membership
+    app.dependency_overrides[get_body_org_membership] = _mock_membership
+    app.dependency_overrides[get_db] = _mock_db
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as ac:
+            yield ac
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+        app.dependency_overrides.pop(get_query_org_membership, None)
+        app.dependency_overrides.pop(get_body_org_membership, None)
+        app.dependency_overrides.pop(get_db, None)
+
+
 # ─── Model Factories ──────────────────────────────────────────────────────────
 # Canonical transient ORM instances for use across all test files.
 # These do NOT hit the database; they are plain Python objects.

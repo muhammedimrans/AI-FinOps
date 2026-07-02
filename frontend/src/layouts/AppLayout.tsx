@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import Sidebar from "./Sidebar";
@@ -6,6 +6,7 @@ import Header from "./Header";
 import CommandPalette from "../components/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
 import OnboardingModal from "../components/OnboardingModal";
+import { routeLabel } from "../lib/navigation";
 
 function PageSkeleton() {
   return (
@@ -24,10 +25,15 @@ function PageSkeleton() {
 export default function AppLayout() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
 
-  // Close the mobile drawer automatically whenever the route changes.
+  // Close the mobile drawer, reset scroll, and sync the document title
+  // whenever the route changes.
   useEffect(() => {
     setMobileNavOpen(false);
+    mainRef.current?.scrollTo(0, 0);
+    const label = routeLabel(location.pathname);
+    document.title = label ? `${label} · Costorah` : "Costorah — AI Cost Intelligence";
   }, [location.pathname]);
 
   return (
@@ -46,7 +52,7 @@ export default function AppLayout() {
       <Sidebar mobileOpen={mobileNavOpen} onCloseMobile={() => setMobileNavOpen(false)} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header onMenuClick={() => setMobileNavOpen(true)} />
-        <main id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
+        <main ref={mainRef} id="main-content" tabIndex={-1} className="flex-1 overflow-y-auto focus:outline-none">
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, y: 6 }}

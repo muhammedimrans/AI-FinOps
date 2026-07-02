@@ -222,6 +222,7 @@ export default function Overview() {
         subtitle="Total AI spending over time with provider breakdown"
         loading={timeSeries.isLoading}
         error={timeSeries.error ? "Failed to load" : null}
+        empty={chartData.length === 0}
         actions={
           <GranularityTabs
             value={granularity}
@@ -279,6 +280,7 @@ export default function Overview() {
           title="Provider Distribution"
           subtitle="Cost share by provider"
           loading={providers.isLoading}
+          empty={pieData.length === 0}
           minHeight={260}
           bodyClassName="flex flex-col sm:flex-row items-center gap-2"
         >
@@ -357,6 +359,7 @@ export default function Overview() {
           title="Top Models by Spend"
           subtitle="Highest cost AI models"
           loading={models.isLoading}
+          empty={topModels.length === 0}
           minHeight={260}
         >
           <ResponsiveContainer width="100%" height={260}>
@@ -415,6 +418,7 @@ export default function Overview() {
         title="Token Throughput"
         subtitle="Daily token volume across all providers"
         loading={timeSeries.isLoading}
+        empty={tokenChartData.length === 0}
         minHeight={220}
       >
         <ResponsiveContainer width="100%" height={220}>

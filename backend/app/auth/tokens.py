@@ -53,6 +53,10 @@ def decode_access_token(
         token,
         secret,
         algorithms=[s.jwt_algorithm],
+        # 30s leeway tolerates minor clock skew between distributed workers;
+        # required claims reject structurally incomplete tokens outright.
+        leeway=30,
+        options={"require": ["exp", "iat", "sub", "jti"]},
     )
     if payload.get("type") != "access":
         raise InvalidTokenError("Token type mismatch")

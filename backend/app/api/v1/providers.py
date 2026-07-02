@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
 
+from app.auth.dependencies import CurrentUser
 from app.models.provider_connection import ProviderType
 from app.providers.config import (
     AnthropicConfig,
@@ -137,7 +138,7 @@ def _get_adapter(pt: ProviderType, *, with_key: bool) -> AIProvider:
         "Does not stream or complete any request."
     ),
 )
-async def test_connection(provider: str) -> TestConnectionResponse:
+async def test_connection(provider: str, _user: CurrentUser) -> TestConnectionResponse:
     pt = _require_supported(provider)
     adapter = _get_adapter(pt, with_key=True)
     try:
@@ -175,7 +176,7 @@ async def test_connection(provider: str) -> TestConnectionResponse:
         "Requires the provider's API key to be set in the environment."
     ),
 )
-async def list_models(provider: str) -> ModelsResponse:
+async def list_models(provider: str, _user: CurrentUser) -> ModelsResponse:
     pt = _require_supported(provider)
     adapter = _get_adapter(pt, with_key=True)
     try:
@@ -206,7 +207,7 @@ async def list_models(provider: str) -> ModelsResponse:
         "and last-known health status. Does not make a live API call."
     ),
 )
-async def get_provider_info(provider: str) -> ProviderInfo:
+async def get_provider_info(provider: str, _user: CurrentUser) -> ProviderInfo:
     pt = _require_supported(provider)
     adapter = _get_adapter(pt, with_key=False)
     return adapter.get_provider_info(health=HealthStatus.UNKNOWN)

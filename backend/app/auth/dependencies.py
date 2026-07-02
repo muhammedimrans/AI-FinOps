@@ -5,6 +5,7 @@ Provides:
   RequirePermission    — dependency factory: checks a Permission against the caller's role
   CurrentOrganization  — resolves ``org_id`` path param to an Organization
   CurrentMembership    — resolves (CurrentUser, CurrentOrganization) to a Membership
+  OrgScopedMembership  — resolves ``organization_id`` QUERY param to a verified Membership
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import uuid
 from collections.abc import Callable
 from typing import Annotated, Any
 
-from fastapi import Depends, HTTPException, Request, Security, status
+from fastapi import Depends, HTTPException, Query, Request, Security, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 
@@ -22,10 +23,11 @@ from app.auth.rbac import Permission, has_permission
 from app.auth.tokens import decode_access_token
 from app.config.settings import Settings
 from app.models.membership import Membership
-from app.models.organization import Organization
+from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserStatus
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
+from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
@@ -59,6 +61,19 @@ async def get_current_user(
         user_id = uuid.UUID(user_id_str)
     except ValueError as exc:
         raise _401 from exc
+
+    # Reject access tokens whose session was revoked (logout / password reset)
+    # before the JWT itself expires — makes revocation effective immediately.
+    session_id_str: Any = claims.get("jti")
+    if not isinstance(session_id_str, str):
+        raise _401
+    try:
+        session_id = uuid.UUID(session_id_str)
+    except ValueError as exc:
+        raise _401 from exc
+    db_session = await SessionRepository(db).get_active(session_id)
+    if db_session is None:
+        raise _401
 
     repo = UserRepository(db)
     user = await repo.get(user_id)
@@ -117,11 +132,58 @@ async def _get_current_membership(
     return membership
 
 
+async def ensure_org_membership(
+    db: Any,  # noqa: ANN401 — AsyncSession; typed loosely so callers can pass DbDep
+    *,
+    user: User,
+    org_id: uuid.UUID,
+) -> Membership:
+    """Verify ``user`` is an active member of the active organization ``org_id``.
+
+    Multi-tenant guard: never trust a client-supplied organization id.
+      404 — organization does not exist (or is soft-deleted)
+      403 — organization is suspended/archived, or the user is not a member
+    Returns the Membership so callers can apply role/permission checks.
+    """
+    org = await OrganizationRepository(db).get(org_id)
+    if org is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found",
+        )
+    if org.status != OrganizationStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization is not active",
+        )
+    membership = await MembershipRepository(db).get_by_org_and_email(
+        org_id=org_id,
+        user_email=user.email,
+    )
+    if membership is None:
+        raise _403
+    return membership
+
+
+async def get_query_org_membership(
+    organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: DbDep,
+) -> Membership:
+    """Resolve the ``organization_id`` query parameter to a verified Membership.
+
+    Used by read APIs (dashboard, analytics, usage, pricing) that scope data by
+    an ``organization_id`` query parameter rather than a path parameter.
+    """
+    return await ensure_org_membership(db, user=current_user, org_id=organization_id)
+
+
 # ── Public type aliases for route handlers ────────────────────────────────────
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
 CurrentOrganization = Annotated[Organization, Depends(_get_current_org)]
 CurrentMembership = Annotated[Membership, Depends(_get_current_membership)]
+OrgScopedMembership = Annotated[Membership, Depends(get_query_org_membership)]
 
 
 def RequirePermission(permission: Permission) -> Callable[..., Any]:  # noqa: N802

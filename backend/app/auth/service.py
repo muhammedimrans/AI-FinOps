@@ -25,6 +25,7 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.session import Session
 from app.models.user import User, UserStatus
 from app.models.verification_token import VerificationToken
+from app.repositories.membership_repository import MembershipRepository
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
@@ -60,6 +61,7 @@ class AuthService:
         self._session_repo = SessionRepository(session)
         self._verify_repo = VerificationTokenRepository(session)
         self._reset_repo = PasswordResetTokenRepository(session)
+        self._membership_repo = MembershipRepository(session)
 
     # ── Login ─────────────────────────────────────────────────────────────────
 
@@ -79,6 +81,10 @@ class AuthService:
             raise InvalidCredentialsError
         if user.status == UserStatus.DISABLED:
             raise AccountDisabledError
+
+        # Activate any organization invitations created before this account
+        # existed (invite-by-email creates a Membership with user_id=None).
+        await self._membership_repo.link_pending_by_email(user.email, user.id)
 
         refresh_raw = generate_refresh_token()
         refresh_hash = hash_token(refresh_raw)

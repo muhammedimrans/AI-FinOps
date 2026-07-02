@@ -20,7 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -473,6 +473,7 @@ class TestAuthServiceLogin:
         svc._session_repo = AsyncMock()
         svc._verify_repo = AsyncMock()
         svc._reset_repo = AsyncMock()
+        svc._membership_repo = AsyncMock()
         return svc
 
     @pytest.mark.asyncio

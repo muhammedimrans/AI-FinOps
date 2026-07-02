@@ -1001,93 +1001,93 @@ class TestUsageAPI:
     }
 
     @pytest.mark.asyncio
-    async def test_collect_all_returns_202(self, client: Any) -> None:
+    async def test_collect_all_returns_202(self, auth_client: Any) -> None:
         run = _make_collection_run()
         run.started_at = _START
         run.completed_at = _END
 
         with patch("app.api.v1.usage._run_collection_sync", new_callable=AsyncMock) as mock_sync:
             mock_sync.return_value = run
-            resp = await client.post("/v1/usage/collect", json=self._COLLECT_BODY)
+            resp = await auth_client.post("/v1/usage/collect", json=self._COLLECT_BODY)
 
         assert resp.status_code == 202
 
     @pytest.mark.asyncio
-    async def test_collect_provider_openai_returns_202(self, client: Any) -> None:
+    async def test_collect_provider_openai_returns_202(self, auth_client: Any) -> None:
         run = _make_collection_run()
         run.started_at = _START
         run.completed_at = _END
 
         with patch("app.api.v1.usage._run_collection_sync", new_callable=AsyncMock) as mock_sync:
             mock_sync.return_value = run
-            resp = await client.post("/v1/usage/collect/openai", json=self._COLLECT_BODY)
+            resp = await auth_client.post("/v1/usage/collect/openai", json=self._COLLECT_BODY)
 
         assert resp.status_code == 202
 
     @pytest.mark.asyncio
-    async def test_collect_provider_anthropic_returns_202(self, client: Any) -> None:
+    async def test_collect_provider_anthropic_returns_202(self, auth_client: Any) -> None:
         run = _make_collection_run()
         run.started_at = _START
         run.completed_at = _END
 
         with patch("app.api.v1.usage._run_collection_sync", new_callable=AsyncMock) as mock_sync:
             mock_sync.return_value = run
-            resp = await client.post("/v1/usage/collect/anthropic", json=self._COLLECT_BODY)
+            resp = await auth_client.post("/v1/usage/collect/anthropic", json=self._COLLECT_BODY)
 
         assert resp.status_code == 202
 
     @pytest.mark.asyncio
-    async def test_collect_unsupported_provider_returns_404(self, client: Any) -> None:
-        resp = await client.post("/v1/usage/collect/gemini", json=self._COLLECT_BODY)
+    async def test_collect_unsupported_provider_returns_404(self, auth_client: Any) -> None:
+        resp = await auth_client.post("/v1/usage/collect/gemini", json=self._COLLECT_BODY)
         assert resp.status_code == 404
         data = resp.json()
         assert "gemini" in data["detail"]
 
     @pytest.mark.asyncio
-    async def test_list_events_returns_501(self, client: Any) -> None:
-        resp = await client.get(
+    async def test_list_events_returns_501(self, auth_client: Any) -> None:
+        resp = await auth_client.get(
             "/v1/usage/events", params={"organization_id": str(_ORG_ID)}
         )
         assert resp.status_code == 501
         assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_get_event_returns_404(self, client: Any) -> None:
+    async def test_get_event_returns_404(self, auth_client: Any) -> None:
         event_id = uuid.uuid4()
-        resp = await client.get(
+        resp = await auth_client.get(
             f"/v1/usage/events/{event_id}",
             params={"organization_id": str(_ORG_ID)},
         )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_list_runs_returns_501(self, client: Any) -> None:
-        resp = await client.get(
+    async def test_list_runs_returns_501(self, auth_client: Any) -> None:
+        resp = await auth_client.get(
             "/v1/usage/runs", params={"organization_id": str(_ORG_ID)}
         )
         assert resp.status_code == 501
         assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_get_run_returns_404(self, client: Any) -> None:
+    async def test_get_run_returns_404(self, auth_client: Any) -> None:
         run_id = uuid.uuid4()
-        resp = await client.get(
+        resp = await auth_client.get(
             f"/v1/usage/runs/{run_id}",
             params={"organization_id": str(_ORG_ID)},
         )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_list_checkpoints_returns_501(self, client: Any) -> None:
-        resp = await client.get(
+    async def test_list_checkpoints_returns_501(self, auth_client: Any) -> None:
+        resp = await auth_client.get(
             "/v1/usage/checkpoints", params={"organization_id": str(_ORG_ID)}
         )
         assert resp.status_code == 501
         assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_provider_status_openai_returns_501(self, client: Any) -> None:
-        resp = await client.get(
+    async def test_provider_status_openai_returns_501(self, auth_client: Any) -> None:
+        resp = await auth_client.get(
             "/v1/usage/providers/openai/status",
             params={"organization_id": str(_ORG_ID)},
         )
@@ -1095,30 +1095,30 @@ class TestUsageAPI:
         assert "EP-09" in resp.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_provider_status_unsupported_returns_404(self, client: Any) -> None:
-        resp = await client.get(
+    async def test_provider_status_unsupported_returns_404(self, auth_client: Any) -> None:
+        resp = await auth_client.get(
             "/v1/usage/providers/grok/status",
             params={"organization_id": str(_ORG_ID)},
         )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_collect_missing_organization_id_returns_422(self, client: Any) -> None:
+    async def test_collect_missing_organization_id_returns_422(self, auth_client: Any) -> None:
         body = {
             "start_date": _START.isoformat(),
             "end_date": _END.isoformat(),
         }
-        resp = await client.post("/v1/usage/collect", json=body)
+        resp = await auth_client.post("/v1/usage/collect", json=body)
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_collect_end_before_start_returns_422(self, client: Any) -> None:
+    async def test_collect_end_before_start_returns_422(self, auth_client: Any) -> None:
         body = {
             "organization_id": str(_ORG_ID),
             "start_date": _END.isoformat(),
             "end_date": _START.isoformat(),  # end < start
         }
-        resp = await client.post("/v1/usage/collect", json=body)
+        resp = await auth_client.post("/v1/usage/collect", json=body)
         assert resp.status_code == 422
 
 

@@ -166,6 +166,54 @@ class TestDashboardOrgScoping:
             app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
+    async def test_usage_collect_unauthenticated_is_401(self, app: Any) -> None:
+        """Collection triggers hit live provider APIs — must never be anonymous."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post(
+                "/v1/usage/collect",
+                json={
+                    "organization_id": str(_ORG_ID),
+                    "start_date": "2026-06-01T00:00:00Z",
+                    "end_date": "2026-06-02T00:00:00Z",
+                },
+            )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_provider_test_connection_unauthenticated_is_401(self, app: Any) -> None:
+        """Provider connectivity tests use server-side API keys — must never be anonymous."""
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post("/v1/providers/openai/test")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_provider_info_unauthenticated_is_401(self, app: Any) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.get("/v1/providers/openai/info")
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_usage_events_unauthenticated_is_401(self, app: Any) -> None:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.get(
+                "/v1/usage/events", params={"organization_id": str(_ORG_ID)}
+            )
+        assert resp.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_pricing_models_non_member_is_403(self, app: Any) -> None:
+        try:
+            async with self._client(app, org=_org(), membership=None) as ac:
+                with _patch_repos(org=_org(), membership=None):
+                    resp = await ac.get(
+                        "/v1/pricing/models",
+                        params={"organization_id": str(_ORG_ID)},
+                    )
+            assert resp.status_code == 403
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
     async def test_analytics_non_member_is_403(self, app: Any) -> None:
         try:
             async with self._client(app, org=_org(), membership=None) as ac:

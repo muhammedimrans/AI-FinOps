@@ -942,8 +942,8 @@ class TestProvidersAPI:
     """Tests for the /v1/providers API endpoints using ASGI test client."""
 
     @pytest.mark.asyncio
-    async def test_info_openai(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/openai/info")
+    async def test_info_openai(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/openai/info")
         assert resp.status_code == 200
         body = resp.json()
         assert body["provider"] == "openai"
@@ -951,26 +951,26 @@ class TestProvidersAPI:
         assert "api_version" in body
 
     @pytest.mark.asyncio
-    async def test_info_anthropic(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/anthropic/info")
+    async def test_info_anthropic(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/anthropic/info")
         assert resp.status_code == 200
         body = resp.json()
         assert body["provider"] == "anthropic"
         assert body["api_version"] == "2023-06-01"
 
     @pytest.mark.asyncio
-    async def test_info_unsupported_provider_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/fakeprovider/info")
+    async def test_info_unsupported_provider_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/fakeprovider/info")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_test_endpoint_unsupported_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.post("/v1/providers/fakeprovider/test")
+    async def test_test_endpoint_unsupported_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.post("/v1/providers/fakeprovider/test")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_models_endpoint_unsupported_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/fakeprovider/models")
+    async def test_models_endpoint_unsupported_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/fakeprovider/models")
         assert resp.status_code == 404
 
 
@@ -1191,28 +1191,28 @@ class TestProvidersAPIHardened:
     """
 
     @pytest.mark.asyncio
-    async def test_grok_info_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/grok/info")
+    async def test_grok_info_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/grok/info")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_azure_openai_info_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.get("/v1/providers/azure_openai/info")
+    async def test_azure_openai_info_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.get("/v1/providers/azure_openai/info")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_grok_test_returns_404(self, client) -> None:  # type: ignore[no-untyped-def]
-        resp = await client.post("/v1/providers/grok/test")
+    async def test_grok_test_returns_404(self, auth_client) -> None:  # type: ignore[no-untyped-def]
+        resp = await auth_client.post("/v1/providers/grok/test")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_openai_test_without_key_returns_401(self, client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    async def test_openai_test_without_key_returns_401(self, auth_client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        resp = await client.post("/v1/providers/openai/test")
+        resp = await auth_client.post("/v1/providers/openai/test")
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
-    async def test_anthropic_test_without_key_returns_401(self, client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    async def test_anthropic_test_without_key_returns_401(self, auth_client, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        resp = await client.post("/v1/providers/anthropic/test")
+        resp = await auth_client.post("/v1/providers/anthropic/test")
         assert resp.status_code == 401

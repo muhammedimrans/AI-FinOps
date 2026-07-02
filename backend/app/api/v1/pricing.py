@@ -9,9 +9,10 @@ POST /pricing/models          — create a new pricing record (admin)
 
 Authentication
 --------------
-Endpoints require a valid JWT (CurrentUser). Org membership verification
-is deferred to EP-10 — for now we validate the JWT and trust the
-organization_id query/body parameter.
+All endpoints require a valid JWT. Org-scoped endpoints additionally verify
+membership of the requested organization (OrgScopedMembership). The pricing
+catalog itself (calculate/providers/create) is platform-wide, not org-scoped;
+full BILLING_WRITE RBAC on create remains deferred.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query, status
 
 from app.api.deps import DbDep
-from app.auth.dependencies import CurrentUser
+from app.auth.dependencies import CurrentUser, OrgScopedMembership
 from app.db.mixins import uuid7
 from app.models.model_pricing import ModelPricing
 from app.pricing.engine import PricingEngine, PricingNotFoundError
@@ -114,8 +115,7 @@ async def calculate_price(
 )
 async def list_model_pricing(
     db: DbDep,
-    _user: CurrentUser,
-    # NOTE: org membership verification is deferred to EP-10.
+    _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID (required)")],
     provider: Annotated[str | None, Query()] = None,
     model: Annotated[str | None, Query()] = None,

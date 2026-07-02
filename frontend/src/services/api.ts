@@ -276,6 +276,65 @@ export async function getProviderModels(provider: string): Promise<ProviderModel
   return get<ProviderModelsResponse>(`/v1/providers/${provider}/models`);
 }
 
+// ── Pricing catalog + calculator (EP-09) ─────────────────────────────────────
+
+export interface ModelPricingRecord {
+  id: string;
+  external_id: string;
+  provider: string;
+  model: string;
+  version: string;
+  currency: string;
+  effective_from: string;
+  effective_to: string | null;
+  prompt_token_price: string;
+  completion_token_price: string;
+  cached_token_price: string | null;
+  is_active: boolean;
+}
+
+export interface ModelPricingListResponse {
+  items: ModelPricingRecord[];
+  total: number;
+  has_more: boolean;
+}
+
+export interface PriceCalculationResult {
+  provider: string;
+  model: string;
+  currency: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number | null;
+  total_tokens: number;
+  prompt_cost: string;
+  completion_cost: string;
+  cached_cost: string | null;
+  total_cost: string;
+  pricing_date: string;
+}
+
+export async function listModelPricing(organizationId: string, limit = 100): Promise<ModelPricingListResponse> {
+  return get<ModelPricingListResponse>("/v1/pricing/models", {
+    organization_id: organizationId,
+    limit: String(limit),
+  });
+}
+
+export async function listPricingProviders(): Promise<string[]> {
+  return get<string[]>("/v1/pricing/providers");
+}
+
+export async function calculatePrice(body: {
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens?: number;
+}): Promise<PriceCalculationResult> {
+  return post<PriceCalculationResult>("/v1/pricing/calculate", body);
+}
+
 // ── Dashboard params ──────────────────────────────────────────────────────────
 
 export interface OverviewParams {

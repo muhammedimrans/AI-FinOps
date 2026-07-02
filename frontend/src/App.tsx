@@ -19,6 +19,7 @@ const Organization = lazy(() => import("./features/Organization"));
 const Settings     = lazy(() => import("./features/Settings"));
 const Support      = lazy(() => import("./features/Support"));
 const Connections  = lazy(() => import("./features/Connections"));
+const Pricing      = lazy(() => import("./features/Pricing"));
 const Placeholder  = lazy(() => import("./features/Placeholder"));
 const NotFound     = lazy(() => import("./features/NotFound"));
 
@@ -99,6 +100,7 @@ export default function App() {
           <Route path="models"       element={<Page><Models /></Page>} />
           <Route path="projects"     element={<Page><Projects /></Page>} />
           <Route path="organization" element={<Page><Organization /></Page>} />
+          <Route path="pricing"      element={<Page><Pricing /></Page>} />
         </Route>
         <Route path="users"       element={<Page><Placeholder title="Users" /></Page>} />
         <Route path="rbac"        element={<Page><Placeholder title="RBAC" description="Role-based access control management. Backend auth & RBAC (EP-05) is fully implemented." /></Page>} />

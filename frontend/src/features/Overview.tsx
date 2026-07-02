@@ -141,6 +141,11 @@ export default function Overview() {
     value: parseFloat(p.total_cost),
   }));
 
+  const tokenChartData = tsData.slice(-14).map((d) => ({
+    date: formatDate(d.date),
+    tokens: d.total_tokens,
+  }));
+
   const topModels = [...modelList]
     .sort((a, b) => parseFloat(b.total_cost) - parseFloat(a.total_cost))
     .slice(0, 8)
@@ -403,6 +408,73 @@ export default function Overview() {
           </ResponsiveContainer>
         </ChartCard>
       </div>
+
+      {/* Token Throughput */}
+      <ChartCard
+        title="Token Throughput"
+        subtitle="Daily token volume across all providers"
+        loading={timeSeries.isLoading}
+        minHeight={220}
+      >
+        <ResponsiveContainer width="100%" height={220}>
+          <BarChart data={tokenChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+            <XAxis
+              dataKey="date"
+              tick={{ fill: chrome.axis, fontSize: 11 }}
+              axisLine={false}
+              tickLine={false}
+              interval="preserveStartEnd"
+            />
+            <YAxis
+              tick={{ fill: chrome.axis, fontSize: 10 }}
+              axisLine={false}
+              tickLine={false}
+              tickFormatter={(v: number) => formatTokens(v)}
+              width={48}
+            />
+            <Tooltip
+              formatter={(v: number) => formatTokens(v)}
+              contentStyle={tooltipStyle}
+              itemStyle={{ color: chrome.text }}
+              labelStyle={{ color: chrome.text }}
+              cursor={{ fill: "rgb(var(--color-brand) / 0.06)" }}
+            />
+            <Bar dataKey="tokens" name="Tokens" fill={chrome.brand} radius={[4, 4, 0, 0]} animationDuration={800} animationEasing="ease-out" />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      {/* Per-provider quick stats */}
+      <Section title="Provider Snapshot" description={`${formatNumber(kpi?.total_requests ?? 0)} total requests in the current period`}>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-6">
+          {providers.isLoading
+            ? Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="rounded-xl border border-border-subtle p-3 h-[72px] skeleton" />
+              ))
+            : providerList.map((p) => (
+                <motion.div
+                  key={p.provider}
+                  whileHover={{ y: -2 }}
+                  className="rounded-xl border border-border-subtle bg-app-bg p-3 transition-shadow duration-base hover:shadow-card"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ background: PROVIDER_COLORS[p.provider] ?? chrome.primary }}
+                    />
+                    <span className="truncate text-xs font-medium text-tx-secondary">
+                      {providerDisplayName(p.provider)}
+                    </span>
+                  </div>
+                  <p className="mt-2 font-display text-base font-semibold text-tx-primary tabular-nums">
+                    {formatNumber(p.request_count, true)}
+                  </p>
+                  <p className="text-[10px] text-tx-muted">{p.cost_share_pct}% of spend</p>
+                </motion.div>
+              ))}
+        </div>
+      </Section>
 
       {/* Recent Activity */}
       <Section

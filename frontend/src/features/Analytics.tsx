@@ -24,6 +24,7 @@ import { motion } from "framer-motion";
 import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
+import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useTimeSeries, useModels } from "../hooks/useDashboard";
@@ -279,41 +280,36 @@ export default function Analytics() {
       </ChartCard>
 
       {/* Data Table */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between px-5 py-4 border-b border-border-subtle gap-3">
-          <div>
-            <h3 className="text-sm font-semibold text-tx-primary">Model Breakdown</h3>
-            <p className="text-xs text-tx-muted mt-0.5">{tableData.length} models</p>
-          </div>
-          <div className="flex items-center gap-2 sm:flex-1 sm:max-w-sm">
-            <div className="relative flex-1">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-muted" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search models…"
-                className="w-full bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
-              />
+      <Section
+        title="Model Breakdown"
+        description={`${tableData.length} models`}
+        actions={
+          <>
+            <div className="flex items-center gap-2 w-full sm:flex-1 sm:w-auto sm:max-w-sm">
+              <div className="relative flex-1 min-w-0">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-muted" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search models…"
+                  className="w-full bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
+                />
+              </div>
+              <button onClick={exportCSV} className="btn-outline h-8 text-xs px-3 flex-shrink-0">
+                <Download size={13} />
+                CSV
+              </button>
             </div>
-            <button onClick={exportCSV} className="btn-outline h-8 text-xs px-3 flex-shrink-0">
-              <Download size={13} />
-              CSV
-            </button>
-          </div>
-          <select
-            value={pagination.pageSize}
-            onChange={(e) => setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Number(e.target.value) }))}
-            className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none self-start sm:self-auto"
-          >
-            {[10, 25, 50].map((n) => <option key={n} value={n}>{n} rows</option>)}
-          </select>
-        </div>
-
+            <select
+              value={pagination.pageSize}
+              onChange={(e) => setPagination((p) => ({ ...p, pageIndex: 0, pageSize: Number(e.target.value) }))}
+              className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none self-start sm:self-auto"
+            >
+              {[10, 25, 50].map((n) => <option key={n} value={n}>{n} rows</option>)}
+            </select>
+          </>
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full data-table">
             <thead>
@@ -394,7 +390,7 @@ export default function Analytics() {
             ))}
           </div>
         </div>
-      </motion.div>
+      </Section>
     </div>
   );
 }

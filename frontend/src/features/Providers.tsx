@@ -14,6 +14,7 @@ import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
+import Section from "../components/Section";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useProviders, useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
@@ -237,16 +238,7 @@ export default function Providers() {
       </ChartCard>
 
       {/* Models by provider table */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-        <div className="px-5 py-4 border-b border-border-subtle">
-          <h3 className="text-sm font-semibold text-tx-primary">All Models</h3>
-          <p className="text-xs text-tx-muted mt-0.5">All active models across providers</p>
-        </div>
+      <Section title="All Models" description="All active models across providers">
         <div className="overflow-x-auto">
           <table className="w-full data-table">
             <thead>
@@ -287,7 +279,7 @@ export default function Providers() {
             </tbody>
           </table>
         </div>
-      </motion.div>
+      </Section>
     </div>
   );
 }

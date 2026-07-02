@@ -19,6 +19,7 @@ import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import PageHeader from "../components/PageHeader";
+import Section from "../components/Section";
 import {
   useOverview,
   useTimeSeries,
@@ -404,25 +405,20 @@ export default function Overview() {
       </div>
 
       {/* Recent Activity */}
-      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <div className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden">
-          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
-            <div>
-              <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
-                <Clock size={14} className="text-tx-muted" />
-                Recent Activity
-              </h3>
-              <p className="text-xs text-tx-muted mt-0.5">Latest AI API calls across all providers</p>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="relative flex w-2 h-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-                <span className="relative inline-flex rounded-full w-2 h-2 bg-success" />
-              </span>
-              <span className="text-xs text-tx-muted">Live</span>
-            </div>
+      <Section
+        title="Recent Activity"
+        description="Latest AI API calls across all providers"
+        icon={Clock}
+        actions={
+          <div className="flex items-center gap-1.5">
+            <span className="relative flex w-2 h-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+              <span className="relative inline-flex rounded-full w-2 h-2 bg-success" />
+            </span>
+            <span className="text-xs text-tx-muted">Live</span>
           </div>
+        }
+      >
           <div className="overflow-x-auto">
             <table className="w-full data-table">
               <thead>
@@ -466,8 +462,7 @@ export default function Overview() {
               </tbody>
             </table>
           </div>
-        </div>
-      </motion.div>
+      </Section>
     </div>
   );
 }

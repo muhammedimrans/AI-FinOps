@@ -10,10 +10,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { motion } from "framer-motion";
 import { Medal, Search } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
+import Section from "../components/Section";
 import ProviderBadge, { PROVIDER_COLORS } from "../components/ProviderBadge";
 import { useModels } from "../hooks/useDashboard";
 import { formatCost, formatNumber, formatTokens, modelDisplayName, cn } from "../utils";
@@ -109,20 +109,12 @@ export default function Models() {
       <PageHeader title="Models" description="Rank every model by spend and evaluate cost efficiency." />
 
       {/* Leaderboard */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="glass-card rounded-card-lg border border-border-subtle relative overflow-hidden"
-      >
-        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-4 border-b border-border-subtle">
-          <div>
-            <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
-              <Medal size={14} className="text-warning" />
-              Model Leaderboard
-            </h3>
-            <p className="text-xs text-tx-muted mt-0.5">Ranked by total spend</p>
-          </div>
+      <Section
+        title="Model Leaderboard"
+        description="Ranked by total spend"
+        icon={Medal}
+        iconClassName="text-warning"
+        actions={
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-muted" />
             <input
@@ -132,8 +124,8 @@ export default function Models() {
               className="w-full sm:w-48 bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
             />
           </div>
-        </div>
-
+        }
+      >
         <div className="overflow-x-auto">
           <table className="w-full data-table">
             <thead>
@@ -198,7 +190,7 @@ export default function Models() {
             </tbody>
           </table>
         </div>
-      </motion.div>
+      </Section>
 
       {/* Performance Matrix */}
       <ChartCard

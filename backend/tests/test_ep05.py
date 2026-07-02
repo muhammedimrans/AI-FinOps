@@ -182,13 +182,13 @@ class TestJWTTokens:
 
         import jwt
 
-        now = int(time.time()) - 10
+        now = int(time.time()) - 120
         payload = {
             "sub": "uid",
             "jti": "sid",
             "email": "x@x.com",
             "iat": now,
-            "exp": now - 1,
+            "exp": now - 1,  # 2 minutes past — beyond the 30s clock-skew leeway
             "type": "access",
         }
         token = jwt.encode(payload, _TEST_SECRET, algorithm="HS256")

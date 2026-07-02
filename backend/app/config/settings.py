@@ -91,7 +91,9 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("JWT_SECRET", "jwt_secret"),
     )
-    jwt_algorithm: str = Field(
+    # Restricted to HMAC variants — prevents configuration-driven downgrade
+    # to "none" or accidental asymmetric-key misconfiguration.
+    jwt_algorithm: Literal["HS256", "HS384", "HS512"] = Field(
         default="HS256",
         validation_alias=AliasChoices("JWT_ALGORITHM", "jwt_algorithm"),
     )

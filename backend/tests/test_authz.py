@@ -114,6 +114,84 @@ class TestEnsureOrgMembership:
         )
 
 
+class TestAccessTokenRevocation:
+    """Access tokens must die with their session (logout / password reset)."""
+
+    def _token_and_settings(self) -> tuple[str, Any]:
+        from app.auth.tokens import create_access_token
+        from app.config.settings import Settings
+
+        settings = Settings(
+            app_env="testing",
+            app_secret_key="test-secret-key-with-at-least-32-chars!!",
+            jwt_secret="test-jwt-secret-for-unit-tests-only!!",
+        )
+        token = create_access_token(
+            user_id=str(uuid.uuid4()),
+            session_id=str(uuid.uuid4()),
+            email="member@example.com",
+            settings=settings,
+        )
+        return token, settings
+
+    @pytest.mark.asyncio
+    async def test_revoked_session_returns_401(self) -> None:
+        from app.auth.dependencies import get_current_user
+
+        token, settings = self._token_and_settings()
+        session_repo = MagicMock()
+        session_repo.get_active = AsyncMock(return_value=None)  # revoked/expired
+        with patch("app.auth.dependencies.SessionRepository", return_value=session_repo):
+            with pytest.raises(Exception) as exc:
+                await get_current_user(token=token, db=AsyncMock(), settings=settings)
+        assert getattr(exc.value, "status_code", None) == 401
+
+    @pytest.mark.asyncio
+    async def test_active_session_passes(self) -> None:
+        from app.auth.dependencies import get_current_user
+        from app.models.session import Session
+
+        token, settings = self._token_and_settings()
+        session_repo = MagicMock()
+        session_repo.get_active = AsyncMock(return_value=MagicMock(spec=Session))
+        user_repo = MagicMock()
+        active_user = _user()
+        active_user.status = MagicMock()
+        user_repo.get = AsyncMock(return_value=active_user)
+        with (
+            patch("app.auth.dependencies.SessionRepository", return_value=session_repo),
+            patch("app.auth.dependencies.UserRepository", return_value=user_repo),
+        ):
+            result = await get_current_user(token=token, db=AsyncMock(), settings=settings)
+        assert result is active_user
+
+    @pytest.mark.asyncio
+    async def test_token_missing_jti_rejected(self) -> None:
+        """Structurally incomplete tokens fail decode (required claims)."""
+        import jwt as pyjwt
+
+        from app.auth.dependencies import get_current_user
+        from app.config.settings import Settings
+
+        settings = Settings(
+            app_env="testing",
+            app_secret_key="test-secret-key-with-at-least-32-chars!!",
+            jwt_secret="test-jwt-secret-for-unit-tests-only!!",
+        )
+        import time as _time
+
+        now = int(_time.time())
+        token = pyjwt.encode(
+            {"sub": str(uuid.uuid4()), "email": "x@x.com", "iat": now,
+             "exp": now + 300, "type": "access"},
+            settings.jwt_secret.get_secret_value(),
+            algorithm="HS256",
+        )
+        with pytest.raises(Exception) as exc:
+            await get_current_user(token=token, db=AsyncMock(), settings=settings)
+        assert getattr(exc.value, "status_code", None) == 401
+
+
 class TestDashboardOrgScoping:
     """API-level tests: the dashboard endpoints run the membership guard."""
 

@@ -27,6 +27,7 @@ from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserStatus
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_repository import OrganizationRepository
+from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
@@ -60,6 +61,19 @@ async def get_current_user(
         user_id = uuid.UUID(user_id_str)
     except ValueError as exc:
         raise _401 from exc
+
+    # Reject access tokens whose session was revoked (logout / password reset)
+    # before the JWT itself expires — makes revocation effective immediately.
+    session_id_str: Any = claims.get("jti")
+    if not isinstance(session_id_str, str):
+        raise _401
+    try:
+        session_id = uuid.UUID(session_id_str)
+    except ValueError as exc:
+        raise _401 from exc
+    db_session = await SessionRepository(db).get_active(session_id)
+    if db_session is None:
+        raise _401
 
     repo = UserRepository(db)
     user = await repo.get(user_id)

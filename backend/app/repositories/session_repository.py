@@ -21,6 +21,21 @@ class SessionRepository(BaseRepository[Session]):
     def __init__(self, session: AsyncSession) -> None:
         super().__init__(session)
 
+    async def get_active(self, session_id: uuid.UUID) -> Session | None:
+        """Return the non-revoked, non-expired, non-deleted Session by id.
+
+        Used by get_current_user to reject access tokens whose session was
+        revoked (logout, password reset) before the JWT itself expires.
+        """
+        now = datetime.now(UTC)
+        stmt = self._active_query().where(
+            Session.id == session_id,
+            Session.revoked_at.is_(None),
+            Session.expires_at > now,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_active_by_token_hash(self, token_hash: str) -> Session | None:
         """Return a non-revoked, non-expired, non-deleted Session by refresh token hash."""
         now = datetime.now(UTC)

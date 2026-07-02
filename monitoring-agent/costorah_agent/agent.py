@@ -48,6 +48,7 @@ class Agent:
         config: AgentConfig,
         *,
         registry: CollectorRegistry | None = None,
+        http_client: HttpClient | None = None,
     ) -> None:
         self.config = config
         self._registry = registry or get_default_registry()
@@ -60,7 +61,7 @@ class Agent:
         self._queue = EventQueue(config.queue.max_memory_events, self._store)
 
         api_key = self._resolve_api_key()
-        self._http_client = HttpClient(
+        self._http_client = http_client or HttpClient(
             endpoint=config.server.endpoint,
             api_key=api_key,
             timeout_seconds=config.server.timeout_seconds,

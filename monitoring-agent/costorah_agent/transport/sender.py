@@ -97,13 +97,9 @@ class Sender:
     async def _drain_due_retries(self) -> None:
         due = await self._store.dequeue_due(limit=self._batch_size)
         for queued in due:
-            await self._attempt_delivery(
-                queued.id, queued.payload, attempt=queued.attempts + 1
-            )
+            await self._attempt_delivery(queued.id, queued.payload, attempt=queued.attempts + 1)
 
-    async def _attempt_delivery(
-        self, event_id: str, payload: dict[str, Any], attempt: int
-    ) -> None:
+    async def _attempt_delivery(self, event_id: str, payload: dict[str, Any], attempt: int) -> None:
         provider = payload.get("provider")
         start = time.monotonic()
         result = await self._http_client.send_usage_event(payload)

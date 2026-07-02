@@ -53,12 +53,14 @@ class HttpClient:
         api_key: str,
         timeout_seconds: float = 10.0,
         verify_tls: bool = True,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._endpoint = endpoint.rstrip("/")
         self._api_key = api_key
         self._client = httpx.AsyncClient(
             timeout=timeout_seconds,
             verify=verify_tls,
+            transport=transport,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",

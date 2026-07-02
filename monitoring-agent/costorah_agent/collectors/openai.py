@@ -35,10 +35,12 @@ _USAGE_URL = "https://api.openai.com/v1/organization/usage/completions"
 class OpenAICollector(BaseCollector):
     name = "openai"
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self, config: dict[str, Any], *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         super().__init__(config)
         self._api_key = env_or_config(config, "api_key", "OPENAI_API_KEY")
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=10.0, transport=transport)
         self._last_start_time = int(time.time()) - 300  # look back 5 min on first poll
         self._last_collected_at: datetime | None = None
         self._last_error: str | None = None
@@ -91,9 +93,7 @@ class OpenAICollector(BaseCollector):
         return NormalizedUsageEvent(
             provider="openai",
             model=model,
-            request_id=deterministic_request_id(
-                "openai", str(start_time), str(end_time), model
-            ),
+            request_id=deterministic_request_id("openai", str(start_time), str(end_time), model),
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             total_tokens=input_tokens + output_tokens,
@@ -109,9 +109,7 @@ class OpenAICollector(BaseCollector):
             enabled=True,
             healthy=self._api_key is not None and self._last_error is None,
             detail=(
-                "OPENAI_API_KEY not configured"
-                if not self._api_key
-                else (self._last_error or "ok")
+                "OPENAI_API_KEY not configured" if not self._api_key else (self._last_error or "ok")
             ),
             last_collected_at=self._last_collected_at,
             events_collected_total=self._events_collected_total,

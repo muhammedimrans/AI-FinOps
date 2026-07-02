@@ -33,10 +33,12 @@ _NO_USAGE_API_DETAIL = (
 class OllamaCollector(BaseCollector):
     name = "ollama"
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self, config: dict[str, Any], *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         super().__init__(config)
         self._base_url = str(config.get("base_url", _DEFAULT_BASE_URL)).rstrip("/")
-        self._client = httpx.AsyncClient(timeout=5.0)
+        self._client = httpx.AsyncClient(timeout=5.0, transport=transport)
         self._last_reachable: bool | None = None
         self._last_checked_at: datetime | None = None
 

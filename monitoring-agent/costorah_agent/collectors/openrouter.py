@@ -32,10 +32,12 @@ _KEY_INFO_URL = "https://openrouter.ai/api/v1/auth/key"
 class OpenRouterCollector(BaseCollector):
     name = "openrouter"
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self, config: dict[str, Any], *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         super().__init__(config)
         self._api_key = env_or_config(config, "api_key", "OPENROUTER_API_KEY")
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=10.0, transport=transport)
         self._last_usage: float | None = None
         self._last_collected_at: datetime | None = None
         self._last_error: str | None = None

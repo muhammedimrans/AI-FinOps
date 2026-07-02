@@ -31,10 +31,12 @@ _ANTHROPIC_VERSION = "2023-06-01"
 class AnthropicCollector(BaseCollector):
     name = "anthropic"
 
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(
+        self, config: dict[str, Any], *, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         super().__init__(config)
         self._admin_key = env_or_config(config, "admin_api_key", "ANTHROPIC_ADMIN_KEY")
-        self._client = httpx.AsyncClient(timeout=10.0)
+        self._client = httpx.AsyncClient(timeout=10.0, transport=transport)
         self._last_collected_at: datetime | None = None
         self._last_error: str | None = None
 

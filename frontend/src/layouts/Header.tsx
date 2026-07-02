@@ -11,25 +11,10 @@ import {
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { routeLabel } from "../lib/navigation";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import Popover from "../components/Popover";
 import type { Currency } from "../types/api";
-
-const ROUTE_LABELS: Record<string, string> = {
-  "/dashboard":              "Overview",
-  "/dashboard/analytics":    "Cost Analytics",
-  "/dashboard/providers":    "Providers",
-  "/dashboard/models":       "Models",
-  "/dashboard/projects":     "Projects",
-  "/dashboard/organization": "Organization",
-  "/users":                  "Users",
-  "/rbac":                   "RBAC",
-  "/api-keys":               "API Keys",
-  "/connections":            "Provider Connections",
-  "/audit-logs":             "Audit Logs",
-  "/settings":               "Settings",
-  "/support":                "Support",
-};
 
 const DATE_PRESETS = [
   { label: "Today",     value: "today",     start: () => getToday(),                              end: () => getToday() },
@@ -59,7 +44,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const currencyRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const pageLabel = ROUTE_LABELS[location.pathname] ?? "Dashboard";
+  const pageLabel = routeLabel(location.pathname) ?? "Dashboard";
   const breadcrumb = location.pathname.split("/").filter(Boolean);
   const currentPreset = DATE_PRESETS.find((p) => p.value === datePreset);
 

@@ -45,3 +45,15 @@ export const NAV_GROUPS = ["Analytics", "Admin", "System"];
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
   return item.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.to);
 }
+
+// Where the header/title label should differ from the (shorter) sidebar label.
+const ROUTE_LABEL_OVERRIDES: Record<string, string> = {
+  "/connections": "Provider Connections",
+};
+
+/** Human-readable label for a route, shared by the header breadcrumb and document title. */
+export function routeLabel(pathname: string): string | null {
+  const override = ROUTE_LABEL_OVERRIDES[pathname];
+  if (override) return override;
+  return NAV_ITEMS.find((n) => n.to === pathname)?.label ?? null;
+}

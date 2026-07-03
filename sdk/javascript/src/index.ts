@@ -24,3 +24,17 @@ export type { Logger, LogLevel } from "./logging.js";
 export { SUPPORTED_PROVIDERS } from "./types.js";
 export type { Provider, TrackParams, TrackResult, UsageStatus } from "./types.js";
 export { VERSION } from "./version.js";
+
+export { BaseInstrumentor, InstrumentationError } from "./instrumentation/base.js";
+export type { ExtractedUsage, InstrumentorOptions } from "./instrumentation/base.js";
+export { AnthropicInstrumentor } from "./instrumentation/anthropic.js";
+export { AzureOpenAIInstrumentor } from "./instrumentation/azureOpenai.js";
+export { BedrockInstrumentor } from "./instrumentation/bedrock.js";
+export { CohereInstrumentor } from "./instrumentation/cohere.js";
+export { GeminiInstrumentor } from "./instrumentation/google.js";
+export { GrokInstrumentor } from "./instrumentation/grok.js";
+export { MistralInstrumentor } from "./instrumentation/mistral.js";
+export { OllamaInstrumentor } from "./instrumentation/ollama.js";
+export { OpenAIInstrumentor } from "./instrumentation/openai.js";
+export { OpenAICompatibleInstrumentor } from "./instrumentation/openaiCompatible.js";
+export { OpenRouterInstrumentor } from "./instrumentation/openrouter.js";

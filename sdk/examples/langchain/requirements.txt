@@ -1,0 +1,3 @@
+costorah
+langchain-core
+langchain-openai

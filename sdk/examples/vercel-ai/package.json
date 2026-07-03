@@ -1,0 +1,13 @@
+{
+  "name": "costorah-vercel-ai-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node app.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.0",
+    "@costorah/sdk": "^1.0.0",
+    "ai": "^5.0.0"
+  }
+}

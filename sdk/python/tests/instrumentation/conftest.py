@@ -35,14 +35,23 @@ def captured_submissions(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     import costorah.instrumentation.google as google_mod
     import costorah.instrumentation.mistral as mistral_mod
 
-    for mod in (
+    modules = [
         openai_compat,
         anthropic_mod,
         google_mod,
         mistral_mod,
         cohere_mod,
         bedrock_mod,
-    ):
+    ]
+
+    try:
+        import costorah.instrumentation.langchain as langchain_mod
+    except ImportError:
+        pass
+    else:
+        modules.append(langchain_mod)
+
+    for mod in modules:
         monkeypatch.setattr(mod, "submit", fake_submit)
 
     return captured

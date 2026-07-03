@@ -29,9 +29,25 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
+    "pytest-asyncio>=0.23",
     "pytest-cov",
     "ruff",
     "mypy",
+    # Provider SDKs — only needed to run costorah.instrumentation's test
+    # suite against the real packages (via monkeypatching, no live API
+    # calls). NOT required to import or use costorah.instrumentation
+    # itself, which imports each provider package lazily inside its own
+    # instrument() call. mistralai is pinned: 2.x's package layout moved
+    # `Mistral`/`Chat` under a namespace-package structure incompatible
+    # with the documented `from mistralai import Mistral` usage this
+    # instrumentor (and Mistral's own docs) targets; 1.9.11 is the last
+    # release with the stable, documented shape.
+    "openai>=1.0",
+    "anthropic>=0.40",
+    "google-genai>=0.1",
+    "mistralai==1.9.11",
+    "cohere>=5.0",
+    "boto3>=1.34",
 ]
 
 [project.urls]
@@ -58,5 +74,14 @@ warn_unused_ignores = true
 disallow_untyped_defs = true
 no_implicit_reexport = true
 
+# Provider SDKs are optional, lazily-imported dependencies of
+# costorah.instrumentation.* (never required to import/use the core
+# package) — most don't ship type stubs, so mypy can't check calls into
+# them beyond what our own code declares.
+[[tool.mypy.overrides]]
+module = ["openai.*", "anthropic.*", "google.genai.*", "mistralai.*", "cohere.*", "boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"

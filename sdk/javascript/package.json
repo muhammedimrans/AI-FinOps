@@ -1,0 +1,52 @@
+{
+  "name": "@costorah/sdk",
+  "version": "1.0.0",
+  "description": "Official JavaScript/TypeScript SDK for COSTORAH — AI usage/cost telemetry",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "costorah",
+    "ai",
+    "llm",
+    "observability",
+    "finops",
+    "telemetry"
+  ],
+  "homepage": "https://costorah.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammedimrans/ai-finops",
+    "directory": "sdk/javascript"
+  },
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

@@ -13,27 +13,21 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { motion } from "framer-motion";
-import { DollarSign, Activity, Layers, Zap, Clock, Download } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { DollarSign, Activity, Layers, Zap, Download, Radio } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
-import ProviderBadge from "../components/ProviderBadge";
+import LiveActivityFeed from "../components/LiveActivityFeed";
 import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
-import {
-  useOverview,
-  useTimeSeries,
-  useProviders,
-  useModels,
-  useRecentActivity,
-} from "../hooks/useDashboard";
+import { useOverview, useTimeSeries, useProviders, useModels } from "../hooks/useDashboard";
+import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
 import {
   formatCost,
   formatDate,
   formatTokens,
   formatNumber,
-  formatDateTime,
   modelDisplayName,
   providerDisplayName,
   cn,
@@ -114,18 +108,18 @@ export default function Overview() {
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [hoveredProvider, setHoveredProvider] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const liveMetrics = useLiveMetrics();
+  const connection = useConnectionStatus();
 
   const overview = useOverview();
   const timeSeries = useTimeSeries();
   const providers = useProviders();
   const models = useModels();
-  const activity = useRecentActivity(10);
 
   const kpi = overview.data;
   const tsData = timeSeries.data?.data ?? [];
   const providerList = providers.data?.providers ?? [];
   const modelList = models.data?.models ?? [];
-  const events = activity.data?.events ?? [];
 
   // Sparklines derived from ts data (last 7 pts)
   const recent7 = tsData.slice(-7).map((d) => parseFloat(d.total_cost));
@@ -214,6 +208,34 @@ export default function Overview() {
           </button>
         }
       />
+
+      {/* Live-update strip — appears once a usage.created event has landed
+          since the socket connected; the KPI numbers below refresh via the
+          normal query-invalidation path (see realtime/queryBridge.ts), this
+          is just the "yes, something just happened" acknowledgment. */}
+      <AnimatePresence>
+        {connection.status === "connected" && liveMetrics.requestCount > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center gap-2 text-xs text-tx-muted overflow-hidden"
+          >
+            <Radio size={12} className="text-brand flex-shrink-0" />
+            <span>
+              <span className="font-semibold text-tx-primary tabular-nums">
+                +{formatNumber(liveMetrics.requestCount)}
+              </span>{" "}
+              request{liveMetrics.requestCount === 1 ? "" : "s"} ·{" "}
+              <span className="font-semibold text-tx-primary tabular-nums">
+                +{formatCost(liveMetrics.costDelta, currency, true)}
+              </span>{" "}
+              live since you opened this page
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -537,65 +559,8 @@ export default function Overview() {
         </div>
       </Section>
 
-      {/* Recent Activity */}
-      <Section
-        title="Recent Activity"
-        description="Latest AI API calls across all providers"
-        icon={Clock}
-        actions={
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex w-2 h-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-              <span className="relative inline-flex rounded-full w-2 h-2 bg-success" />
-            </span>
-            <span className="text-xs text-tx-muted">Live</span>
-          </div>
-        }
-      >
-          <div className="overflow-x-auto">
-            <table className="w-full data-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Provider</th>
-                  <th>Model</th>
-                  <th>Project</th>
-                  <th className="text-right">Tokens In</th>
-                  <th className="text-right">Tokens Out</th>
-                  <th className="text-right">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activity.isLoading
-                  ? Array.from({ length: 6 }, (_, i) => (
-                      <tr key={i}>
-                        {Array.from({ length: 7 }, (_, j) => (
-                          <td key={j}><div className="h-4 skeleton rounded w-full" /></td>
-                        ))}
-                      </tr>
-                    ))
-                  : events.map((e, i) => (
-                      <motion.tr
-                        key={e.id}
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.25, delay: Math.min(i * 0.04, 0.3) }}
-                      >
-                        <td className="text-tx-muted whitespace-nowrap">{formatDateTime(e.timestamp)}</td>
-                        <td><ProviderBadge provider={e.provider} size="sm" /></td>
-                        <td className="text-tx-primary font-mono text-xs">{modelDisplayName(e.model_id)}</td>
-                        <td className="text-tx-secondary text-xs">{e.project_name}</td>
-                        <td className="text-right font-mono text-xs">{formatNumber(e.input_tokens)}</td>
-                        <td className="text-right font-mono text-xs">{formatNumber(e.output_tokens)}</td>
-                        <td className="text-right font-semibold text-xs text-tx-primary">
-                          {formatCost(e.cost, currency)}
-                        </td>
-                      </motion.tr>
-                    ))}
-              </tbody>
-            </table>
-          </div>
-      </Section>
+      {/* Recent Activity — live over WebSocket, falls back to polling */}
+      <LiveActivityFeed limit={10} />
     </div>
   );
 }

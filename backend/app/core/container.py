@@ -13,6 +13,10 @@ from app.core.database import create_engine, create_session_factory
 from app.core.redis import create_redis
 from app.db.init_db import init_db
 from app.db.seed import seed_startup_data
+from app.realtime.connection_manager import ConnectionManager
+from app.realtime.event_bus import EventBus
+from app.realtime.metrics import events_dispatched_total, events_dropped_total
+from app.realtime.rate_limit import ConnectionRateLimiter
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +33,9 @@ class AppContainer:
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     redis: Redis[Any]
+    event_bus: EventBus
+    connection_manager: ConnectionManager
+    realtime_rate_limiter: ConnectionRateLimiter
 
     @classmethod
     async def create(cls, settings: Settings) -> AppContainer:
@@ -58,6 +65,13 @@ class AppContainer:
         # Seed demo data on first startup; single-SELECT no-op on subsequent starts.
         await seed_startup_data(session_factory)
 
+        event_bus = EventBus(redis)
+        connection_manager = ConnectionManager(event_bus)
+        connection_manager.on_dispatch(lambda _info, _event: events_dispatched_total.inc())
+        connection_manager.on_drop(lambda _info: events_dropped_total.inc())
+        connection_manager.start()
+        realtime_rate_limiter = ConnectionRateLimiter(redis=redis)
+
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
         logger.info("container_ready", startup_ms=elapsed_ms)
 
@@ -66,11 +80,15 @@ class AppContainer:
             engine=engine,
             session_factory=session_factory,
             redis=redis,
+            event_bus=event_bus,
+            connection_manager=connection_manager,
+            realtime_rate_limiter=realtime_rate_limiter,
         )
 
     async def close(self) -> None:
         """Release all resources gracefully."""
         logger.info("container_closing")
+        await self.connection_manager.stop()
         await self.engine.dispose()
         await self.redis.close()
         logger.info("container_closed")

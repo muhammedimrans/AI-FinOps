@@ -8,6 +8,7 @@ from fastapi import APIRouter, Response, status
 from app.api.deps import ContainerDep
 from app.core.database import check_database
 from app.core.redis import check_redis
+from app.realtime.metrics import render_realtime_metrics
 
 router = APIRouter(tags=["observability"])
 
@@ -120,8 +121,12 @@ async def metrics() -> Response:
         "aifinops_http_request_duration_seconds_sum 0\n"
         "aifinops_http_request_duration_seconds_count 0\n"
     )
+    # EP-19.1 — real Prometheus-backed real-time metrics, appended after the
+    # static payload above rather than replacing it (that payload is a
+    # previously-shipped EP's endpoint output).
+    realtime_payload = render_realtime_metrics().decode("utf-8")
     return Response(
-        content=payload,
+        content=payload + "\n" + realtime_payload,
         media_type="text/plain; version=0.0.4; charset=utf-8",
     )
 

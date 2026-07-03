@@ -10,6 +10,7 @@ from app.api.v1 import (
     pricing,
     providers,
     rbac,
+    realtime,
     usage,
 )
 
@@ -39,3 +40,6 @@ api_router.include_router(rbac.router, prefix="/v1")
 
 # EP-16 — Usage Ingestion Platform
 api_router.include_router(ingest.router, prefix="/v1")
+
+# EP-19.1 — Real-Time Telemetry Platform Foundation
+api_router.include_router(realtime.router, prefix="/v1")

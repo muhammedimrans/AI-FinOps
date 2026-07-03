@@ -29,9 +29,10 @@ from typing import Annotated
 import structlog
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import DbDep
+from app.api.deps import DbDep, EventBusDep
 from app.auth.api_key_auth import RequireApiKeyPermission
 from app.auth.rbac import Permission
+from app.realtime.events import EventType, RealtimeEvent
 from app.schemas.usage_ingestion import IngestUsageRequest, IngestUsageResponse
 from app.services.api_key_auth_service import ApiKeyAuthContext
 from app.services.usage_ingestion_service import UnknownProjectError, UsageIngestionService
@@ -93,6 +94,7 @@ router = APIRouter(prefix="/ingest", tags=["ingest"])
 async def ingest_usage(
     body: IngestUsageRequest,
     db: DbDep,
+    event_bus: EventBusDep,
     current_api_key: Annotated[
         ApiKeyAuthContext, RequireApiKeyPermission(Permission.USAGE_WRITE)
     ],
@@ -122,6 +124,25 @@ async def ingest_usage(
         duplicate=is_duplicate,
         duration_ms=elapsed_ms,
     )
+
+    if not is_duplicate:
+        await event_bus.publish(
+            RealtimeEvent(
+                organization_id=current_api_key.organization_id,
+                type=EventType.USAGE_CREATED,
+                payload={
+                    "usage_id": str(record.id),
+                    "provider": record.provider,
+                    "model": record.model,
+                    "cost": str(record.cost),
+                    "currency": record.currency,
+                    "total_tokens": record.total_tokens,
+                    "status": record.status.value,
+                    "project_id": str(record.project_id) if record.project_id else None,
+                },
+                trace_id=record.request_id,
+            )
+        )
 
     return IngestUsageResponse(
         usage_id=record.id,

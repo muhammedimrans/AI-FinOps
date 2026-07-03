@@ -58,6 +58,12 @@ dev = [
     "flask>=2.3",
     "django>=4.2",
     "celery>=5.3",
+    # AI framework integration test suite (costorah.instrumentation.langchain,
+    # .crewai, EP-18.7) — not required to import/use those instrumentors,
+    # which raise a clear ImportError if the target package isn't installed.
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "crewai>=0.80",
 ]
 
 [project.urls]
@@ -102,6 +108,28 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = ["flask.*", "django.*", "celery.*", "kombu.*", "billiard.*", "asgiref.*"]
 ignore_missing_imports = true
+
+# AI framework SDKs (costorah.instrumentation.langchain/.crewai, EP-18.7)
+# are, like the provider SDKs above, optional lazily-imported dependencies
+# never required to import/use costorah's core package. langchain-core ships
+# its own py.typed stubs but pulls in untyped/incompatible transitive
+# dependencies (e.g. numpy's 3.12-only stub syntax, via crewai's chromadb/
+# onnxruntime/pyarrow chain) that mypy cannot parse under this project's
+# python_version target — the waiver covers those transitive stub failures,
+# not costorah's own code.
+[[tool.mypy.overrides]]
+module = ["langchain_core.*", "langchain_openai.*", "crewai.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
+
+# numpy's own .pyi stubs (pulled in transitively via crewai's chromadb/
+# onnxruntime/pyarrow chain) use Python 3.12-only `type` statement syntax,
+# which fails to parse entirely under this project's python_version = "3.10"
+# target — a hard syntax error, not a missing-imports warning, so it must be
+# silenced with ignore_errors rather than ignore_missing_imports.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "numpy"]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

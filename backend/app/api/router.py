@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    alerts,
     analytics,
     auth,
     dashboard,
@@ -43,3 +44,6 @@ api_router.include_router(ingest.router, prefix="/v1")
 
 # EP-19.1 — Real-Time Telemetry Platform Foundation
 api_router.include_router(realtime.router, prefix="/v1")
+
+# EP-19.3 — Alert Rule Engine & Notification Persistence
+api_router.include_router(alerts.router, prefix="/v1")

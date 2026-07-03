@@ -206,3 +206,27 @@ def RequirePermission(permission: Permission) -> Callable[..., Any]:  # noqa: N8
         return membership
 
     return Depends(_check)
+
+
+def RequireQueryPermission(permission: Permission) -> Callable[..., Any]:  # noqa: N802
+    """Same as RequirePermission, but for endpoints that scope the
+    organization via an ``organization_id`` query parameter (dashboard/
+    analytics-style routes using OrgScopedMembership) rather than an
+    ``org_id`` path parameter.
+
+    Usage::
+
+        @router.get("/alerts")
+        async def list_alerts(
+            _: Annotated[Membership, RequireQueryPermission(Permission.NOTIFICATION_READ)],
+        ) -> ...:
+    """
+
+    async def _check(
+        membership: Annotated[Membership, Depends(get_query_org_membership)],
+    ) -> Membership:
+        if not has_permission(membership.role, permission):
+            raise _403
+        return membership
+
+    return Depends(_check)

@@ -53,7 +53,7 @@ export class RealtimeClient {
     this.setStatus(this.reconnectAttempts > 0 ? "reconnecting" : "connecting");
 
     const url = buildWebSocketUrl({
-      baseUrl: this.options.baseUrl,
+      ...(this.options.baseUrl !== undefined ? { baseUrl: this.options.baseUrl } : {}),
       token,
       organizationId: this.options.organizationId,
     });

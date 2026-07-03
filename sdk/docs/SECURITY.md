@@ -1,4 +1,4 @@
-# Security Review (EP-18.4, EP-18.5)
+# Security Review (EP-18.4, EP-18.5, EP-18.6)
 
 ## What's never persisted or logged
 
@@ -17,11 +17,25 @@ never contain literal prompt/completion text used in each test):
   functions have no code path that touches message/choice content), not
   a filter applied after the fact.
 - **Request bodies in framework integrations**: `CostorahMiddleware`
-  (Python FastAPI/Starlette/Django, JS Express), `CostorahExtension`
-  (Flask), `CostorahASGIMiddleware`/`CostorahWSGIMiddleware` all capture
-  only request ID, path, method, and an optional organization ID —
-  never headers (beyond `X-Request-Id`), query params, cookies, or the
-  request body.
+  (Python FastAPI/Starlette/Django, JS Express/NestJS),
+  `CostorahExtension` (Flask), `CostorahASGIMiddleware`/
+  `CostorahWSGIMiddleware`, `costorahNodeMiddleware`, `costorahLambda`,
+  `costorahWorker`, `costorahHandler`/`costorahApiRoute` (Next.js) all
+  capture only request ID, path/route, method, and an optional
+  organization ID — never headers (beyond `X-Request-Id`), query params,
+  cookies, or the request body.
+- **Lambda event payloads (EP-18.6)**: `costorahLambda` reads only the
+  fields needed to classify an event's shape and extract route/method
+  (`httpMethod`/`path`/`rawPath`/`requestContext.http.method`) — it
+  never reads or logs the request body, and for non-HTTP events
+  (EventBridge/SQS/SNS) captures nothing beyond `context.awsRequestId`
+  as the ambient request ID, never the event's `Records`/`detail`
+  payload.
+- **Cloudflare Workers env bindings (EP-18.6)**: `costorahWorker` reads
+  exactly two binding values (`COSTORAH_API_KEY`/`COSTORAH_ENDPOINT`, or
+  their configured overrides) from the `env` object — it never
+  enumerates or logs the full `env` object, which may contain other
+  secrets a Worker is bound to.
 - **Task arguments in the Celery integration (EP-18.5)**: `task_failure`'s
   signal payload includes the task's original `args`/`kwargs` —
   `CostorahCelery` deliberately never reads them. Retry reasons are
@@ -67,6 +81,24 @@ was a deliberate design constraint through EP-18.3/EP-18.4 specifically
 to keep the security/supply-chain surface minimal — see
 `RELIABILITY.md`'s note on why the persistent queue doesn't use LevelDB.
 
+**The one exception (EP-18.6, `@costorah/sdk/nest`)**: `@nestjs/common`,
+`@nestjs/core`, and `rxjs` are declared as `peerDependencies` (with
+`peerDependenciesMeta` marking all three optional) — never bundled into
+`dist/`, and `tsup.config.ts` explicitly marks them `external`
+(verified: `grep '@nestjs\|rxjs' dist/nest/index.js` shows `import`
+statements, not inlined code). This means: (1) a consumer who never
+imports `@costorah/sdk/nest` never installs or ships these packages at
+all — the main `@costorah/sdk` entry point's zero-dependency guarantee
+is untouched; (2) a consumer who *does* use the NestJS integration runs
+whatever NestJS/RxJS version *they* installed, not a version pinned at
+this SDK's build time — this SDK never controls or vendors that
+dependency's supply chain, the consumer's own `package-lock.json` does.
+This was a deliberate, necessary exception (see `NESTJS.md`): real Nest
+decorators must be genuine runtime imports for Nest's reflection-based
+DI to recognize the resulting classes — there's no structural-typing
+equivalent for a decorator-based framework the way `express.ts`/
+`node.ts` avoid an Express/Node dependency.
+
 Dev dependencies carry a small number of transitive advisories (`npm
 audit`: vite/esbuild, pulled in by `vitest`) — these affect only the
 local dev server used while running tests, are not reachable in CI (no
@@ -101,3 +133,12 @@ terms).
 - **Continuous dependency scanning**: an automated tool (Dependabot,
   Snyk, etc.) wired into CI is not set up as part of this pass; the
   audit above is a one-time manual check, not continuous monitoring.
+- **Deno-specific security review (EP-18.6)**: since Deno wasn't
+  available to test in this EP's environment (see `DENO.md`), no
+  Deno-specific runtime behavior (e.g. its permission model interacting
+  with this SDK's `fetch` calls) was verified — only assessed by code
+  review.
+- **NestJS peer-dependency supply chain**: this review does not audit
+  `@nestjs/common`/`@nestjs/core`/`rxjs` themselves (they're peer
+  dependencies a consumer supplies, not something this SDK vendors or
+  controls the version of — see the dependency audit section above).

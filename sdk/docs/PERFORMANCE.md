@@ -1,4 +1,4 @@
-# Performance (EP-18.4, EP-18.5)
+# Performance (EP-18.4, EP-18.5, EP-18.6)
 
 Numbers below were gathered by actually running each SDK, not estimated.
 Both SDKs are built around the same principle established in EP-18.3:
@@ -85,6 +85,30 @@ Flask/FastAPI's middleware (Flask literally wraps
 `CostorahWSGIMiddleware`), so the Flask/FastAPI numbers above are
 representative.
 
+## JavaScript framework middleware overhead (EP-18.6)
+
+Measured the same way as EP-18.5's Python numbers — a `Costorah` client
+backed by a zero-latency mocked `fetch`, isolating middleware/SDK
+overhead from real network latency — against the EP-18.6 ticket's
+**target of <1 ms overhead and <25 MB memory**:
+
+| Integration | Measurement | Result | Target |
+|---|---|---|---|
+| `costorahNodeMiddleware` | avg per-call overhead, 2,000 samples | **0.0063 ms** | <1 ms ✓ |
+| `costorahLambda` | avg per-invocation overhead, 2,000 samples | **0.0041 ms** | <1 ms ✓ |
+| `costorahWorker` (Cloudflare) | avg per-request overhead, 2,000 samples | **0.0233 ms** | <1 ms ✓ |
+| `costorahHandler` (Next.js) | avg per-call overhead, 2,000 samples | **0.0129 ms** | <1 ms ✓ |
+| `costorahNodeMiddleware` | memory delta, 10,000 calls | **0.12 MB** | <25 MB ✓ |
+
+Express (`costorahMiddleware`, EP-18.4) was not re-measured here — its
+number was already established in EP-18.4's own review. NestJS
+(`CostorahInterceptor`/`CostorahMiddleware`) and the Next.js
+`costorahApiRoute` (Pages Router) wrapper were not separately
+benchmarked — both delegate to the same underlying primitives measured
+above (`runWithRequestContext`, and for `CostorahMiddleware`/
+`costorahApiRoute` specifically, the exact `costorahNodeMiddleware` code
+path), so the Node middleware number is representative.
+
 ## What this doesn't cover
 
 - **Sustained network throughput** to a real (non-mocked) COSTORAH
@@ -94,9 +118,12 @@ representative.
   simultaneous requests/tasks) — the measurements above are sequential,
   single-threaded per-call overhead, not a concurrency/throughput
   benchmark.
-- **Cold-start impact** on serverless targets (AWS Lambda, Cloudflare
-  Workers) — not applicable in these EPs since those integrations are
-  not yet built (see `FRAMEWORK_INTEGRATIONS.md`).
-- **JavaScript framework middleware overhead** beyond Express (already
-  covered qualitatively in EP-18.4) — out of scope for EP-18.5, which
-  was Python-only.
+- **Real cold-start impact** on serverless targets (AWS Lambda,
+  Cloudflare Workers) — the warm-invocation client-reuse mechanism
+  itself is unit-tested (see `AWS_LAMBDA.md`/`CLOUDFLARE_WORKERS.md`),
+  but actual cold-start wall-clock time depends on the platform's
+  container/isolate startup, which is outside this SDK's control and
+  wasn't measured in this pass.
+- **Bun/Deno-specific performance** — Bun's real-runtime compatibility
+  was verified functionally (see `BUN.md`), not benchmarked separately;
+  Deno wasn't available to test at all in this EP's environment.

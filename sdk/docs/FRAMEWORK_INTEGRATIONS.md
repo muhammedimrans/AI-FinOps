@@ -250,26 +250,62 @@ code) rather than an error: the framework may well still work, this
 just means it's untested below that floor. See
 `costorah.integrations._common.check_min_version` and `CLI.md`.
 
+## JavaScript integrations (EP-18.6)
+
+EP-18.6 built every framework/runtime named in its ticket, all Python's
+`request_context`/`set_default_client` pattern's exact JS-side
+equivalent (`runWithRequestContext`/`setDefaultClient`) reused rather
+than reimplemented per integration:
+
+- **NestJS** (`@costorah/sdk/nest`) — `CostorahModule.forRoot()`,
+  `CostorahInterceptor`, `CostorahMiddleware`, `@InjectCostorah()`. See
+  `NESTJS.md`.
+- **Next.js** (`@costorah/sdk/next`) — `costorahHandler` (App Router
+  Route Handlers + Middleware, Edge Runtime), `costorahApiRoute` (Pages
+  Router). Server Actions explicitly not wrapped (no `Request` object
+  exists to attach context to) — see `NEXTJS.md`.
+- **Cloudflare Workers** (`@costorah/sdk/cloudflare`) —
+  `costorahWorker`, supporting both a plain `fetch` handler and a full
+  `ExportedHandler` object (Pages Functions, Durable Objects). Reads
+  configuration from Workers `env` bindings, not `process.env` — see
+  `CLOUDFLARE_WORKERS.md`.
+- **AWS Lambda** (`@costorah/sdk/lambda`) — `costorahLambda`, detecting
+  API Gateway v1/v2, ALB, and passing EventBridge/SQS/SNS events through
+  with ambient-context-only capture. Reuses a client across warm
+  invocations — see `AWS_LAMBDA.md`.
+- **Generic Node.js** (`@costorah/sdk/node`) — `costorahNodeMiddleware`,
+  for standalone `http`/`https` servers and anything without a
+  framework. What `costorahMiddleware` (Express) and NestJS's
+  `CostorahMiddleware` both delegate to internally — see `NODE.md`.
+- **Bun** — verified by actually running the built package under a real
+  Bun runtime in this EP (not just reasoning about compatibility); no
+  Bun-specific integration code needed — see `BUN.md`.
+- **Deno** — assessed via code review only (Deno wasn't available in
+  this EP's build environment); documented as "should work, unverified"
+  rather than claimed as tested — see `DENO.md`.
+- **Runtime detection** (`detectRuntime`/`detectRuntimeVersion`/
+  `detectFrameworks`, exported from `@costorah/sdk`'s main entry) — see
+  `RUNTIME_COMPATIBILITY.md`.
+
+See `RUNTIME_COMPATIBILITY.md` for the full runtime/framework
+compatibility matrix.
+
 ## Planned, not yet built
 
-**JavaScript** (out of scope for EP-18.5, which was Python-only):
-NestJS, Next.js, Node.js (framework-agnostic `http`/`https` helper),
-Cloudflare Workers, Vercel (Edge/Serverless functions), AWS Lambda, Bun,
-Deno.
-
-**AI framework auto-capture** (explicitly out of scope for both EP-18.4
-and EP-18.5): LangChain, LlamaIndex, CrewAI, AutoGen, Semantic Kernel,
-Haystack, MCP — auto-capturing agent runs, chains, tool calls, memory
-operations, latency, tokens, and cost, analogous to how EP-18.2's
+**AI framework auto-capture** (explicitly out of scope for EP-18.4,
+EP-18.5, and EP-18.6): LangChain, LlamaIndex, CrewAI, AutoGen, Semantic
+Kernel, Haystack, MCP — auto-capturing agent runs, chains, tool calls,
+memory operations, latency, tokens, and cost, analogous to how EP-18.2's
 provider instrumentors auto-capture LLM API calls today.
 
-**Interactive configuration wizard** (planned): a `costorah init
---interactive` mode that detects the installed framework(s) and AI
-SDK(s) and auto-generates a starter config, building on the
-already-shipped detection logic in `costorah/cli.py`'s
-`PROVIDER_PACKAGES`/`FRAMEWORK_PACKAGES` tables (currently surfaced via
-plain `costorah init`/`costorah doctor` output, not yet an interactive
-wizard).
+**Interactive configuration wizard** (planned, Python-side): a
+`costorah init --interactive` mode that detects the installed
+framework(s) and AI SDK(s) and auto-generates a starter config, building
+on the already-shipped detection logic in `costorah/cli.py`'s
+`PROVIDER_PACKAGES`/`FRAMEWORK_PACKAGES` tables. No JavaScript
+equivalent exists or is planned, since the JS SDK has no CLI binary at
+all — see `RUNTIME_COMPATIBILITY.md`'s "What's different from the
+Python CLI."
 
 Each of the above is a natural extension of the same
 `request_context`/`set_default_client` pattern established here — adding

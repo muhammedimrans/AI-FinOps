@@ -1,0 +1,99 @@
+name: Publish SDKs
+
+# Triggered by pushing a version tag (sdk-python-v1.0.0 / sdk-js-v1.0.0),
+# never automatically on every push/PR — publishing to PyPI/npm is a
+# deliberate, one-way release action. Both jobs also support a manual
+# workflow_dispatch run with a dry-run flag, so the packaging steps can be
+# verified without actually publishing.
+
+on:
+  push:
+    tags:
+      - "sdk-python-v*"
+      - "sdk-js-v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and check the package without publishing"
+        type: boolean
+        default: true
+
+jobs:
+  publish-python:
+    name: Publish Python SDK to PyPI
+    if: startsWith(github.ref, 'refs/tags/sdk-python-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/python
+    environment: pypi
+    permissions:
+      id-token: write # trusted publishing (PyPI OIDC)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e ".[dev]" build twine
+
+      - name: Verify — lint, type check, tests
+        run: |
+          ruff check costorah tests
+          mypy costorah
+          pytest tests -q
+
+      - name: Build
+        run: python -m build
+
+      - name: Check package metadata
+        run: twine check dist/*
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist
+
+  publish-javascript:
+    name: Publish JavaScript SDK to npm
+    if: startsWith(github.ref, 'refs/tags/sdk-js-v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/javascript
+    environment: npm
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: sdk/javascript/package-lock.json
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify — lint, type check, tests, build
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

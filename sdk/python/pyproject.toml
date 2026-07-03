@@ -48,6 +48,10 @@ dev = [
     "mistralai==1.9.11",
     "cohere>=5.0",
     "boto3>=1.34",
+    # Framework integration test suite (costorah.integrations.*) — not
+    # required to import/use costorah.integrations.fastapi itself, which
+    # raises a clear ImportError if fastapi/starlette isn't installed.
+    "fastapi>=0.100",
 ]
 
 [project.urls]

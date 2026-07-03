@@ -48,6 +48,10 @@ def test_submit_uses_explicit_client(monkeypatch: pytest.MonkeyPatch) -> None:
     client = Costorah(api_key="costorah_live_x", _transport=httpx.MockTransport(handler))
     ok = _submission.submit(_usage(), client=client)
     assert ok is True
+    # submit() -> client.track() no longer waits for delivery (EP-18.3) —
+    # flush before checking the mock transport actually received the
+    # request.
+    assert client.flush(timeout=5) is True
     assert len(requests) == 1
     client.close()
 
@@ -116,7 +120,15 @@ def test_submit_caches_default_client_across_calls(monkeypatch: pytest.MonkeyPat
     assert init_calls["n"] == 1  # built once, reused
 
 
-def test_submit_returns_false_on_costorah_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_submit_returns_true_but_delivery_fails_permanently_on_401(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """submit()'s return value only reflects synchronous validation +
+    enqueueing (EP-18.3) — a 401 now surfaces asynchronously in the
+    background worker (dropped as a permanent failure, never retried),
+    not as a False return from submit() itself. This is a strict
+    improvement for the instrumented call: even an auth failure can never
+    block or fail it."""
     from costorah.client import Costorah
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -124,7 +136,12 @@ def test_submit_returns_false_on_costorah_error(monkeypatch: pytest.MonkeyPatch)
 
     client = Costorah(api_key="costorah_live_x", _transport=httpx.MockTransport(handler))
     ok = _submission.submit(_usage(), client=client)
-    assert ok is False
+    assert ok is True
+    assert client.flush(timeout=5) is True
+    stats = client.queue_stats()
+    assert stats["sent_total"] == 0
+    assert stats["failed_total"] == 1
+    assert stats["retry_queue_size"] == 0  # dropped, not stuck retrying
     client.close()
 
 

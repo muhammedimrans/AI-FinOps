@@ -17,6 +17,31 @@
       "types": "./dist/express.d.ts",
       "import": "./dist/express.js",
       "require": "./dist/express.cjs"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js",
+      "require": "./dist/node.cjs"
+    },
+    "./lambda": {
+      "types": "./dist/lambda.d.ts",
+      "import": "./dist/lambda.js",
+      "require": "./dist/lambda.cjs"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.ts",
+      "import": "./dist/cloudflare.js",
+      "require": "./dist/cloudflare.cjs"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "require": "./dist/next.cjs"
+    },
+    "./nest": {
+      "types": "./dist/nest/index.d.ts",
+      "import": "./dist/nest/index.js",
+      "require": "./dist/nest/index.cjs"
     }
   },
   "files": [
@@ -24,6 +49,16 @@
   ],
   "engines": {
     "node": ">=18"
+  },
+  "peerDependencies": {
+    "@nestjs/common": "^10.0.0 || ^11.0.0",
+    "@nestjs/core": "^10.0.0 || ^11.0.0",
+    "rxjs": "^7.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@nestjs/common": { "optional": true },
+    "@nestjs/core": { "optional": true },
+    "rxjs": { "optional": true }
   },
   "keywords": [
     "costorah",
@@ -51,13 +86,21 @@
     "@aws-sdk/client-bedrock-runtime": "^3.1079.0",
     "@google/genai": "^2.10.0",
     "@mistralai/mistralai": "^2.4.0",
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/platform-express": "^11.1.27",
+    "@nestjs/testing": "^11.1.27",
     "@types/express": "^4.17.25",
+    "@types/supertest": "^6.0.2",
     "@typescript-eslint/eslint-plugin": "^7.18.0",
     "@typescript-eslint/parser": "^7.18.0",
     "cohere-ai": "^8.0.0",
     "eslint": "^8.57.0",
     "express": "^4.22.2",
     "openai": "^6.45.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "supertest": "^7.2.2",
     "tsup": "^8.0.0",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"

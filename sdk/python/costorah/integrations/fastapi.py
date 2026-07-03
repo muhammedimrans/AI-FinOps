@@ -34,14 +34,11 @@ work identically with or without it.
 
 from __future__ import annotations
 
-import os
-import uuid
 from collections.abc import Awaitable
 from typing import TYPE_CHECKING, Any, Callable
 
-from costorah._logging import get_logger
 from costorah.context import request_context
-from costorah.exceptions import CostorahError
+from costorah.integrations._common import auto_init_client, generate_request_id
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -58,8 +55,6 @@ except ImportError as exc:  # pragma: no cover - exercised only without starlett
         "Install it with `pip install fastapi` to use this integration."
     ) from exc
 
-_log = get_logger(__name__)
-
 
 class CostorahMiddleware(BaseHTTPMiddleware):
     def __init__(
@@ -72,7 +67,9 @@ class CostorahMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
         self._organization_id = organization_id
-        self._client = client if client is not None else _auto_init_client(api_key)
+        self._client = (
+            client if client is not None else auto_init_client(api_key, integration_name="fastapi")
+        )
         if self._client is not None:
             from costorah.instrumentation import set_default_client
 
@@ -81,7 +78,7 @@ class CostorahMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        request_id = request.headers.get("x-request-id") or f"req_{uuid.uuid4().hex}"
+        request_id = request.headers.get("x-request-id") or generate_request_id()
         context: dict[str, Any] = {
             "request_id": request_id,
             "path": request.url.path,
@@ -94,23 +91,3 @@ class CostorahMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
         response.headers.setdefault("X-Costorah-Request-Id", request_id)
         return response
-
-
-def _auto_init_client(api_key: str | None) -> Costorah | None:
-    resolved_key = api_key or os.environ.get("COSTORAH_API_KEY")
-    if not resolved_key:
-        _log.warning(
-            "costorah_middleware_no_api_key: set COSTORAH_API_KEY, or pass api_key=/client= "
-            "to CostorahMiddleware — instrumentation will still capture usage locally "
-            "(events_captured_total) but nothing will be submitted"
-        )
-        return None
-
-    from costorah.client import Costorah
-
-    try:
-        endpoint = os.environ.get("COSTORAH_ENDPOINT", "https://api.costorah.com")
-        return Costorah(api_key=resolved_key, endpoint=endpoint)
-    except CostorahError as exc:
-        _log.warning("costorah_middleware_init_failed error=%s", exc)
-        return None

@@ -11,6 +11,8 @@ import {
   Info,
   Menu,
   OctagonAlert,
+  Radio,
+  X,
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
@@ -50,7 +52,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const location = useLocation();
   const { currency, setCurrency, datePreset, setDateRange, setCommandOpen } = useUIStore();
   const { alerts, unreadCount } = useAlerts();
-  const { markRead, markAllRead } = useNotificationStore();
+  const { markRead, markAllRead, dismiss, clearAll } = useNotificationStore();
   const [dateOpen, setDateOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -249,14 +251,24 @@ export default function Header({ onMenuClick }: HeaderProps) {
           >
             <div className="px-4 py-3 border-b border-border-subtle flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-tx-primary">Alerts</h3>
-              {unreadCount > 0 && (
-                <button
-                  onClick={() => markAllRead(alerts.map((a) => a.id))}
-                  className="text-[11px] font-medium text-brand hover:text-brand-light transition-colors duration-fast"
-                >
-                  Mark all read
-                </button>
-              )}
+              <div className="flex items-center gap-2.5">
+                {unreadCount > 0 && (
+                  <button
+                    onClick={() => markAllRead(alerts.map((a) => a.id))}
+                    className="text-[11px] font-medium text-brand hover:text-brand-light transition-colors duration-fast"
+                  >
+                    Mark all read
+                  </button>
+                )}
+                {alerts.length > 0 && (
+                  <button
+                    onClick={() => clearAll(alerts.map((a) => a.id))}
+                    className="text-[11px] font-medium text-tx-muted hover:text-tx-primary transition-colors duration-fast"
+                  >
+                    Clear all
+                  </button>
+                )}
+              </div>
             </div>
             {alerts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
@@ -265,7 +277,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 </div>
                 <p className="text-sm font-medium text-tx-primary mb-1">All clear</p>
                 <p className="text-xs text-tx-muted leading-relaxed">
-                  No budget or anomaly alerts in the current period.
+                  No budget, anomaly, or live alerts right now.
                 </p>
               </div>
             ) : (
@@ -273,7 +285,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 {alerts.map((a) => {
                   const { icon: Icon, className } = SEVERITY_ICON[a.severity];
                   return (
-                    <li key={a.id}>
+                    <li key={a.id} className="group relative">
                       <button
                         onClick={() => markRead(a.id)}
                         className={cn(
@@ -281,14 +293,26 @@ export default function Header({ onMenuClick }: HeaderProps) {
                           a.read && "opacity-55",
                         )}
                       >
-                        <Icon size={14} className={cn("mt-0.5 flex-shrink-0", className)} />
-                        <span className="min-w-0 flex-1">
+                        {a.category === "live" ? (
+                          <Radio size={14} className={cn("mt-0.5 flex-shrink-0", className)} />
+                        ) : (
+                          <Icon size={14} className={cn("mt-0.5 flex-shrink-0", className)} />
+                        )}
+                        <span className="min-w-0 flex-1 pr-4">
                           <span className="block text-xs font-medium text-tx-primary">{a.title}</span>
                           <span className="block text-[11px] text-tx-muted mt-0.5 leading-relaxed">{a.description}</span>
                         </span>
                         {!a.read && (
                           <span className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" aria-label="Unread" />
                         )}
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dismiss(a.id); }}
+                        aria-label={`Dismiss: ${a.title}`}
+                        className="absolute right-2.5 top-2.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100
+                                   text-tx-muted hover:text-tx-primary transition-opacity duration-fast p-0.5"
+                      >
+                        <X size={12} />
                       </button>
                     </li>
                   );
@@ -297,7 +321,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
             )}
             <div className="px-4 py-2 border-t border-border-subtle">
               <p className="text-[10px] text-tx-muted">
-                Derived live from budget and spend data for the selected period.
+                Budget and anomaly alerts are derived from spend data for the selected period;
+                live alerts arrive over the real-time connection as they happen.
               </p>
             </div>
           </Popover>

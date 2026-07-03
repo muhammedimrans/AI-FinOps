@@ -26,12 +26,9 @@ interface RealtimeState {
   activityLimit: number;
   lastEventByType: Partial<Record<RealtimeEventType, RealtimeEvent>>;
   liveMetrics: LiveMetricsDelta;
-  unreadNotificationCount: number;
 
   setConnection: (snapshot: ConnectionSnapshot) => void;
   ingestEvent: (event: RealtimeEvent) => void;
-  incrementUnread: () => void;
-  clearUnread: () => void;
   setActivityLimit: (limit: number) => void;
   resetForOrganizationChange: () => void;
 }
@@ -60,7 +57,6 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
   activityLimit: DEFAULT_ACTIVITY_LIMIT,
   lastEventByType: {},
   liveMetrics: emptyMetrics(),
-  unreadNotificationCount: 0,
 
   setConnection: (snapshot) => set({ connection: snapshot }),
 
@@ -100,8 +96,6 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
     });
   },
 
-  incrementUnread: () => set((s) => ({ unreadNotificationCount: s.unreadNotificationCount + 1 })),
-  clearUnread: () => set({ unreadNotificationCount: 0 }),
   setActivityLimit: (limit) =>
     set((s) => ({
       activityLimit: limit,
@@ -117,7 +111,6 @@ export const useRealtimeStore = create<RealtimeState>()((set, get) => ({
       recentActivity: [],
       lastEventByType: {},
       liveMetrics: emptyMetrics(),
-      unreadNotificationCount: 0,
       connection: { ...initialConnection, status: "organization_changed" },
     }),
 }));

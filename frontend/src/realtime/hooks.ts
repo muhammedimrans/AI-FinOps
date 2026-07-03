@@ -52,10 +52,6 @@ export function useLiveMetrics() {
   return useRealtimeStore((s) => s.liveMetrics);
 }
 
-export function useUnreadNotificationCount() {
-  return useRealtimeStore((s) => s.unreadNotificationCount);
-}
-
 export function useLatestEvent(type: RealtimeEventType) {
   return useRealtimeStore((s) => s.lastEventByType[type]);
 }

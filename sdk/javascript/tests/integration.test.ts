@@ -41,14 +41,18 @@ describe("Costorah integration", () => {
       latencyMs: 410,
     });
 
+    // track() no longer waits for delivery (EP-18.3) — verify actual
+    // delivery via flush() + the mock fetch's captured requests, not via
+    // TrackResult's fields (which no longer carry the server's response).
     expect(result.success).toBe(true);
-    expect(result.usageId).toBe("u1");
+    expect(result.queued).toBe(true);
+    expect(await client.flush(5000)).toBe(true);
     expect(captured).toHaveLength(1);
     expect(captured[0]!.url).toBe("https://api.costorah.com/v1/ingest/usage");
     expect(captured[0]!.auth).toBe("Bearer costorah_live_x");
   });
 
-  it("surfaces the duplicate flag from a replayed request_id", async () => {
+  it("delivery outcome (e.g. a duplicate response) is observable via queueStats after flush", async () => {
     const fetchImpl: FetchLike = async () =>
       jsonResponse(200, {
         success: true,
@@ -61,11 +65,12 @@ describe("Costorah integration", () => {
       { apiKey: "costorah_live_x" },
       { fetchImpl, logger: silentLogger() },
     );
-    const result = await client.track({ provider: "openai", model: "gpt-4.1", cost: 0.01 });
-    expect(result.duplicate).toBe(true);
+    await client.track({ provider: "openai", model: "gpt-4.1", cost: 0.01 });
+    expect(await client.flush(5000)).toBe(true);
+    expect(client.queueStats().sentTotal).toBe(1);
   });
 
-  it("recovers a single track() call across a brief 503 outage", async () => {
+  it("recovers a track() call across a brief 503 outage without losing it", async () => {
     let failuresLeft = 2;
     const fetchImpl: FetchLike = async () => {
       if (failuresLeft > 0) {
@@ -81,17 +86,26 @@ describe("Costorah integration", () => {
       });
     };
     const client = new Costorah(
-      { apiKey: "costorah_live_x", maxRetries: 3 },
+      { apiKey: "costorah_live_x" },
       { fetchImpl, logger: silentLogger() },
     );
     const result = await client.track({ provider: "openai", model: "gpt-4.1", cost: 0.01 });
-    expect(result.success).toBe(true);
+    expect(result.queued).toBe(true);
+    // Two 1s/2s backoff delays before the third (successful) attempt.
+    expect(await client.flush(10_000)).toBe(true);
+    expect(client.queueStats().sentTotal).toBe(1);
+    expect(failuresLeft).toBe(0);
   });
 
   it("runs many concurrent track() calls safely (async concurrency safety)", async () => {
     const seenRequestIds = new Set<string>();
     const fetchImpl: FetchLike = async (_url, init) => {
-      const body = JSON.parse(String(init?.body)) as { request_id: string };
+      // The reliability layer always sends the body as a Uint8Array (EP-18.3
+      // — see reliability/connectionPool.ts), not a plain string.
+      const raw = init?.body;
+      const text =
+        raw instanceof Uint8Array ? new TextDecoder().decode(raw) : String(raw ?? "{}");
+      const body = JSON.parse(text) as { request_id: string };
       seenRequestIds.add(body.request_id);
       return jsonResponse(200, {
         success: true,
@@ -118,7 +132,8 @@ describe("Costorah integration", () => {
     );
 
     expect(results).toHaveLength(100);
-    expect(seenRequestIds.size).toBe(100); // no cross-contamination between concurrent calls
     expect(results.every((r) => r.success)).toBe(true);
+    expect(await client.flush(10_000)).toBe(true);
+    expect(seenRequestIds.size).toBe(100); // no cross-contamination between concurrent calls
   });
 });

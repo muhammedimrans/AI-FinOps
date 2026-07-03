@@ -17,39 +17,122 @@
  * be `await`ed from many places at once — each `track()` call is
  * independent and holds no shared mutable state beyond the HTTP fetch
  * implementation itself.
+ *
+ * EP-18.3 reliability layer: `track()` validates its arguments
+ * synchronously (cheap, no I/O) and then hands the built payload to a
+ * background worker — it never makes a blocking network call itself, and
+ * resolves in well under a millisecond. See `sdk/docs/RELIABILITY.md` for
+ * the full pipeline (memory queue -> background worker -> persistent
+ * queue -> compression -> retry -> circuit breaker -> connection pool)
+ * and for what this means for `TrackResult` (it can no longer carry the
+ * server-assigned `usageId`/`processedAt`/`duplicate` fields
+ * synchronously — those are only known once the event is actually
+ * delivered, which now happens off the critical path).
+ * `client.flush()`/`client.shutdown()` await until pending events are
+ * delivered when a caller needs that guarantee.
  */
+
+import { tmpdir } from "node:os";
 
 import { resolveConfig, type CostorahOptions, type ResolvedConfig } from "./config.js";
 import { ValidationError } from "./errors.js";
-import { HttpTransport, type FetchLike } from "./http.js";
+import type { FetchLike } from "./http.js";
 import type { Logger } from "./logging.js";
+import {
+  BackgroundWorker,
+  ConnectionPool,
+  HealthMonitor,
+  makeQueuedEvent,
+  type HealthSnapshot,
+  type QueueStatsSnapshot,
+} from "./reliability/index.js";
 import { SUPPORTED_PROVIDERS, type TrackParams, type TrackResult } from "./types.js";
 import { generateRequestId } from "./util.js";
 
 export class Costorah {
   readonly config: ResolvedConfig;
-  private readonly transport: HttpTransport;
+  private readonly worker: BackgroundWorker;
+  private readonly health_: HealthMonitor;
 
   constructor(options: CostorahOptions, _internal?: { fetchImpl?: FetchLike; logger?: Logger }) {
     this.config = resolveConfig(options);
-    this.transport = new HttpTransport(this.config, _internal?.fetchImpl, _internal?.logger);
+    const pool = new ConnectionPool(this.config, _internal?.fetchImpl);
+    this.worker = new BackgroundWorker(this.config, {
+      queueSize: this.config.queueSize,
+      overflowPolicy: this.config.overflowPolicy,
+      persistentQueuePath: persistentQueuePath(this.config),
+      compressionEnabled: this.config.compression,
+      retryEnabled: this.config.retry,
+      pollIntervalMs: Math.min(this.config.flushInterval * 1000, 500),
+      connectionPool: pool,
+    });
+    this.health_ = new HealthMonitor(this.worker);
+    this.worker.start();
   }
 
-  /** Manually report one usage event. See `sdk/shared/API_CONTRACT.md`
-   * for the exact field semantics — they match EP-16's ingestion API
-   * one-to-one. Rejects with a costorah error on any failure; never
-   * resolves with a partial/ambiguous result. */
+  /** Report one usage event. Validates its arguments synchronously
+   * (rejecting immediately on bad input, same as before) and then hands
+   * the payload to the background delivery pipeline — this method does
+   * not make a network call and resolves immediately. See
+   * `TrackResult`'s docstring and `sdk/docs/RELIABILITY.md` for what
+   * "queued" means here. */
   async track(params: TrackParams): Promise<TrackResult> {
     const payload = buildPayload(params);
-    const body = await this.transport.postUsageEvent(payload);
+    const requestId = String(payload.request_id);
+    const queued = await this.worker.submit(makeQueuedEvent(payload));
     return {
-      success: body.success ?? true,
-      usageId: body.usage_id,
-      requestId: body.request_id,
-      processedAt: body.processed_at,
-      duplicate: body.duplicate ?? false,
+      success: queued,
+      requestId,
+      queued,
+      usageId: undefined,
+      processedAt: undefined,
+      duplicate: false,
     };
   }
+
+  /** Resolves true once every queued event has been delivered (or
+   * permanently dropped), or `timeoutMs` elapses. Does not stop the
+   * background worker — `track()` remains usable immediately afterward. */
+  async flush(timeoutMs = 10_000): Promise<boolean> {
+    return this.worker.flush(timeoutMs);
+  }
+
+  /** Graceful shutdown: flush pending events (best-effort, bounded by
+   * `timeoutMs`), then stop the background worker. Safe to call more
+   * than once. */
+  async shutdown(timeoutMs = 10_000): Promise<void> {
+    await this.worker.shutdown(timeoutMs);
+  }
+
+  /** Matches the ticket's literal shape: `{ worker: "running",
+   * queue_depth: 24, retry_queue: 3, circuit: "closed", compression:
+   * "enabled" }`. */
+  health(): HealthSnapshot {
+    return this.health_.snapshot();
+  }
+
+  /** Queue depth, dropped events, retry queue size, worker status, and
+   * the TelemetryMetrics snapshot. */
+  queueStats(): QueueStatsSnapshot {
+    return this.health_.queueStats();
+  }
+}
+
+function persistentQueuePath(config: ResolvedConfig): string | undefined {
+  if (!config.persistentQueue) return undefined;
+  // Namespaced by API key so the same key on the same machine reuses the
+  // same file across restarts (needed for crash recovery to have
+  // anything to recover) without colliding with a different key's queue.
+  const hash = simpleHash(config.apiKey);
+  return `${tmpdir()}/costorah/queue-${hash}.jsonl`;
+}
+
+function simpleHash(input: string): string {
+  let hash = 0;
+  for (let i = 0; i < input.length; i++) {
+    hash = (Math.imul(31, hash) + input.charCodeAt(i)) | 0;
+  }
+  return (hash >>> 0).toString(16);
 }
 
 const SUPPORTED_PROVIDER_SET: ReadonlySet<string> = new Set(SUPPORTED_PROVIDERS);

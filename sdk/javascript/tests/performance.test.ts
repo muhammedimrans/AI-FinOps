@@ -1,9 +1,11 @@
 /**
  * Performance targets from the EP-18 ticket: initialization <5ms,
- * tracking overhead <2ms, memory <50MB, batch upload latency <100ms.
- * EP-18.1 has no batching yet (EP-18.3), so "tracking overhead" here
- * means the SDK-side cost of track() with network latency removed (a
- * fetch stub responding instantly).
+ * tracking overhead <2ms, memory <50MB. Since EP-18.3, track() enqueues
+ * into the reliability pipeline instead of making a blocking network
+ * call — see tests/reliability/ for the EP-18.3-specific <1ms/<100MB/
+ * 100k-events targets. These tests still exercise the full client with a
+ * fetch stub responding instantly, which now measures enqueue overhead
+ * rather than network-call overhead.
  */
 import { describe, expect, it, vi } from "vitest";
 

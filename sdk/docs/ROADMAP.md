@@ -20,32 +20,46 @@ focused, testable, and independently reviewable.
 - PyPI/npm packaging metadata (build verified locally; publish itself is
   a release-time action, not part of this phase).
 
-## EP-18.2 — Automatic Instrumentation (not yet built)
+## EP-18.2 — Automatic Instrumentation ✅ Shipped
 
-- `track_openai()` / `trackOpenAI()` and equivalents for Anthropic,
-  Google Gemini, Azure OpenAI, OpenRouter, Ollama: detect a
-  provider-native SDK response object and normalize it automatically,
-  without the caller filling in `track()`'s fields by hand.
-- `costorah.instrumentation.OpenAIInstrumentor().instrument()`-style
-  wrappers that monkeypatch/wrap the underlying provider SDK so every
-  call is tracked with zero per-call code.
+- `BaseInstrumentor` plugin architecture (Python `costorah.instrumentation`,
+  JS `@costorah/sdk`'s `src/instrumentation`) — `instrument()`,
+  `uninstrument()`, `isInstrumented()`, `extractUsage()`, `normalize()`.
+- All 10 required providers: OpenAI, Azure OpenAI, OpenRouter, Ollama,
+  Grok, Anthropic, Mistral, Amazon Bedrock, Google Gemini, Cohere.
+- Safe, restorable monkey patching of official SDK methods only; sync and
+  async; streaming (telemetry sent only after the stream completes).
+- Automatic cost calculation via a shared per-token pricing table when a
+  provider response doesn't include cost; unknown models report cost `0`,
+  never a guess.
+- Privacy-preserving by construction: only usage metadata is ever read
+  from a response, never prompt/completion content.
+- See `sdk/docs/AUTOMATIC_INSTRUMENTATION.md` for the full guide.
 
-## EP-18.3 — Reliability (not yet built)
+## EP-18.3 — Enterprise Reliability Layer ✅ Shipped
 
-- Background batching: accumulate events up to `batch_size` /
-  `flush_interval` and upload them in fewer HTTP requests instead of one
-  request per `track()` call.
-- A local in-process queue with retry that doesn't block the caller (the
-  current EP-18.1 retry is synchronous and bounded — appropriate for a
-  request-path call, not a replacement for a real queue).
-- Offline persistence so events survive a restart during an extended
-  COSTORAH outage — conceptually reusing the Monitoring Agent's (EP-17)
-  Memory Queue → Retry Queue → HTTP Sender design, adapted for an
-  in-process SDK.
-- Formal concurrency/performance tuning once batching exists (the
-  EP-18.1 performance suite already covers 100k sequential `track()`
-  calls and basic thread/async safety, but batch-upload-latency and
-  queue-under-load are EP-18.3-shaped tests).
+- Full pipeline: Memory Queue → Background Worker → Persistent Queue →
+  Compression → Retry Engine → Circuit Breaker → Connection Pool → Usage
+  API. `track()` validates synchronously and enqueues — verified <1ms —
+  never making a blocking network call.
+- Configurable overflow policy (`drop_newest`/`drop_oldest`/`block`),
+  gzip compression above a size threshold, the ticket's exact
+  exponential-backoff schedule (never-retry on 4xx), and a genuinely new
+  Closed/Open/Half-Open circuit breaker (EP-17's Monitoring Agent had no
+  circuit-breaker concept to reuse).
+- Crash-durable persistent queue: SQLite (Python, reusing EP-17's
+  offline-store shape) / a zero-dependency newline-delimited-JSON append
+  log (JavaScript, since adding LevelDB would break the SDK's
+  zero-runtime-dependency guarantee).
+- `client.flush()`/`shutdown()`/`health()`/`queue_stats()` (Python) and
+  their JS equivalents for callers that need delivery confirmation.
+- At-least-once delivery guarantee, explicitly documented (never
+  exactly-once — relies on EP-16's existing `request_id` idempotency).
+- See `sdk/docs/RELIABILITY.md` for the full guide, including the
+  explicit, honest scope note on "batch upload" (EP-16 has no
+  multi-event ingestion endpoint, so batching here means concurrent
+  pipelined delivery of individual events, not fewer HTTP requests than
+  events).
 
 ## EP-18.4 — Ecosystem (not yet built)
 

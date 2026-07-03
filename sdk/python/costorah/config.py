@@ -29,6 +29,13 @@ class Config:
     max_retries: int = 3
     verify_tls: bool = True
 
+    # EP-18.3 reliability layer — see sdk/docs/RELIABILITY.md.
+    queue_size: int = 10_000
+    overflow_policy: str = "drop_oldest"
+    persistent_queue: bool = False
+    compression: bool = True
+    retry: bool = True
+
     def __post_init__(self) -> None:
         if not self.api_key:
             raise ConfigurationError("api_key is required")
@@ -45,3 +52,9 @@ class Config:
             raise ConfigurationError("flush_interval must be positive")
         if self.max_retries < 0:
             raise ConfigurationError("max_retries must be >= 0")
+        if self.queue_size <= 0:
+            raise ConfigurationError("queue_size must be positive")
+        if self.overflow_policy not in ("drop_newest", "drop_oldest", "block"):
+            raise ConfigurationError(
+                "overflow_policy must be one of: drop_newest, drop_oldest, block"
+            )

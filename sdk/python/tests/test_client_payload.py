@@ -154,7 +154,12 @@ def test_track_rejects_total_tokens_mismatch() -> None:
 
 
 def test_client_used_as_context_manager() -> None:
+    """track() no longer waits for delivery (EP-18.3) — the context
+    manager's __exit__ calls shutdown(), which flushes, so the mock
+    transport has received the request by the time the `with` block
+    exits."""
     captured: list[dict] = []
     with Costorah(api_key="costorah_live_x", _transport=_echo_transport(captured)) as client:
         result = client.track(provider="openai", model="gpt-4.1", cost=0.01)
-        assert result.usage_id == "u1"
+        assert result.queued is True
+    assert captured[0]["provider"] == "openai"

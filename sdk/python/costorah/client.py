@@ -14,25 +14,36 @@ Costorah — the SDK's public entry point.
     )
 
 Thread safety: a single `Costorah` instance is safe to share across
-threads. `track()` makes one blocking HTTP call per invocation via an
-underlying `httpx.Client`, which manages its own connection pool safely
-across concurrent callers — there is no SDK-level mutable state shared
-between calls beyond that pool.
+threads.
+
+EP-18.3 reliability layer: `track()` validates its arguments synchronously
+(cheap, no I/O) and then hands the built payload to a background worker —
+it never makes a blocking network call itself, and returns in well under a
+millisecond. See `sdk/docs/RELIABILITY.md` for the full pipeline (memory
+queue -> background worker -> persistent queue -> compression -> retry ->
+circuit breaker -> connection pool) and for what this means for
+`TrackResult` (it can no longer carry the server-assigned `usage_id`/
+`processed_at`/`duplicate` fields synchronously — those are only known
+once the event is actually delivered, which now happens off the critical
+path). `client.flush()` / `client.shutdown()` block until pending events
+are delivered when a caller needs that guarantee (e.g. before process
+exit, or in a test).
 """
 
 from __future__ import annotations
 
+import hashlib
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-import httpx
-
-from costorah._http import HttpTransport
 from costorah._logging import get_logger
 from costorah._util import generate_request_id
 from costorah.config import Config
 from costorah.exceptions import ValidationError
+from costorah.reliability import BackgroundWorker, ConnectionPool, HealthMonitor, QueuedEvent
 from costorah.types import SUPPORTED_PROVIDERS, UsageStatus
 
 _log = get_logger(__name__)
@@ -40,13 +51,20 @@ _log = get_logger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class TrackResult:
-    """Result of a successful `track()` call."""
+    """Result of a `track()` call. `queued` is always True on a
+    successful call (validation passed, the event was accepted into the
+    reliability pipeline) — it does NOT mean the event has reached
+    COSTORAH yet. `usage_id`/`processed_at`/`duplicate` are only known
+    once delivery actually completes, which happens asynchronously in the
+    background; they are `None`/`False` here. Use `client.flush()` if a
+    caller needs to wait for actual delivery."""
 
     success: bool
-    usage_id: str
     request_id: str
-    processed_at: str
-    duplicate: bool
+    queued: bool = True
+    usage_id: str | None = None
+    processed_at: str | None = None
+    duplicate: bool = False
 
 
 class Costorah:
@@ -62,7 +80,12 @@ class Costorah:
         flush_interval: float = 5.0,
         max_retries: int = 3,
         verify_tls: bool = True,
-        _transport: httpx.BaseTransport | None = None,
+        queue_size: int = 10_000,
+        overflow_policy: str = "drop_oldest",
+        persistent_queue: bool = False,
+        compression: bool = True,
+        retry: bool = True,
+        _transport: Any | None = None,
     ) -> None:
         self.config = Config(
             api_key=api_key,
@@ -72,8 +95,25 @@ class Costorah:
             flush_interval=flush_interval,
             max_retries=max_retries,
             verify_tls=verify_tls,
+            queue_size=queue_size,
+            overflow_policy=overflow_policy,
+            persistent_queue=persistent_queue,
+            compression=compression,
+            retry=retry,
         )
-        self._transport = HttpTransport(self.config, transport=_transport)
+        pool = ConnectionPool(self.config, transport=_transport)
+        self._worker = BackgroundWorker(
+            self.config,
+            queue_size=self.config.queue_size,
+            overflow_policy=self.config.overflow_policy,
+            persistent_queue_path=_persistent_queue_path(self.config),
+            compression_enabled=self.config.compression,
+            retry_enabled=self.config.retry,
+            poll_interval=min(self.config.flush_interval, 0.5),
+            connection_pool=pool,
+        )
+        self._health = HealthMonitor(self._worker)
+        self._worker.start()
 
     def track(
         self,
@@ -94,10 +134,12 @@ class Costorah:
         timestamp: datetime | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> TrackResult:
-        """Manually report one usage event. See `sdk/shared/API_CONTRACT.md`
-        for the exact field semantics — they match EP-16's ingestion API
-        one-to-one. Raises a `costorah.*` exception on any failure; never
-        returns a partial/ambiguous result."""
+        """Report one usage event. Validates its arguments synchronously
+        (raising a `costorah.*` exception immediately on bad input, same
+        as before) and then hands the payload to the background delivery
+        pipeline — this method does not make a network call and returns
+        immediately. See `TrackResult`'s docstring and
+        `sdk/docs/RELIABILITY.md` for what "queued" means here."""
         payload = self._build_payload(
             provider=provider,
             model=model,
@@ -115,14 +157,42 @@ class Costorah:
             timestamp=timestamp,
             metadata=metadata,
         )
-        body = self._transport.post_usage_event(payload)
-        return TrackResult(
-            success=bool(body.get("success", True)),
-            usage_id=str(body["usage_id"]),
-            request_id=str(body["request_id"]),
-            processed_at=str(body["processed_at"]),
-            duplicate=bool(body.get("duplicate", False)),
-        )
+        request_id_str = str(payload["request_id"])
+        queued = self._worker.submit(QueuedEvent(payload=payload))
+        if not queued:
+            _log.warning(
+                "costorah: event dropped, queue full (overflow_policy=%s) request_id=%s",
+                self.config.overflow_policy,
+                request_id_str,
+            )
+        return TrackResult(success=queued, request_id=request_id_str, queued=queued)
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        """Blocks until every queued event has been delivered (or
+        permanently dropped), or `timeout` elapses. Returns True if the
+        queue fully drained. Does not stop the background worker —
+        `track()` remains usable immediately afterward."""
+        return self._worker.flush(timeout=timeout)
+
+    def shutdown(self, timeout: float = 10.0) -> None:
+        """Graceful shutdown: flush pending events (best-effort, bounded
+        by `timeout`), then stop the background worker. Safe to call more
+        than once. `track()` after `shutdown()` still enqueues locally but
+        will not be delivered until a new client is constructed."""
+        self._worker.shutdown(timeout=timeout)
+
+    def health(self) -> dict[str, Any]:
+        """Matches the ticket's literal shape:
+        `{"worker": "running", "queue_depth": 24, "retry_queue": 3,
+        "circuit": "closed", "compression": "enabled"}`."""
+        return self._health.snapshot()
+
+    def queue_stats(self) -> dict[str, Any]:
+        """Queue depth, dropped events, retry queue size, worker status,
+        and the TelemetryMetrics snapshot (sent/failed totals, retry
+        count, average upload latency, compression ratio, last batch
+        size, worker uptime)."""
+        return self._health.queue_stats()
 
     def _build_payload(
         self,
@@ -188,12 +258,25 @@ class Costorah:
         return payload
 
     def close(self) -> None:
-        """Release the underlying HTTP connection pool. Safe to call more
-        than once."""
-        self._transport.close()
+        """Alias for `shutdown()` — flushes pending events and stops the
+        background worker. Safe to call more than once."""
+        self.shutdown()
 
     def __enter__(self) -> Costorah:
         return self
 
     def __exit__(self, *exc_info: object) -> None:
         self.close()
+
+
+def _persistent_queue_path(config: Config) -> str:
+    """A real on-disk SQLite file, namespaced by API key, when
+    `persistent_queue=True` (crash-durable, and reused across restarts
+    with the same key so recovery actually has something to recover); an
+    in-memory database otherwise (same queue/retry mechanics, just not
+    durable across a process restart)."""
+    if not config.persistent_queue:
+        return ":memory:"
+    key_hash = hashlib.sha256(config.api_key.encode()).hexdigest()[:16]
+    path = Path(tempfile.gettempdir()) / "costorah" / f"queue-{key_hash}.db"
+    return str(path)

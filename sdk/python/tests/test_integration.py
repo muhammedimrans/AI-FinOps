@@ -8,6 +8,9 @@ from costorah import Costorah
 
 
 def test_end_to_end_track_success() -> None:
+    """track() returns immediately (EP-18.3) — delivery is verified via
+    flush() + the mock transport's captured requests, not via
+    TrackResult's fields (which no longer carry the server's response)."""
     requests: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -32,14 +35,19 @@ def test_end_to_end_track_success() -> None:
             cost=0.012,
             latency_ms=410,
         )
+        assert result.success is True
+        assert result.queued is True
+        assert client.flush(timeout=5) is True
 
-    assert result.success is True
-    assert result.usage_id == "u1"
     assert len(requests) == 1
     assert requests[0].headers["Authorization"] == "Bearer costorah_live_x"
 
 
-def test_duplicate_response_surfaces_flag() -> None:
+def test_delivery_outcome_observable_via_queue_stats() -> None:
+    """Since track() no longer surfaces the server's duplicate flag
+    synchronously, delivery outcomes (including a duplicate response) are
+    observable via queue_stats()'s sent_total after a flush instead."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -53,16 +61,17 @@ def test_duplicate_response_surfaces_flag() -> None:
         )
 
     client = Costorah(api_key="costorah_live_x", _transport=httpx.MockTransport(handler))
-    result = client.track(provider="openai", model="gpt-4.1", cost=0.01)
-    assert result.duplicate is True
+    client.track(provider="openai", model="gpt-4.1", cost=0.01)
+    assert client.flush(timeout=5) is True
+    assert client.queue_stats()["sent_total"] == 1
     client.close()
 
 
 def test_recovers_after_backend_outage_ends() -> None:
-    """Failure recovery: a transient 503 outage followed by recovery
-    should still yield a successful TrackResult from a single track()
-    call, thanks to bounded retry (not a full offline queue — that's
-    EP-18.3 — but track() itself must survive a brief blip)."""
+    """Failure recovery: a transient 503 outage followed by recovery does
+    not lose the event — the background worker retries with backoff
+    (RetryScheduler's default schedule starts at 1s) until the backend
+    recovers, all without track() itself ever blocking."""
     state = {"failures_left": 2}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -80,11 +89,13 @@ def test_recovers_after_backend_outage_ends() -> None:
             },
         )
 
-    client = Costorah(
-        api_key="costorah_live_x", max_retries=3, _transport=httpx.MockTransport(handler)
-    )
+    client = Costorah(api_key="costorah_live_x", _transport=httpx.MockTransport(handler))
     result = client.track(provider="openai", model="gpt-4.1", cost=0.01)
-    assert result.success is True
+    assert result.queued is True
+    # Two 1s/2s backoff delays before the third (successful) attempt.
+    assert client.flush(timeout=10) is True
+    assert client.queue_stats()["sent_total"] == 1
+    assert state["failures_left"] == 0
     client.close()
 
 
@@ -129,6 +140,7 @@ def test_concurrent_track_calls_from_multiple_threads_are_safe() -> None:
     for t in threads:
         t.join()
 
+    assert client.flush(timeout=10) is True
     client.close()
 
     assert errors == []

@@ -37,6 +37,9 @@ from app.models.project import Project, ProjectEnvironment
 from app.models.provider_connection import ProviderConnection, ProviderType
 from app.models.usage_record import UsageRecord, UsageRecordStatus
 from app.models.user import User, UserStatus
+from app.realtime.connection_manager import ConnectionManager
+from app.realtime.event_bus import EventBus
+from app.realtime.rate_limit import ConnectionRateLimiter
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -131,12 +134,18 @@ def _make_mock_container(
     mock_engine = MagicMock()
     mock_session_factory = MagicMock()
     mock_redis = AsyncMock()
+    event_bus = EventBus(mock_redis)
 
     container = AppContainer(
         settings=settings,
         engine=mock_engine,
         session_factory=mock_session_factory,
         redis=mock_redis,
+        event_bus=event_bus,
+        # Dispatch loop deliberately not started here — most tests don't need
+        # it and starting it requires a running event loop at fixture time.
+        connection_manager=ConnectionManager(event_bus),
+        realtime_rate_limiter=ConnectionRateLimiter(redis=mock_redis),
     )
     return container
 

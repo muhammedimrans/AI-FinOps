@@ -18,6 +18,7 @@ import { DollarSign, Activity, Layers, Zap, Download, Radio } from "lucide-react
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import LiveActivityFeed from "../components/LiveActivityFeed";
+import CriticalAlertBanner from "../components/CriticalAlertBanner";
 import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
@@ -208,6 +209,8 @@ export default function Overview() {
           </button>
         }
       />
+
+      <CriticalAlertBanner />
 
       {/* Live-update strip — appears once a usage.created event has landed
           since the socket connected; the KPI numbers below refresh via the

@@ -60,14 +60,18 @@ That's it — open the COSTORAH dashboard and the event is there.
 
 1. The SDK validates the payload locally (provider is in the supported
    catalog, tokens/cost are non-negative, etc.) — catching mistakes
-   before a network call.
-2. It authenticates with `Authorization: Bearer costorah_live_...`
-   (EP-15).
-3. It POSTs to `{endpoint}/v1/ingest/usage` (EP-16), which stores the
-   event and updates the dashboard's cost aggregates immediately.
-4. On a transient failure (network blip, 5xx, 429), it retries with
-   exponential backoff (up to `maxRetries`, default 3) before surfacing
-   an error to your code.
+   before a network call, and raising/rejecting immediately if invalid.
+2. It's handed to the reliability layer (EP-18.3): `track()` itself
+   returns immediately (<1ms) — it never blocks on the network.
+3. In the background, it's authenticated with `Authorization: Bearer
+   costorah_live_...` (EP-15) and POSTed to `{endpoint}/v1/ingest/usage`
+   (EP-16), which stores the event and updates the dashboard's cost
+   aggregates.
+4. On a transient failure (network blip, 5xx, 429), it's retried with
+   exponential backoff — indefinitely, never silently giving up — while
+   your application keeps running. See `RELIABILITY.md` for the full
+   pipeline (queueing, crash-durable persistence, circuit breaker,
+   compression) and what this means for `track()`'s return value.
 
 See `sdk/shared/API_CONTRACT.md` for the full wire contract, and each
 language's own README (`sdk/python/README.md`, `sdk/javascript/README.md`)
@@ -84,5 +88,8 @@ for configuration, error handling, and what's not in this release yet.
   for supported providers (OpenAI, Azure OpenAI, OpenRouter, Ollama,
   Grok, Anthropic, Mistral, Bedrock, Google Gemini, Cohere); see
   `AUTOMATIC_INSTRUMENTATION.md`.
-- **What's next** — see `ROADMAP.md` for background batching and other
-  later EP-18 phases.
+- **Reliability** — queueing, crash-durable persistence, retry, circuit
+  breaking, and compression are automatic and always on; see
+  `RELIABILITY.md` for the architecture and `client.flush()`/
+  `client.health()` if you need delivery confirmation.
+- **What's next** — see `ROADMAP.md` for later EP-18 phases.

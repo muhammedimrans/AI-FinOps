@@ -36,22 +36,30 @@ focused, testable, and independently reviewable.
   from a response, never prompt/completion content.
 - See `sdk/docs/AUTOMATIC_INSTRUMENTATION.md` for the full guide.
 
-## EP-18.3 — Reliability (not yet built)
+## EP-18.3 — Enterprise Reliability Layer ✅ Shipped
 
-- Background batching: accumulate events up to `batch_size` /
-  `flush_interval` and upload them in fewer HTTP requests instead of one
-  request per `track()` call.
-- A local in-process queue with retry that doesn't block the caller (the
-  current EP-18.1 retry is synchronous and bounded — appropriate for a
-  request-path call, not a replacement for a real queue).
-- Offline persistence so events survive a restart during an extended
-  COSTORAH outage — conceptually reusing the Monitoring Agent's (EP-17)
-  Memory Queue → Retry Queue → HTTP Sender design, adapted for an
-  in-process SDK.
-- Formal concurrency/performance tuning once batching exists (the
-  EP-18.1 performance suite already covers 100k sequential `track()`
-  calls and basic thread/async safety, but batch-upload-latency and
-  queue-under-load are EP-18.3-shaped tests).
+- Full pipeline: Memory Queue → Background Worker → Persistent Queue →
+  Compression → Retry Engine → Circuit Breaker → Connection Pool → Usage
+  API. `track()` validates synchronously and enqueues — verified <1ms —
+  never making a blocking network call.
+- Configurable overflow policy (`drop_newest`/`drop_oldest`/`block`),
+  gzip compression above a size threshold, the ticket's exact
+  exponential-backoff schedule (never-retry on 4xx), and a genuinely new
+  Closed/Open/Half-Open circuit breaker (EP-17's Monitoring Agent had no
+  circuit-breaker concept to reuse).
+- Crash-durable persistent queue: SQLite (Python, reusing EP-17's
+  offline-store shape) / a zero-dependency newline-delimited-JSON append
+  log (JavaScript, since adding LevelDB would break the SDK's
+  zero-runtime-dependency guarantee).
+- `client.flush()`/`shutdown()`/`health()`/`queue_stats()` (Python) and
+  their JS equivalents for callers that need delivery confirmation.
+- At-least-once delivery guarantee, explicitly documented (never
+  exactly-once — relies on EP-16's existing `request_id` idempotency).
+- See `sdk/docs/RELIABILITY.md` for the full guide, including the
+  explicit, honest scope note on "batch upload" (EP-16 has no
+  multi-event ingestion endpoint, so batching here means concurrent
+  pipelined delivery of individual events, not fewer HTTP requests than
+  events).
 
 ## EP-18.4 — Ecosystem (not yet built)
 

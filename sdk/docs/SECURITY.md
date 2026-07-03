@@ -1,4 +1,4 @@
-# Security Review (EP-18.4)
+# Security Review (EP-18.4, EP-18.5)
 
 ## What's never persisted or logged
 
@@ -17,27 +17,47 @@ never contain literal prompt/completion text used in each test):
   functions have no code path that touches message/choice content), not
   a filter applied after the fact.
 - **Request bodies in framework integrations**: `CostorahMiddleware`
-  (Python) and `costorahMiddleware()` (JS) capture only request ID,
-  path, method, and an optional `organizationId` — never headers,
-  query params, or the request body.
+  (Python FastAPI/Starlette/Django, JS Express), `CostorahExtension`
+  (Flask), `CostorahASGIMiddleware`/`CostorahWSGIMiddleware` all capture
+  only request ID, path, method, and an optional organization ID —
+  never headers (beyond `X-Request-Id`), query params, cookies, or the
+  request body.
+- **Task arguments in the Celery integration (EP-18.5)**: `task_failure`'s
+  signal payload includes the task's original `args`/`kwargs` —
+  `CostorahCelery` deliberately never reads them. Retry reasons are
+  logged by exception class name only (`type(reason).__name__`), never
+  `str(reason)`, since a custom retry exception could embed argument
+  values in its message.
+- **Authenticated user identity in the Django integration (EP-18.5)**:
+  `CostorahMiddleware` captures the authenticated user's **ID only**
+  (`request.user.pk`, read only when `request.user.is_authenticated` is
+  `True`) — never the username, email, or any other field from the user
+  object. Apps without `AuthenticationMiddleware` installed simply get
+  no `user_id` field (accessed via `getattr`/a guarded `AttributeError`
+  catch, never an error).
 
-## Ambient request context (EP-18.4-specific)
+## Ambient request context (EP-18.4, extended EP-18.5)
 
-The new `costorah.context`/`context.ts` modules attach ambient metadata
-(`request_context`/`requestContext`) to usage events during a request.
-This is opt-in (only populated when a framework integration is in use)
-and only ever contains what the integration explicitly sets — request
-ID, path, HTTP method, organization ID. It cannot capture arbitrary
-request data (headers, body, query string) because nothing in the
-middleware reads those into the context in the first place.
+The `costorah.context`/`context.ts` modules attach ambient metadata
+(`request_context`/`requestContext`) to usage events during a request
+(or, for Celery, during a task's execution). This is opt-in (only
+populated when a framework integration is in use) and only ever
+contains what the integration explicitly sets — request/task ID, path
+or task name, method or queue/worker, organization ID, and (Django only)
+user ID. It cannot capture arbitrary request data (headers, body, query
+string) or task data (arguments, return value) because nothing in any
+integration reads those into the context in the first place.
 
 ## Dependency audit
 
 **Python** (`sdk/python/pyproject.toml`): one runtime dependency,
 `httpx>=0.25` — a widely-used, actively maintained HTTP client with no
 known critical advisories as of this review. Dev-only dependencies
-(pytest, ruff, mypy, provider SDKs, fastapi) never ship in the published
-package.
+(pytest, ruff, mypy, provider SDKs, fastapi, and — as of EP-18.5 —
+flask/django/celery, needed only to run the framework integration test
+suite) never ship in the published package; `costorah.integrations.*`
+imports each framework lazily inside its own module, raising a clear
+`ImportError` if it isn't installed, rather than requiring it.
 
 **JavaScript** (`sdk/javascript/package.json`): **zero runtime
 dependencies** (verified — no `dependencies` key in `package.json`;

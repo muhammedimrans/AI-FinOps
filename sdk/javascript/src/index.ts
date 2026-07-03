@@ -59,3 +59,6 @@ export {
   RetryScheduler,
 } from "./reliability/retry.js";
 export type { OverflowPolicy } from "./reliability/types.js";
+
+export { detectFrameworks, detectRuntime, detectRuntimeVersion } from "./runtime.js";
+export type { Runtime } from "./runtime.js";

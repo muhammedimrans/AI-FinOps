@@ -48,7 +48,9 @@ describe("MistralInstrumentor — lifecycle", () => {
     const independentClient = new Mistral({ apiKey: "another-key" });
     await independentClient.chat.complete({ model: "mistral-large-latest", messages: [] });
 
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({ provider: "mistral", input_tokens: 15, output_tokens: 7 });
     inst.uninstrument();
   });
@@ -67,6 +69,7 @@ describe("MistralInstrumentor — capture", () => {
     await expect(
       mistral.chat.complete({ model: "mistral-large-latest", messages: [] }),
     ).rejects.toThrow("bad request");
+    await client.flush();
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0 });
     inst.uninstrument();
   });
@@ -81,6 +84,7 @@ describe("MistralInstrumentor — capture", () => {
     await mistral.chat.complete({ model: "mistral-small-latest", messages: [] });
 
     // 1000 * 0.0000001 + 1000 * 0.0000003 = 0.0004
+    await client.flush();
     expect(captured[0]?.cost).toBeCloseTo(0.0004, 8);
     inst.uninstrument();
   });
@@ -107,11 +111,14 @@ describe("MistralInstrumentor — streaming", () => {
     const seen: unknown[] = [];
     for await (const event of stream) {
       seen.push(event);
+      await client.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(seen).toHaveLength(2);
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({ input_tokens: 9, output_tokens: 3, status: "success" });
     inst.uninstrument();
   });

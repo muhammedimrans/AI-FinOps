@@ -7,7 +7,6 @@ import { createTestClient } from "./testUtils.js";
 
 const nodeRequire = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const { BedrockRuntimeClient, ConverseCommand, ConverseStreamCommand }: any = nodeRequire(
   "@aws-sdk/client-bedrock-runtime",
 );
@@ -59,6 +58,7 @@ describe("BedrockInstrumentor — Converse capture", () => {
     );
 
     expect(result.stopReason).toBe("end_turn");
+    await costorahClient.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
       provider: "bedrock",
@@ -87,6 +87,7 @@ describe("BedrockInstrumentor — Converse capture", () => {
 
     expect(result).toEqual({ ok: true });
     expect(calledWith).toBe(fakeCommand);
+    await costorahClient.flush();
     expect(captured).toHaveLength(0);
     inst.uninstrument();
   });
@@ -103,6 +104,7 @@ describe("BedrockInstrumentor — Converse capture", () => {
     await expect(
       bedrock.send(new ConverseCommand({ modelId: "amazon.titan-text", messages: [] })),
     ).rejects.toThrow("throttled");
+    await costorahClient.flush();
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0 });
     inst.uninstrument();
   });
@@ -127,10 +129,12 @@ describe("BedrockInstrumentor — ConverseStream", () => {
     const seen: unknown[] = [];
     for await (const event of response.stream) {
       seen.push(event);
+      await costorahClient.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(seen).toHaveLength(2);
+    await costorahClient.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ input_tokens: 8, output_tokens: 4, status: "success" });
     inst.uninstrument();

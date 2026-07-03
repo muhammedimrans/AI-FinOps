@@ -70,7 +70,9 @@ describe("GeminiInstrumentor — capture", () => {
 
     await target.models.generateContent({ model: "gemini-1.5-pro", contents: "Hello" });
 
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({
       provider: "google",
       model: "gemini-1.5-pro",
@@ -95,6 +97,7 @@ describe("GeminiInstrumentor — capture", () => {
     await expect(
       target.models.generateContent({ model: "gemini-1.5-pro", contents: "Hi" }),
     ).rejects.toThrow("quota exceeded");
+    await client.flush();
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0 });
     inst.uninstrument();
   });
@@ -112,11 +115,14 @@ describe("GeminiInstrumentor — capture", () => {
     const seen: unknown[] = [];
     for await (const chunk of stream) {
       seen.push(chunk);
+      await client.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(seen).toHaveLength(2);
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({ input_tokens: 18, output_tokens: 6, status: "success" });
     inst.uninstrument();
   });

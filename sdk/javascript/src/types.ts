@@ -51,11 +51,18 @@ export interface TrackParams {
   metadata?: Record<string, unknown>;
 }
 
-/** Result of a successful `track()` call. */
+/** Result of a `track()` call. `queued` is always true on a successful
+ * call (validation passed, the event was accepted into the reliability
+ * pipeline, EP-18.3) — it does NOT mean the event has reached COSTORAH
+ * yet. `usageId`/`processedAt`/`duplicate` are only known once delivery
+ * actually completes, which happens asynchronously in the background;
+ * they are undefined/false here. Use `client.flush()` if a caller needs
+ * to wait for actual delivery. */
 export interface TrackResult {
   success: boolean;
-  usageId: string;
   requestId: string;
-  processedAt: string;
+  queued: boolean;
+  usageId: string | undefined;
+  processedAt: string | undefined;
   duplicate: boolean;
 }

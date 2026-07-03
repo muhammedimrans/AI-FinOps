@@ -8,6 +8,8 @@ import { ConfigurationError } from "./errors.js";
 
 const DEFAULT_ENDPOINT = "https://api.costorah.com";
 
+import type { OverflowPolicy } from "./reliability/types.js";
+
 export interface CostorahOptions {
   apiKey: string;
   endpoint?: string;
@@ -19,6 +21,12 @@ export interface CostorahOptions {
   flushInterval?: number;
   maxRetries?: number;
   verifyTls?: boolean;
+  /** EP-18.3 reliability layer — see sdk/docs/RELIABILITY.md. */
+  queueSize?: number;
+  overflowPolicy?: OverflowPolicy;
+  persistentQueue?: boolean;
+  compression?: boolean;
+  retry?: boolean;
 }
 
 export interface ResolvedConfig {
@@ -31,6 +39,11 @@ export interface ResolvedConfig {
   flushInterval: number;
   maxRetries: number;
   verifyTls: boolean;
+  queueSize: number;
+  overflowPolicy: OverflowPolicy;
+  persistentQueue: boolean;
+  compression: boolean;
+  retry: boolean;
 }
 
 export function resolveConfig(options: CostorahOptions): ResolvedConfig {
@@ -68,6 +81,16 @@ export function resolveConfig(options: CostorahOptions): ResolvedConfig {
     throw new ConfigurationError("maxRetries must be >= 0");
   }
 
+  const queueSize = options.queueSize ?? 10_000;
+  if (queueSize <= 0) {
+    throw new ConfigurationError("queueSize must be positive");
+  }
+
+  const overflowPolicy = options.overflowPolicy ?? "drop_oldest";
+  if (!["drop_newest", "drop_oldest", "block"].includes(overflowPolicy)) {
+    throw new ConfigurationError("overflowPolicy must be one of: drop_newest, drop_oldest, block");
+  }
+
   return {
     apiKey,
     endpoint,
@@ -76,5 +99,10 @@ export function resolveConfig(options: CostorahOptions): ResolvedConfig {
     flushInterval,
     maxRetries,
     verifyTls: options.verifyTls ?? true,
+    queueSize,
+    overflowPolicy,
+    persistentQueue: options.persistentQueue ?? false,
+    compression: options.compression ?? true,
+    retry: options.retry ?? true,
   };
 }

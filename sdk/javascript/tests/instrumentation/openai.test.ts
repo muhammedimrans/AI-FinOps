@@ -80,6 +80,7 @@ describe("OpenAIInstrumentor — chat completions capture", () => {
     const result = await openai.chat.completions.create({ model: "gpt-4o", messages: [] });
 
     expect(result.id).toBe("chatcmpl-1");
+    await client.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
       provider: "openai",
@@ -106,6 +107,7 @@ describe("OpenAIInstrumentor — chat completions capture", () => {
       openai.chat.completions.create({ model: "gpt-4o", messages: [] }),
     ).rejects.toThrow("upstream failure");
 
+    await client.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0, output_tokens: 0 });
     inst.uninstrument();
@@ -122,6 +124,7 @@ describe("OpenAIInstrumentor — chat completions capture", () => {
     const openai = new OpenAI({ apiKey: "sk-test" });
     await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [] });
 
+    await client.flush();
     expect(captured[0]?.cost).toBeCloseTo(0.00045, 8);
     expect(captured[0]?.metadata).toMatchObject({ costEstimated: true });
     inst.uninstrument();
@@ -135,6 +138,7 @@ describe("OpenAIInstrumentor — chat completions capture", () => {
     const openai = new OpenAI({ apiKey: "sk-test" });
     await openai.chat.completions.create({ model: "not-a-real-model", messages: [] });
 
+    await client.flush();
     expect(captured[0]?.cost).toBe(0);
     expect(captured[0]?.metadata).toMatchObject({ costEstimated: false });
     inst.uninstrument();
@@ -152,6 +156,7 @@ describe("OpenAIInstrumentor — chat completions capture", () => {
       messages: [{ role: "user", content: "super secret prompt" }],
     });
 
+    await client.flush();
     const serialized = JSON.stringify(captured[0]);
     expect(serialized).not.toContain("super secret");
     inst.uninstrument();
@@ -171,6 +176,7 @@ describe("OpenAIInstrumentor — Responses API", () => {
     const openai = new OpenAI({ apiKey: "sk-test" });
     await openai.responses.create({ model: "gpt-4.1", input: "Hello" });
 
+    await client.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ input_tokens: 5, output_tokens: 3, provider: "openai" });
     inst.uninstrument();
@@ -203,10 +209,12 @@ describe("OpenAIInstrumentor — streaming", () => {
     for await (const chunk of stream) {
       collected.push(chunk);
       // Not submitted mid-stream.
+      await client.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(collected).toHaveLength(3);
+    await client.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({ input_tokens: 10, output_tokens: 4, status: "success" });
     inst.uninstrument();
@@ -232,6 +240,7 @@ describe("OpenAI-family provider scoping", () => {
       apiVersion: "2024-02-01",
     });
     await azure.chat.completions.create({ model: "gpt-4o", messages: [] });
+    await openaiClient.client.flush();
     expect(openaiClient.captured).toHaveLength(0);
     expect(azureClient.captured).toHaveLength(0);
 
@@ -239,6 +248,7 @@ describe("OpenAI-family provider scoping", () => {
     // only by the Azure instrumentor.
     azureInst.instrument();
     await azure.chat.completions.create({ model: "gpt-4o", messages: [] });
+    await azureClient.client.flush();
     expect(azureClient.captured).toHaveLength(1);
     expect(azureClient.captured[0]).toMatchObject({ provider: "azure_openai" });
     expect(openaiClient.captured).toHaveLength(0);
@@ -262,6 +272,7 @@ describe("OpenAI-family provider scoping", () => {
     // OpenAI instrumentor must still work after the sibling uninstrumented.
     const openai = new OpenAI({ apiKey: "sk-test" });
     await openai.chat.completions.create({ model: "gpt-4o", messages: [] });
+    await openaiClient.client.flush();
     expect(openaiClient.captured).toHaveLength(1);
 
     openaiInst.uninstrument();
@@ -279,11 +290,13 @@ describe("OpenAI-family provider scoping", () => {
 
     const ollama = new OpenAI({ apiKey: "ollama", baseURL: "http://localhost:11434/v1" });
     await ollama.chat.completions.create({ model: "llama3", messages: [] });
+    await ollamaClient.client.flush();
     expect(ollamaClient.captured).toHaveLength(1);
     expect(ollamaClient.captured[0]).toMatchObject({ provider: "ollama" });
 
     const grok = new OpenAI({ apiKey: "xai", baseURL: "https://api.x.ai/v1" });
     await grok.chat.completions.create({ model: "grok-2", messages: [] });
+    await grokClient.client.flush();
     expect(grokClient.captured).toHaveLength(1);
     expect(grokClient.captured[0]).toMatchObject({ provider: "grok" });
 

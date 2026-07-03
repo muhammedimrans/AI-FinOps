@@ -51,7 +51,9 @@ describe("CohereInstrumentor — capture", () => {
 
     await target.chat({ model: "command-r-plus", messages: [] });
 
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({
       provider: "cohere",
       model: "command-r-plus",
@@ -74,6 +76,7 @@ describe("CohereInstrumentor — capture", () => {
     await expect(target.chat({ model: "command-r-plus", messages: [] })).rejects.toThrow(
       "invalid api key",
     );
+    await client.flush();
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0 });
     inst.uninstrument();
   });
@@ -88,11 +91,14 @@ describe("CohereInstrumentor — capture", () => {
     const seen: unknown[] = [];
     for await (const event of stream) {
       seen.push(event);
+      await client.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(seen).toHaveLength(2);
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({ input_tokens: 11, output_tokens: 5, status: "success" });
     inst.uninstrument();
   });

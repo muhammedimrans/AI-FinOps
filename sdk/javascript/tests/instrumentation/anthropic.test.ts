@@ -52,7 +52,9 @@ describe("AnthropicInstrumentor — non-streaming capture", () => {
       messages: [],
     });
 
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({
       provider: "anthropic",
       model: "claude-sonnet-4",
@@ -76,6 +78,7 @@ describe("AnthropicInstrumentor — non-streaming capture", () => {
     await expect(
       anthropic.messages.create({ model: "claude-sonnet-4", max_tokens: 100, messages: [] }),
     ).rejects.toThrow("rate limited");
+    await client.flush();
     expect(captured[0]).toMatchObject({ status: "error", input_tokens: 0 });
     inst.uninstrument();
   });
@@ -92,6 +95,7 @@ describe("AnthropicInstrumentor — non-streaming capture", () => {
       max_tokens: 100,
       messages: [{ role: "user", content: "top secret prompt" }],
     });
+    await client.flush();
     expect(JSON.stringify(captured[0])).not.toContain("top secret");
     inst.uninstrument();
   });
@@ -120,11 +124,14 @@ describe("AnthropicInstrumentor — streaming", () => {
     const seen: unknown[] = [];
     for await (const event of stream) {
       seen.push(event);
+      await client.flush();
       expect(captured).toHaveLength(0);
     }
 
     expect(seen).toHaveLength(3);
+    await client.flush();
     expect(captured).toHaveLength(1);
+    await client.flush();
     expect(captured[0]).toMatchObject({ input_tokens: 20, output_tokens: 10, status: "success" });
     inst.uninstrument();
   });

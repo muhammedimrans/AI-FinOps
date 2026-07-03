@@ -28,6 +28,7 @@ describe("submit", () => {
     });
     const ok = await submit(usage, client);
     expect(ok).toBe(true);
+    await client.flush();
     expect(captured).toHaveLength(1);
     expect(captured[0]?.model).toBe("gpt-4o");
   });
@@ -52,6 +53,7 @@ describe("submit", () => {
     const { client, captured } = createTestClient();
     const usage = makeExtractedUsage({ provider: "openai", model: "gpt-4o", requestId: "r4" });
     await submit(usage, client);
+    await client.flush();
     expect(captured[0]?.cached_tokens).toBeUndefined();
     expect(captured[0]?.total_tokens).toBeUndefined();
     expect(captured[0]?.latency_ms).toBeUndefined();

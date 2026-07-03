@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import enum
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -27,6 +28,18 @@ from app.db.mixins import BaseModel
 if TYPE_CHECKING:
     from app.models.organization import Organization
     from app.models.project import Project
+
+
+class ProviderHealthStatus(enum.StrEnum):
+    """EP-19.3: connection health, updated by POST /v1/providers/{provider}/test
+    (the only place a real health signal exists — see app/alerts/ for how a
+    transition fires provider.error/provider.recovery alerts)."""
+
+    UNKNOWN = "unknown"
+    HEALTHY = "healthy"
+    WARNING = "warning"
+    CRITICAL = "critical"
+    RECOVERING = "recovering"
 
 
 class ProviderType(enum.StrEnum):
@@ -98,6 +111,29 @@ class ProviderConnection(BaseModel):
         nullable=False,
         default=dict,
         server_default=text("'{}'::jsonb"),
+    )
+    # EP-19.3: health tracking, updated by the provider-test endpoint —
+    # nullable/zeroed by default so every pre-existing row degrades to
+    # "unknown, never checked" rather than a fabricated "healthy".
+    health_status: Mapped[ProviderHealthStatus] = mapped_column(
+        SQLEnum(
+            ProviderHealthStatus,
+            name="provider_health_status",
+            create_type=True,
+            values_callable=lambda e: [m.value for m in e],
+        ),
+        nullable=False,
+        default=ProviderHealthStatus.UNKNOWN,
+        server_default=ProviderHealthStatus.UNKNOWN.value,
+    )
+    last_failure_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    last_recovery_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    consecutive_failure_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────

@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import enum
 import uuid
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -54,6 +55,14 @@ class Project(BaseModel):
         nullable=False,
         default=ProjectEnvironment.PRODUCTION,
         server_default=ProjectEnvironment.PRODUCTION.value,
+    )
+    # EP-19.3: optional monthly spend budget, in the organization's default
+    # currency. NULL means "no budget set" — budget-threshold/exceeded
+    # alerts (app/alerts/) simply don't evaluate for a project with no
+    # budget, rather than treating NULL as zero (which would fire an
+    # alert on the very first dollar spent).
+    budget: Mapped[Decimal | None] = mapped_column(
+        Numeric(precision=20, scale=8), nullable=True, default=None
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────

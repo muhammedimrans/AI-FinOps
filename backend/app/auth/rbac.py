@@ -43,6 +43,10 @@ class Permission(enum.StrEnum):
     API_KEY_READ = "api_key:read"
     API_KEY_WRITE = "api_key:write"
 
+    # Alerts & notifications (EP-19.3)
+    NOTIFICATION_READ = "notification:read"
+    NOTIFICATION_WRITE = "notification:write"
+
 
 # Every permission granted to each role. Higher roles include all lower-role permissions.
 _OWNER_PERMS: frozenset[Permission] = frozenset(Permission)
@@ -63,6 +67,8 @@ _ADMIN_PERMS: frozenset[Permission] = frozenset(
         Permission.BILLING_READ,
         Permission.API_KEY_READ,
         Permission.API_KEY_WRITE,
+        Permission.NOTIFICATION_READ,
+        Permission.NOTIFICATION_WRITE,
     ]
 )
 
@@ -74,6 +80,8 @@ _MEMBER_PERMS: frozenset[Permission] = frozenset(
         Permission.PROVIDER_READ,
         Permission.USAGE_READ,
         Permission.API_KEY_READ,
+        Permission.NOTIFICATION_READ,
+        Permission.NOTIFICATION_WRITE,
     ]
 )
 
@@ -84,6 +92,7 @@ _VIEWER_PERMS: frozenset[Permission] = frozenset(
         Permission.PROVIDER_READ,
         Permission.USAGE_READ,
         Permission.API_KEY_READ,
+        Permission.NOTIFICATION_READ,
     ]
 )
 

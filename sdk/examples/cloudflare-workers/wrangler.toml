@@ -1,0 +1,9 @@
+name = "costorah-cloudflare-workers-example"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# COSTORAH_API_KEY / OPENAI_API_KEY are set as secrets, not [vars], so
+# they aren't committed to source control:
+#   wrangler secret put COSTORAH_API_KEY
+#   wrangler secret put OPENAI_API_KEY

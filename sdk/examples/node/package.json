@@ -1,0 +1,14 @@
+{
+  "name": "costorah-node-example",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Minimal standalone Node http server instrumented with COSTORAH (EP-18.6 example)",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@costorah/sdk": "^1.0.0",
+    "openai": "^4.0.0"
+  }
+}

@@ -41,6 +41,18 @@ export { OpenAICompatibleInstrumentor } from "./instrumentation/openaiCompatible
 export { OpenRouterInstrumentor } from "./instrumentation/openrouter.js";
 export { setDefaultClient } from "./instrumentation/submission.js";
 
+export {
+  CostorahLangChainHandler,
+  LangChainInstrumentor,
+} from "./instrumentation/langchainJs.js";
+export type { LangChainInstrumentorOptions } from "./instrumentation/langchainJs.js";
+export { VercelAIInstrumentor } from "./instrumentation/vercelAi.js";
+export type {
+  VercelAIInstrumentorOptions,
+  VercelLanguageModel,
+  VercelLanguageModelMiddleware,
+} from "./instrumentation/vercelAi.js";
+
 export { BackgroundWorker } from "./reliability/worker.js";
 export type { BackgroundWorkerOptions } from "./reliability/worker.js";
 export { BackpressureController, TelemetryMetrics } from "./reliability/metrics.js";

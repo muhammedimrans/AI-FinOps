@@ -20,7 +20,17 @@ export default defineConfig({
   // package.json) — never bundled into dist/nest/*, so a consumer's own
   // installed Nest version is what actually runs at their app's
   // runtime, not a copy frozen at this SDK's build time.
-  external: ["@nestjs/common", "@nestjs/core", "rxjs"],
+  //
+  // @langchain/core must stay external for a correctness reason, not
+  // just a size one: LangChainInstrumentor's registerConfigureHook()/
+  // setContextVariable() only work if they operate on the exact same
+  // @langchain/core module instance that the consumer's own
+  // @langchain/openai (or other @langchain/* package) resolves at
+  // runtime — found empirically when tsup bundled @langchain/core's
+  // source into dist/, creating a second, independent module instance
+  // whose configure-hook registry the real CallbackManager never reads
+  // from, so every callback silently never fired.
+  external: ["@nestjs/common", "@nestjs/core", "rxjs", "@langchain/core"],
   // The instrumentation module uses createRequire(import.meta.url) to
   // synchronously load provider SDKs from ESM code; `shims` makes esbuild
   // rewrite import.meta.url to a working equivalent in the CJS build too

@@ -1,0 +1,3 @@
+costorah
+flask
+openai

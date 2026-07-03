@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 import {
+  Archive,
   AlertTriangle,
   Bell,
   BellOff,
@@ -18,6 +19,7 @@ import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { routeLabel } from "../lib/navigation";
 import { useAlerts, type AlertSeverity } from "../hooks/useAlerts";
+import { useAlertActions } from "../hooks/useAlertsHistory";
 import { useNotificationStore } from "../stores/notifications";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 import ConnectionIndicator from "../components/ConnectionIndicator";
@@ -53,9 +55,12 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const { currency, setCurrency, datePreset, setDateRange, setCommandOpen } = useUIStore();
   const { alerts, unreadCount } = useAlerts();
   const { markRead, markAllRead, dismiss, clearAll } = useNotificationStore();
+  const { archive: archiveAlert } = useAlertActions();
   const [dateOpen, setDateOpen] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [notifSearch, setNotifSearch] = useState("");
+  const [notifSeverity, setNotifSeverity] = useState<AlertSeverity | "all">("all");
   const dateRef = useRef<HTMLDivElement>(null);
   const currencyRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -78,6 +83,22 @@ export default function Header({ onMenuClick }: HeaderProps) {
   function selectPreset(preset: (typeof DATE_PRESETS)[0]) {
     setDateRange(preset.value, preset.start(), preset.end());
     setDateOpen(false);
+  }
+
+  const filteredAlerts = alerts.filter((a) => {
+    if (notifSeverity !== "all" && a.severity !== notifSeverity) return false;
+    if (!notifSearch.trim()) return true;
+    const q = notifSearch.trim().toLowerCase();
+    return a.title.toLowerCase().includes(q) || a.description.toLowerCase().includes(q);
+  });
+
+  /** Archive = dismiss locally, plus a REST dismiss for alerts the backend
+   * actually persisted (those carrying a real `alertId`; see
+   * DerivedAlert.alertId's doc comment) — client-derived budget/anomaly
+   * alerts have no backend row, so archiving those is local-only. */
+  function handleArchive(a: (typeof alerts)[number]) {
+    dismiss(a.id);
+    if (a.alertId) archiveAlert.mutate(a.alertId);
   }
 
   return (
@@ -270,6 +291,34 @@ export default function Header({ onMenuClick }: HeaderProps) {
                 )}
               </div>
             </div>
+            {alerts.length > 0 && (
+              <div className="px-4 py-2 border-b border-border-subtle flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-tx-muted" />
+                  <input
+                    type="text"
+                    value={notifSearch}
+                    onChange={(e) => setNotifSearch(e.target.value)}
+                    placeholder="Search alerts…"
+                    aria-label="Search alerts"
+                    className="w-full pl-6 pr-2 py-1 text-[11px] rounded-md bg-app-muted border border-border-subtle
+                               text-tx-primary placeholder:text-tx-muted focus:outline-none focus:ring-1 focus:ring-brand"
+                  />
+                </div>
+                <select
+                  value={notifSeverity}
+                  onChange={(e) => setNotifSeverity(e.target.value as AlertSeverity | "all")}
+                  aria-label="Filter by severity"
+                  className="text-[11px] rounded-md bg-app-muted border border-border-subtle text-tx-primary
+                             px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-brand"
+                >
+                  <option value="all">All</option>
+                  <option value="danger">Danger</option>
+                  <option value="warning">Warning</option>
+                  <option value="info">Info</option>
+                </select>
+              </div>
+            )}
             {alerts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
                 <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
@@ -280,9 +329,13 @@ export default function Header({ onMenuClick }: HeaderProps) {
                   No budget, anomaly, or live alerts right now.
                 </p>
               </div>
+            ) : filteredAlerts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                <p className="text-xs text-tx-muted">No alerts match your search/filter.</p>
+              </div>
             ) : (
               <ul className="max-h-80 overflow-y-auto py-1" aria-label="Alerts">
-                {alerts.map((a) => {
+                {filteredAlerts.map((a) => {
                   const { icon: Icon, className } = SEVERITY_ICON[a.severity];
                   return (
                     <li key={a.id} className="group relative">
@@ -298,7 +351,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                         ) : (
                           <Icon size={14} className={cn("mt-0.5 flex-shrink-0", className)} />
                         )}
-                        <span className="min-w-0 flex-1 pr-4">
+                        <span className="min-w-0 flex-1 pr-9">
                           <span className="block text-xs font-medium text-tx-primary">{a.title}</span>
                           <span className="block text-[11px] text-tx-muted mt-0.5 leading-relaxed">{a.description}</span>
                         </span>
@@ -306,14 +359,24 @@ export default function Header({ onMenuClick }: HeaderProps) {
                           <span className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" aria-label="Unread" />
                         )}
                       </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); dismiss(a.id); }}
-                        aria-label={`Dismiss: ${a.title}`}
-                        className="absolute right-2.5 top-2.5 opacity-0 group-hover:opacity-100 focus-visible:opacity-100
-                                   text-tx-muted hover:text-tx-primary transition-opacity duration-fast p-0.5"
-                      >
-                        <X size={12} />
-                      </button>
+                      <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-fast">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleArchive(a); }}
+                          aria-label={`Archive: ${a.title}`}
+                          title="Archive"
+                          className="text-tx-muted hover:text-tx-primary p-0.5"
+                        >
+                          <Archive size={12} />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); dismiss(a.id); }}
+                          aria-label={`Dismiss: ${a.title}`}
+                          title="Dismiss"
+                          className="text-tx-muted hover:text-tx-primary p-0.5"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     </li>
                   );
                 })}

@@ -18,6 +18,7 @@ import { routeLabel } from "../lib/navigation";
 import { useAlerts, type AlertSeverity } from "../hooks/useAlerts";
 import { useNotificationStore } from "../stores/notifications";
 import ThemeSwitcher from "../components/ThemeSwitcher";
+import ConnectionIndicator from "../components/ConnectionIndicator";
 import Popover from "../components/Popover";
 import type { Currency } from "../types/api";
 
@@ -212,6 +213,9 @@ export default function Header({ onMenuClick }: HeaderProps) {
         </div>
 
         <div className="w-px h-5 bg-border-subtle" />
+
+        {/* Real-time connection status */}
+        <ConnectionIndicator />
 
         {/* Theme switcher */}
         <ThemeSwitcher />

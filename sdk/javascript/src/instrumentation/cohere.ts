@@ -117,8 +117,11 @@ export class CohereInstrumentor extends BaseInstrumentor {
       );
     }
     this.target = client;
-    this.originalChat = client.chat.bind(client);
-    this.originalChatStream = client.chatStream.bind(client);
+    // Both methods are already own-instance bound functions on the real
+    // SDK (see module docstring) — capture the exact references so
+    // uninstrument() can restore them by identity.
+    this.originalChat = client.chat;
+    this.originalChatStream = client.chatStream;
     client.chat = this.wrapChat(this.originalChat);
     client.chatStream = this.wrapChatStream(this.originalChatStream);
     this.markInstrumented();
@@ -154,7 +157,7 @@ export class CohereInstrumentor extends BaseInstrumentor {
   ): Promise<void> {
     const usage = this.normalize(raw, { model, latencyMs, status });
     this.recordCaptured();
-    await submit(usage);
+    await submit(usage, this.client);
   }
 
   private wrapChat(original: ChatMethod): ChatMethod {

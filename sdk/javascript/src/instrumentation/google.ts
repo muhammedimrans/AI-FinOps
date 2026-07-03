@@ -127,8 +127,12 @@ export class GeminiInstrumentor extends BaseInstrumentor {
       );
     }
     this.target = client;
-    this.originalGenerateContent = client.models.generateContent.bind(client.models);
-    this.originalGenerateContentStream = client.models.generateContentStream.bind(client.models);
+    // Both methods are pre-bound arrow-function fields on the real SDK
+    // (see module docstring) — call the captured references directly
+    // rather than re-binding, so uninstrument() restores the exact
+    // original reference.
+    this.originalGenerateContent = client.models.generateContent;
+    this.originalGenerateContentStream = client.models.generateContentStream;
     client.models.generateContent = this.wrap(this.originalGenerateContent, false);
     client.models.generateContentStream = this.wrap(this.originalGenerateContentStream, true);
     this.markInstrumented();
@@ -159,6 +163,7 @@ export class GeminiInstrumentor extends BaseInstrumentor {
   private wrap(original: GenerateContentMethod, stream: boolean): GenerateContentMethod {
     const normalize = this.normalize.bind(this);
     const recordCaptured = this.recordCaptured.bind(this);
+    const client = this.client;
 
     const submitResult = async (
       model: string,
@@ -168,7 +173,7 @@ export class GeminiInstrumentor extends BaseInstrumentor {
     ): Promise<void> => {
       const usage = normalize(raw, { model, latencyMs, status });
       recordCaptured();
-      await submit(usage);
+      await submit(usage, client);
     };
 
     return async (...args: unknown[]) => {

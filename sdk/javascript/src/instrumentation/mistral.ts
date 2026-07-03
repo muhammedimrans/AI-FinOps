@@ -34,19 +34,23 @@ import { submit } from "./submission.js";
 
 const nodeRequire = createRequire(import.meta.url);
 
+// The SDK's response models remap the wire format's snake_case fields
+// (prompt_tokens, completion_tokens, total_tokens) to camelCase before
+// handing the response back to callers — see
+// @mistralai/mistralai/models/components/usageinfo.ts's inboundSchema.
 interface MistralUsage {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
 }
 
 function extract(response: unknown): Record<string, unknown> {
   const usage = (response as { usage?: MistralUsage } | undefined)?.usage;
   if (!usage) return {};
   return {
-    inputTokens: usage.prompt_tokens ?? 0,
-    outputTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens,
+    inputTokens: usage.promptTokens ?? 0,
+    outputTokens: usage.completionTokens ?? 0,
+    totalTokens: usage.totalTokens,
   };
 }
 
@@ -148,7 +152,7 @@ export class MistralInstrumentor extends BaseInstrumentor {
   ): Promise<void> {
     const usage = this.normalize(raw, { model, latencyMs, status });
     this.recordCaptured();
-    await submit(usage);
+    await submit(usage, this.client);
   }
 
   private wrapComplete(original: ChatMethod): ChatMethod {

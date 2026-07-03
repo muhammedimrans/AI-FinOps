@@ -18,6 +18,7 @@
  *                              what extractUsage() returned
  */
 
+import type { Costorah } from "../client.js";
 import type { UsageStatus } from "../types.js";
 
 export class InstrumentationError extends Error {
@@ -65,6 +66,11 @@ export interface InstrumentorOptions {
   enabled?: boolean;
   captureMetadata?: boolean;
   calculateCost?: boolean;
+  /** Explicit Costorah client to submit telemetry through. Defaults to a
+   * lazily-built client from COSTORAH_API_KEY/COSTORAH_ENDPOINT env vars
+   * (see submission.ts) — pass this to use a specific client instance, or
+   * to inject a test double. */
+  client?: Costorah;
 }
 
 export abstract class BaseInstrumentor {
@@ -73,6 +79,7 @@ export abstract class BaseInstrumentor {
   readonly enabled: boolean;
   readonly captureMetadata: boolean;
   readonly calculateCostEnabled: boolean;
+  protected readonly client: Costorah | undefined;
 
   private instrumented = false;
   private eventsCapturedTotal = 0;
@@ -81,6 +88,7 @@ export abstract class BaseInstrumentor {
     this.enabled = options.enabled ?? true;
     this.captureMetadata = options.captureMetadata ?? true;
     this.calculateCostEnabled = options.calculateCost ?? true;
+    this.client = options.client;
   }
 
   /** Apply monkey patches. Idempotent — calling twice is a no-op. */
@@ -131,6 +139,15 @@ export abstract class BaseInstrumentor {
 
   protected recordCaptured(count = 1): void {
     this.eventsCapturedTotal += count;
+  }
+
+  /** The Costorah client this instrumentor submits telemetry through
+   * (explicit `client` option, or undefined to use submission.ts's
+   * lazily-built env-var-configured default). Public so shared-patch
+   * modules (e.g. openaiCompatible.ts) can submit on each active
+   * instrumentor's behalf. */
+  getClient(): Costorah | undefined {
+    return this.client;
   }
 
   get eventsCaptured(): number {

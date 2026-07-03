@@ -166,7 +166,7 @@ async function submitForInstrumentors(
     if (instrumentor.fixedProvider !== provider) continue;
     const usage = instrumentor.normalize(rawUsage, { model, latencyMs, status });
     (instrumentor as unknown as { recordCaptured: (n?: number) => void }).recordCaptured?.();
-    await submit(usage);
+    await submit(usage, instrumentor.getClient());
   }
 }
 

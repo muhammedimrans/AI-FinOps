@@ -125,6 +125,7 @@ export class AnthropicInstrumentor extends BaseInstrumentor {
   private wrap(original: MessagesCreate): MessagesCreate {
     const normalize = this.normalize.bind(this);
     const recordCaptured = this.recordCaptured.bind(this);
+    const client = this.client;
 
     const submitResult = async (
       model: string,
@@ -134,7 +135,7 @@ export class AnthropicInstrumentor extends BaseInstrumentor {
     ): Promise<void> => {
       const usage = normalize(raw, { model, latencyMs, status });
       recordCaptured();
-      await submit(usage);
+      await submit(usage, client);
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

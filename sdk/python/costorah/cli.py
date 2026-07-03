@@ -17,6 +17,7 @@ so it's testable without spawning a subprocess.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import importlib.util
 import json
 import os
@@ -25,6 +26,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from costorah.integrations._common import check_min_version
 from costorah.version import __version__
 
 PROVIDER_PACKAGES: dict[str, str] = {
@@ -44,6 +46,31 @@ FRAMEWORK_PACKAGES: dict[str, str] = {
     "celery": "celery",
 }
 
+# Distribution name on PyPI, when it differs from the importable module
+# name above (e.g. `pip install fastapi` -> `import fastapi`, same name;
+# but `importlib.metadata.version()` needs the *distribution* name,
+# which for these five happens to match the module name exactly — kept
+# as an explicit map rather than reusing FRAMEWORK_PACKAGES's values
+# so a future framework with a differing module/distribution name
+# doesn't silently break version detection).
+FRAMEWORK_DISTRIBUTION_NAMES: dict[str, str] = {
+    "fastapi": "fastapi",
+    "flask": "flask",
+    "django": "django",
+    "starlette": "starlette",
+    "celery": "celery",
+}
+
+# See sdk/docs/FRAMEWORK_INTEGRATIONS.md's compatibility matrix for the
+# rationale behind each floor.
+MIN_FRAMEWORK_VERSIONS: dict[str, tuple[int, ...]] = {
+    "fastapi": (0, 100),
+    "flask": (2, 0),
+    "django": (4, 0),
+    "starlette": (0, 27),
+    "celery": (5, 3),
+}
+
 
 def _is_installed(module_name: str) -> bool:
     try:
@@ -54,6 +81,22 @@ def _is_installed(module_name: str) -> bool:
 
 def _detect(packages: dict[str, str]) -> dict[str, bool]:
     return {label: _is_installed(module) for label, module in packages.items()}
+
+
+def _framework_version_warning(label: str) -> str | None:
+    """None if `label` isn't installed, isn't in the min-version table,
+    or is at/above the floor; otherwise a human-readable warning —
+    never raises, matching every integration's "unsupported version is
+    a graceful degrade, not a crash" policy."""
+    distribution = FRAMEWORK_DISTRIBUTION_NAMES.get(label)
+    minimum = MIN_FRAMEWORK_VERSIONS.get(label)
+    if distribution is None or minimum is None:
+        return None
+    try:
+        installed_version = importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return None
+    return check_min_version(installed_version, minimum, framework_name=label)
 
 
 def _mask_api_key(api_key: str | None) -> str:
@@ -192,6 +235,15 @@ def run_doctor(env: Mapping[str, str] | None = None, *, timeout: float = 10.0) -
             f"detected: {', '.join(found_frameworks)}" if found_frameworks else "none detected",
         )
     )
+    # Below-minimum versions are surfaced as their own advisory check
+    # (not folded into "ok=False" above) — an old-but-working framework
+    # version shouldn't flip `doctor`'s exit code, matching every
+    # integration's "unsupported version is a graceful degrade, not a
+    # hard failure" policy.
+    for name in found_frameworks:
+        warning = _framework_version_warning(name)
+        if warning is not None:
+            checks.append(DoctorCheck("Framework version compatibility", True, warning))
 
     providers = _detect(PROVIDER_PACKAGES)
     found_providers = [name for name, present in providers.items() if present]

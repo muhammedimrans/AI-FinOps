@@ -51,6 +51,69 @@ def test_run_init_detects_installed_providers_and_frameworks() -> None:
     assert "fastapi" in report.detected_frameworks
 
 
+def test_run_init_detects_all_ep_18_5_frameworks() -> None:
+    # flask, django, celery, starlette are also installed as dev extras
+    # (EP-18.5) — real, not mocked, detection.
+    report = cli.run_init({})
+    for framework in ("flask", "django", "celery", "starlette"):
+        assert framework in report.detected_frameworks
+
+
+def _mocked_success_transport() -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "success": True,
+                "usage_id": "u1",
+                "request_id": "r1",
+                "processed_at": "2026-01-01T00:00:00Z",
+                "duplicate": False,
+            },
+        )
+
+    return httpx.MockTransport(handler)
+
+
+def test_run_doctor_reports_framework_version_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_init = Costorah.__init__
+
+    def spy_init(self: Costorah, *args: object, **kwargs: object) -> None:
+        kwargs["_transport"] = _mocked_success_transport()
+        real_init(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Costorah, "__init__", spy_init)
+
+    report = cli.run_doctor({"COSTORAH_API_KEY": "costorah_live_x"}, timeout=2)
+    names = [c.name for c in report.checks]
+    assert "Framework detection" in names
+    # No warning entries expected — every dev-extra framework version
+    # installed in this environment is above cli.MIN_FRAMEWORK_VERSIONS'
+    # floors (asserted separately below via a forced-low-version case).
+    assert all(c.ok for c in report.checks if c.name == "Framework version compatibility")
+
+
+def test_run_doctor_warns_on_below_minimum_framework_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_init = Costorah.__init__
+
+    def spy_init(self: Costorah, *args: object, **kwargs: object) -> None:
+        kwargs["_transport"] = _mocked_success_transport()
+        real_init(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Costorah, "__init__", spy_init)
+    monkeypatch.setitem(cli.MIN_FRAMEWORK_VERSIONS, "flask", (999, 0))
+
+    report = cli.run_doctor({"COSTORAH_API_KEY": "costorah_live_x"}, timeout=2)
+    warnings = [c for c in report.checks if c.name == "Framework version compatibility"]
+    assert any("flask" in w.detail for w in warnings)
+    # A version warning is advisory, not fatal — must not flip all_ok.
+    assert all(w.ok for w in warnings)
+
+
 def test_run_doctor_missing_api_key_skips_connectivity() -> None:
     report = cli.run_doctor({})
     by_name = {c.name: c for c in report.checks}

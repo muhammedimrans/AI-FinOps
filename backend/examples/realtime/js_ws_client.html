@@ -1,0 +1,102 @@
+<!doctype html>
+<!--
+  JavaScript (browser) WebSocket + SSE example client — EP-19.1.
+
+  Open this file directly in a browser (no build step needed), fill in
+  the API base URL, organization id, and token, and click Connect.
+  Demonstrates both transports side by side since browser WebSocket and
+  EventSource cannot send an Authorization header on the handshake —
+  both use the `?token=` query-parameter fallback documented in
+  docs/realtime/05-authentication.md.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>COSTORAH real-time example client</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; }
+      label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+      input { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+      button { margin-top: 1rem; padding: 0.5rem 1rem; }
+      pre { background: #111; color: #0f0; padding: 1rem; height: 300px; overflow-y: auto; }
+      .status { font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <h1>COSTORAH real-time example client</h1>
+
+    <label>API base URL (no trailing slash)
+      <input id="baseUrl" value="wss://costorah.example.com" />
+    </label>
+    <label>Organization ID
+      <input id="orgId" placeholder="uuid" />
+    </label>
+    <label>Token (JWT or Organization API Key)
+      <input id="token" type="password" />
+    </label>
+
+    <button id="connectWs">Connect via WebSocket</button>
+    <button id="connectSse">Connect via SSE</button>
+    <button id="disconnect">Disconnect</button>
+    <p class="status" id="status">disconnected</p>
+    <pre id="log"></pre>
+
+    <script>
+      let ws = null;
+      let sse = null;
+
+      const log = (line) => {
+        const el = document.getElementById("log");
+        el.textContent += line + "\n";
+        el.scrollTop = el.scrollHeight;
+      };
+      const setStatus = (text) => {
+        document.getElementById("status").textContent = text;
+      };
+
+      function params() {
+        const base = document.getElementById("baseUrl").value;
+        const orgId = document.getElementById("orgId").value;
+        const token = document.getElementById("token").value;
+        return { base, orgId, token };
+      }
+
+      document.getElementById("connectWs").addEventListener("click", () => {
+        const { base, orgId, token } = params();
+        const url = `${base}/v1/ws?organization_id=${orgId}&token=${token}`;
+        ws = new WebSocket(url);
+
+        ws.onopen = () => setStatus("connected (websocket)");
+        ws.onclose = (event) => setStatus(`closed: ${event.code} ${event.reason}`);
+        ws.onerror = () => setStatus("error");
+        ws.onmessage = (event) => {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "ping") {
+            ws.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+          log(JSON.stringify(payload, null, 2));
+        };
+      });
+
+      document.getElementById("connectSse").addEventListener("click", () => {
+        const { base, orgId, token } = params();
+        const httpBase = base.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+        const url = `${httpBase}/v1/events?organization_id=${orgId}&token=${token}`;
+        sse = new EventSource(url);
+
+        sse.onopen = () => setStatus("connected (sse)");
+        sse.onerror = () => setStatus("sse error / reconnecting");
+        sse.onmessage = (event) => {
+          log(event.data);
+        };
+      });
+
+      document.getElementById("disconnect").addEventListener("click", () => {
+        if (ws) { ws.close(); ws = null; }
+        if (sse) { sse.close(); sse = null; }
+        setStatus("disconnected");
+      });
+    </script>
+  </body>
+</html>

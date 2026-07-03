@@ -160,7 +160,7 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
 
     def on_llm_start(
         self,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         prompts: list[str],
         *,
         run_id: UUID,
@@ -171,7 +171,7 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
 
     def on_chat_model_start(
         self,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         messages: list[Any],
         *,
         run_id: UUID,
@@ -181,9 +181,9 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
         self._start_llm_span(serialized, run_id, parent_run_id)
 
     def _start_llm_span(
-        self, serialized: dict[str, Any], run_id: UUID, parent_run_id: UUID | None
+        self, serialized: dict[str, Any] | None, run_id: UUID, parent_run_id: UUID | None
     ) -> None:
-        module_path = ".".join(str(p) for p in (serialized.get("id") or [])[:-1])
+        module_path = ".".join(str(p) for p in ((serialized or {}).get("id") or [])[:-1])
         provider_hint = infer_provider_from_module_path(module_path)
         self._start_span("llm", serialized, run_id, parent_run_id, provider_hint=provider_hint)
 
@@ -265,7 +265,7 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
 
     def on_chain_start(
         self,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         inputs: dict[str, Any],
         *,
         run_id: UUID,
@@ -299,7 +299,7 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
 
     def on_tool_start(
         self,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         input_str: str,
         *,
         run_id: UUID,
@@ -343,7 +343,7 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
     def _start_span(
         self,
         kind: str,
-        serialized: dict[str, Any],
+        serialized: dict[str, Any] | None,
         run_id: UUID,
         parent_run_id: UUID | None,
         *,
@@ -373,7 +373,16 @@ class CostorahLangChainHandler(BaseCallbackHandler):  # type: ignore[misc]
             info.context_cm.__exit__(None, None, None)
 
 
-def _serialized_name(serialized: dict[str, Any]) -> str:
+def _serialized_name(serialized: dict[str, Any] | None) -> str:
+    # LangChain's own type hints declare `serialized` as
+    # `Optional[Dict[str, Any]]` — some Runnables (e.g. steps inside a
+    # `RunnableSequence` built via `prompt | model`) call `on_chain_start`
+    # with `serialized=None`. Found empirically (not from the type hints
+    # alone) via this instrumentor's own example app crashing with
+    # `AttributeError: 'NoneType' object has no attribute 'get'` on a real
+    # `prompt | model` chain invocation.
+    if serialized is None:
+        return "unknown"
     path = serialized.get("id")
     if isinstance(path, list) and path:
         return str(path[-1])

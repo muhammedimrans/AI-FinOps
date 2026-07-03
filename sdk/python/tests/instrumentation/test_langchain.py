@@ -314,3 +314,60 @@ def test_end_to_end_via_real_chatopenai() -> None:
     finally:
         instrumentor.uninstrument()
         client.shutdown()
+
+
+def test_end_to_end_via_real_runnable_sequence_prompt_pipe_model() -> None:
+    """Regression test: a real `prompt | model` RunnableSequence calls
+    `on_chain_start` with `serialized=None` for some of its internal
+    steps (found empirically while verifying the LangChain example app,
+    not from LangChain's type hints alone — the crash was
+    `AttributeError: 'NoneType' object has no attribute 'get'`). Usage
+    capture for the nested LLM call must still succeed."""
+    chat_openai = pytest.importorskip("langchain_openai")
+    prompts_module = pytest.importorskip("langchain_core.prompts")
+
+    def openai_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "c1",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "gpt-4o-mini",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "hi there"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
+        )
+
+    captured: list[dict] = []
+    client = Costorah(api_key="costorah_live_x", _transport=_echo_transport(captured))
+    set_default_client(client)
+
+    instrumentor = LangChainInstrumentor()
+    instrumentor.instrument()
+    try:
+        chat_model = chat_openai.ChatOpenAI(
+            api_key="sk-fake",
+            model="gpt-4o-mini",
+            http_client=httpx.Client(transport=httpx.MockTransport(openai_handler)),
+        )
+        prompt = prompts_module.ChatPromptTemplate.from_template("Say hi to {name}.")
+        chain = prompt | chat_model
+
+        result = chain.invoke({"name": "COSTORAH"})
+        assert result.content == "hi there"
+
+        client.flush(timeout=5)
+        assert len(captured) == 1
+        event = captured[0]
+        assert event["provider"] == "openai"
+        assert event["model"] == "gpt-4o-mini"
+    finally:
+        instrumentor.uninstrument()
+        client.shutdown()

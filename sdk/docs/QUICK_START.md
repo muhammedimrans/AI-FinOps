@@ -80,6 +80,9 @@ for configuration, error handling, and what's not in this release yet.
   READMEs for exact import paths).
 - **Configuration** — set a custom `endpoint`, `timeout`, or `max_retries`
   if you're testing against a non-default deployment.
-- **What's next** — see `ROADMAP.md` for automatic provider-response
-  detection, auto-instrumentation, and background batching, planned for
+- **Automatic instrumentation** — skip manual `track()` calls entirely
+  for supported providers (OpenAI, Azure OpenAI, OpenRouter, Ollama,
+  Grok, Anthropic, Mistral, Bedrock, Google Gemini, Cohere); see
+  `AUTOMATIC_INSTRUMENTATION.md`.
+- **What's next** — see `ROADMAP.md` for background batching and other
   later EP-18 phases.

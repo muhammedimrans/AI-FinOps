@@ -20,15 +20,21 @@ focused, testable, and independently reviewable.
 - PyPI/npm packaging metadata (build verified locally; publish itself is
   a release-time action, not part of this phase).
 
-## EP-18.2 — Automatic Instrumentation (not yet built)
+## EP-18.2 — Automatic Instrumentation ✅ Shipped
 
-- `track_openai()` / `trackOpenAI()` and equivalents for Anthropic,
-  Google Gemini, Azure OpenAI, OpenRouter, Ollama: detect a
-  provider-native SDK response object and normalize it automatically,
-  without the caller filling in `track()`'s fields by hand.
-- `costorah.instrumentation.OpenAIInstrumentor().instrument()`-style
-  wrappers that monkeypatch/wrap the underlying provider SDK so every
-  call is tracked with zero per-call code.
+- `BaseInstrumentor` plugin architecture (Python `costorah.instrumentation`,
+  JS `@costorah/sdk`'s `src/instrumentation`) — `instrument()`,
+  `uninstrument()`, `isInstrumented()`, `extractUsage()`, `normalize()`.
+- All 10 required providers: OpenAI, Azure OpenAI, OpenRouter, Ollama,
+  Grok, Anthropic, Mistral, Amazon Bedrock, Google Gemini, Cohere.
+- Safe, restorable monkey patching of official SDK methods only; sync and
+  async; streaming (telemetry sent only after the stream completes).
+- Automatic cost calculation via a shared per-token pricing table when a
+  provider response doesn't include cost; unknown models report cost `0`,
+  never a guess.
+- Privacy-preserving by construction: only usage metadata is ever read
+  from a response, never prompt/completion content.
+- See `sdk/docs/AUTOMATIC_INSTRUMENTATION.md` for the full guide.
 
 ## EP-18.3 — Reliability (not yet built)
 

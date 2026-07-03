@@ -138,13 +138,28 @@ import logging
 logging.getLogger("costorah").setLevel(logging.DEBUG)
 ```
 
+## Automatic instrumentation
+
+Skip manual `track()` calls entirely for supported providers:
+
+```python
+from openai import OpenAI
+from costorah.instrumentation import OpenAIInstrumentor
+
+OpenAIInstrumentor().instrument()
+client = OpenAI()
+client.chat.completions.create(model="gpt-4o", messages=[...])  # tracked automatically
+```
+
+Supports OpenAI, Azure OpenAI, OpenRouter, Ollama, Grok, Anthropic,
+Mistral, Amazon Bedrock, Google Gemini, and Cohere — see
+`../docs/AUTOMATIC_INSTRUMENTATION.md` for the full guide, including
+streaming, cost calculation, and privacy guarantees.
+
 ## What's not in this release
 
-Automatic provider-response detection (`client.track_openai(response=...)`),
-auto-instrumentation, background batching/queueing, and framework
-integrations are staged for later phases (EP-18.2–EP-18.4) — see
-`../docs/ROADMAP.md`. This release covers manual `track()`, which is fully
-production-ready on its own.
+Background batching/queueing and framework-specific plugins are staged
+for later phases (EP-18.3–EP-18.4) — see `../docs/ROADMAP.md`.
 
 ## Requirements
 

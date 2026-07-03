@@ -290,13 +290,23 @@ than reimplemented per integration:
 See `RUNTIME_COMPATIBILITY.md` for the full runtime/framework
 compatibility matrix.
 
-## Planned, not yet built
+## AI framework auto-capture (EP-18.7)
 
-**AI framework auto-capture** (explicitly out of scope for EP-18.4,
-EP-18.5, and EP-18.6): LangChain, LlamaIndex, CrewAI, AutoGen, Semantic
-Kernel, Haystack, MCP — auto-capturing agent runs, chains, tool calls,
-memory operations, latency, tokens, and cost, analogous to how EP-18.2's
-provider instrumentors auto-capture LLM API calls today.
+Built: LangChain (Python + JS), CrewAI, MCP (Python client + server),
+Vercel AI SDK — auto-capturing LLM calls made through these frameworks
+with trace context and framework-specific metadata, analogous to how
+EP-18.2's provider instrumentors auto-capture direct LLM API calls. See
+`AI_FRAMEWORK_INTEGRATIONS.md` for the overview and compatibility matrix,
+and `LANGCHAIN.md`/`CREWAI.md`/`MCP.md`/`LANGCHAIN_JS.md`/`VERCEL_AI.md`
+for each framework's own doc.
+
+**Still not built**: LlamaIndex, AutoGen, Semantic Kernel, Haystack, DSPy,
+OpenAI Agents SDK (Python); Mastra, OpenAI Agents SDK, dedicated MCP
+client/server (JS); dedicated vector-database and embeddings
+instrumentors; OpenTelemetry trace/span export. See
+`AI_FRAMEWORK_INTEGRATIONS.md`'s "What's deferred" section.
+
+## Other planned work, not yet built
 
 **Interactive configuration wizard** (planned, Python-side): a
 `costorah init --interactive` mode that detects the installed

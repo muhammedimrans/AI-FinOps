@@ -49,6 +49,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts import metrics as alert_metrics
 from app.alerts.preferences import get_or_default, minute_of_day
 from app.api.deps import DbDep
 from app.auth.dependencies import CurrentUser, RequireQueryPermission
@@ -208,6 +209,7 @@ async def acknowledge_alert(
         acknowledged_at=datetime.now(UTC),
         acknowledgement_reason=body.reason,
     )
+    alert_metrics.alerts_acknowledged_total.labels(alert_type=updated.alert_type.value).inc()
     return _to_alert_response(updated)
 
 

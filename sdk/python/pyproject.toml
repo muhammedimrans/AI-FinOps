@@ -55,6 +55,9 @@ dev = [
     # required to import/use costorah.integrations.fastapi itself, which
     # raises a clear ImportError if fastapi/starlette isn't installed.
     "fastapi>=0.100",
+    "flask>=2.3",
+    "django>=4.2",
+    "celery>=5.3",
 ]
 
 [project.urls]
@@ -87,6 +90,17 @@ no_implicit_reexport = true
 # them beyond what our own code declares.
 [[tool.mypy.overrides]]
 module = ["openai.*", "anthropic.*", "google.genai.*", "mistralai.*", "cohere.*", "boto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+# Web/task-queue framework integrations (costorah.integrations.*, EP-18.5)
+# are, like the provider SDKs above, optional lazily-imported
+# dependencies never required to import/use costorah's core package.
+# None ship type stubs in this project's dependency set (django-stubs /
+# celery-stubs are not installed) — the untyped-import waiver mirrors
+# the provider SDK override above, not a statement that these libraries
+# are unimportant to type-check.
+[[tool.mypy.overrides]]
+module = ["flask.*", "django.*", "celery.*", "kombu.*", "billiard.*", "asgiref.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

@@ -62,10 +62,10 @@ Next steps:
   - Run `costorah doctor` to verify the integration end-to-end.
 ```
 
-Detection for frameworks/providers not yet integrated (Flask, Django,
-Celery — see `FRAMEWORK_INTEGRATIONS.md`) is still reported here even
-though there's no dedicated middleware for them yet; only step text
-differs.
+As of EP-18.5, Flask, Django, Starlette, and Celery all have dedicated
+integrations (`costorah.integrations.flask`/`.django`/`.starlette`/
+`.celery` — see `FRAMEWORK_INTEGRATIONS.md`), so detection for all five
+Python frameworks now maps to real, working middleware.
 
 Exit code: always `0`.
 
@@ -80,7 +80,14 @@ The Success Criteria check from the EP-18.4 ticket. Validates, in order:
 | Connectivity | a real `track()` + `flush()` round-trip reached the endpoint |
 | Authentication | the endpoint accepted (vs. rejected) the check event |
 | Framework detection | which supported frameworks are installed |
+| Framework version compatibility | (EP-18.5, zero or more entries) each detected framework below its supported-version floor — see `FRAMEWORK_INTEGRATIONS.md`'s compatibility matrix |
 | Provider detection | which supported AI provider SDKs are installed |
+
+Framework version compatibility entries are **advisory** — reported with
+`ok=True` even when a below-floor version is found, so an old-but-working
+framework version never flips `doctor`'s exit code. This matches every
+integration's "unsupported version is a graceful degrade, not a crash"
+policy (`costorah.integrations._common.check_min_version`).
 
 Connectivity/Authentication are verified with one real, best-effort
 `track()` call (a `costorah_doctor_check` no-op event with `cost=0.0`) —
@@ -102,10 +109,18 @@ $ costorah doctor
   ✓ Configuration: COSTORAH_API_KEY is set and well-formed
   ✓ Connectivity: reached https://api.costorah.com
   ✓ Authentication: API key accepted
-  ✓ Framework detection: detected: fastapi
+  ✓ Framework detection: detected: fastapi, flask, django, starlette, celery
   ✓ Provider detection: detected: openai
 
 All checks passed.
+```
+
+If any detected framework is below its supported-version floor, a
+`Framework version compatibility` line appears per below-floor
+framework (still `✓`, since it's advisory):
+
+```
+  ✓ Framework version compatibility: costorah's flask integration targets flask >=2.0; detected 1.9. It may still work, but is untested below that version.
 ```
 
 Flags: `--timeout <seconds>` (default `10.0`) — how long to wait for a

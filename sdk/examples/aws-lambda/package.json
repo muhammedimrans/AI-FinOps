@@ -1,0 +1,11 @@
+{
+  "name": "costorah-aws-lambda-example",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Minimal AWS Lambda function instrumented with COSTORAH (EP-18.6 example)",
+  "dependencies": {
+    "@costorah/sdk": "^1.0.0",
+    "openai": "^4.0.0"
+  }
+}

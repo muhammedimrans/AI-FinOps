@@ -61,14 +61,45 @@ focused, testable, and independently reviewable.
   pipelined delivery of individual events, not fewer HTTP requests than
   events).
 
-## EP-18.4 — Ecosystem (not yet built)
+## EP-18.4 — Ecosystem, CLI, FastAPI/Express, Publishing ✅ Shipped
 
-- Framework integrations and runnable examples: FastAPI, Flask, Django,
-  Celery, LangChain, LlamaIndex, CrewAI (Python); Express, Next.js,
-  NestJS, Vercel, Cloudflare Workers, Node CLI (JavaScript).
-- Expanded documentation: Provider Guides, Framework Integration guides,
-  a full API Reference, a Migration Guide.
-- SDK-specific CI/CD pipelines and 1.0 release polish.
+- Python FastAPI middleware (`costorah.integrations.fastapi.
+  CostorahMiddleware`) and JS Express middleware
+  (`@costorah/sdk/express`'s `costorahMiddleware()`), both built on a
+  new ambient request-context primitive (`costorah.context` /
+  `context.ts`) that every later framework integration reuses.
+- `costorah` CLI (`init`/`doctor`/`health`/`version`/`config`).
+- CI/CD (GitHub Actions, both SDKs) and a tag-gated publish workflow;
+  LICENSE/CHANGELOG/RELEASE.md ahead of the v1.0.0 public release.
+- `SECURITY.md`, `PERFORMANCE.md`, `FRAMEWORK_INTEGRATIONS.md`,
+  `CLI.md`; one runnable example app per language.
+- See the EP-18.4 final report for the explicit list of what was
+  scoped out (most framework integrations beyond FastAPI/Express, the
+  AI-framework auto-capture integrations, the interactive config
+  wizard, the full example-app matrix) — most of the Python portion of
+  that list was then picked up by EP-18.5.
+
+## EP-18.5 — Python Framework Integrations ✅ Shipped
+
+- Flask (`costorah.integrations.flask.CostorahExtension` — direct init
+  and application-factory pattern, blueprint- and multi-app-safe),
+  Django (`costorah.integrations.django.CostorahMiddleware` — dual
+  sync/async, settings-based config, a `manage.py costorah_doctor`
+  management command), Starlette standalone (a deliberate re-export of
+  the FastAPI middleware — no duplicate implementation), Celery
+  (`costorah.integrations.celery.CostorahCelery` — signal-based ambient
+  context around task execution), and generic ASGI/WSGI middleware
+  (framework-agnostic, what `CostorahExtension` wraps internally).
+- `costorah doctor` gained a Framework version compatibility check
+  (advisory, never flips the exit code) for all five Python
+  integrations.
+- `sdk/docs/FLASK.md`, `DJANGO.md`, `CELERY.md`, `ASGI_WSGI.md`; example
+  apps for Flask, Django, Celery.
+- JavaScript framework integrations (NestJS, Next.js, Cloudflare
+  Workers, Vercel, AWS Lambda, Bun, Deno) and the AI-framework
+  auto-capture integrations (LangChain, LlamaIndex, CrewAI, AutoGen,
+  Semantic Kernel, Haystack, MCP) were explicitly out of scope for this
+  Python-only EP — see the EP-18.5 final report.
 
 ## Explicitly out of scope for the whole EP-18 initiative
 

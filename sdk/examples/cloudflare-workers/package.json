@@ -1,0 +1,17 @@
+{
+  "name": "costorah-cloudflare-workers-example",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Minimal Cloudflare Worker instrumented with COSTORAH (EP-18.6 example)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@costorah/sdk": "^1.0.0",
+    "openai": "^4.0.0"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

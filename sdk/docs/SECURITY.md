@@ -1,4 +1,4 @@
-# Security Review (EP-18.4)
+# Security Review (EP-18.4, EP-18.5, EP-18.6)
 
 ## What's never persisted or logged
 
@@ -17,27 +17,61 @@ never contain literal prompt/completion text used in each test):
   functions have no code path that touches message/choice content), not
   a filter applied after the fact.
 - **Request bodies in framework integrations**: `CostorahMiddleware`
-  (Python) and `costorahMiddleware()` (JS) capture only request ID,
-  path, method, and an optional `organizationId` — never headers,
-  query params, or the request body.
+  (Python FastAPI/Starlette/Django, JS Express/NestJS),
+  `CostorahExtension` (Flask), `CostorahASGIMiddleware`/
+  `CostorahWSGIMiddleware`, `costorahNodeMiddleware`, `costorahLambda`,
+  `costorahWorker`, `costorahHandler`/`costorahApiRoute` (Next.js) all
+  capture only request ID, path/route, method, and an optional
+  organization ID — never headers (beyond `X-Request-Id`), query params,
+  cookies, or the request body.
+- **Lambda event payloads (EP-18.6)**: `costorahLambda` reads only the
+  fields needed to classify an event's shape and extract route/method
+  (`httpMethod`/`path`/`rawPath`/`requestContext.http.method`) — it
+  never reads or logs the request body, and for non-HTTP events
+  (EventBridge/SQS/SNS) captures nothing beyond `context.awsRequestId`
+  as the ambient request ID, never the event's `Records`/`detail`
+  payload.
+- **Cloudflare Workers env bindings (EP-18.6)**: `costorahWorker` reads
+  exactly two binding values (`COSTORAH_API_KEY`/`COSTORAH_ENDPOINT`, or
+  their configured overrides) from the `env` object — it never
+  enumerates or logs the full `env` object, which may contain other
+  secrets a Worker is bound to.
+- **Task arguments in the Celery integration (EP-18.5)**: `task_failure`'s
+  signal payload includes the task's original `args`/`kwargs` —
+  `CostorahCelery` deliberately never reads them. Retry reasons are
+  logged by exception class name only (`type(reason).__name__`), never
+  `str(reason)`, since a custom retry exception could embed argument
+  values in its message.
+- **Authenticated user identity in the Django integration (EP-18.5)**:
+  `CostorahMiddleware` captures the authenticated user's **ID only**
+  (`request.user.pk`, read only when `request.user.is_authenticated` is
+  `True`) — never the username, email, or any other field from the user
+  object. Apps without `AuthenticationMiddleware` installed simply get
+  no `user_id` field (accessed via `getattr`/a guarded `AttributeError`
+  catch, never an error).
 
-## Ambient request context (EP-18.4-specific)
+## Ambient request context (EP-18.4, extended EP-18.5)
 
-The new `costorah.context`/`context.ts` modules attach ambient metadata
-(`request_context`/`requestContext`) to usage events during a request.
-This is opt-in (only populated when a framework integration is in use)
-and only ever contains what the integration explicitly sets — request
-ID, path, HTTP method, organization ID. It cannot capture arbitrary
-request data (headers, body, query string) because nothing in the
-middleware reads those into the context in the first place.
+The `costorah.context`/`context.ts` modules attach ambient metadata
+(`request_context`/`requestContext`) to usage events during a request
+(or, for Celery, during a task's execution). This is opt-in (only
+populated when a framework integration is in use) and only ever
+contains what the integration explicitly sets — request/task ID, path
+or task name, method or queue/worker, organization ID, and (Django only)
+user ID. It cannot capture arbitrary request data (headers, body, query
+string) or task data (arguments, return value) because nothing in any
+integration reads those into the context in the first place.
 
 ## Dependency audit
 
 **Python** (`sdk/python/pyproject.toml`): one runtime dependency,
 `httpx>=0.25` — a widely-used, actively maintained HTTP client with no
 known critical advisories as of this review. Dev-only dependencies
-(pytest, ruff, mypy, provider SDKs, fastapi) never ship in the published
-package.
+(pytest, ruff, mypy, provider SDKs, fastapi, and — as of EP-18.5 —
+flask/django/celery, needed only to run the framework integration test
+suite) never ship in the published package; `costorah.integrations.*`
+imports each framework lazily inside its own module, raising a clear
+`ImportError` if it isn't installed, rather than requiring it.
 
 **JavaScript** (`sdk/javascript/package.json`): **zero runtime
 dependencies** (verified — no `dependencies` key in `package.json`;
@@ -46,6 +80,24 @@ everything the reliability layer and framework integrations need). This
 was a deliberate design constraint through EP-18.3/EP-18.4 specifically
 to keep the security/supply-chain surface minimal — see
 `RELIABILITY.md`'s note on why the persistent queue doesn't use LevelDB.
+
+**The one exception (EP-18.6, `@costorah/sdk/nest`)**: `@nestjs/common`,
+`@nestjs/core`, and `rxjs` are declared as `peerDependencies` (with
+`peerDependenciesMeta` marking all three optional) — never bundled into
+`dist/`, and `tsup.config.ts` explicitly marks them `external`
+(verified: `grep '@nestjs\|rxjs' dist/nest/index.js` shows `import`
+statements, not inlined code). This means: (1) a consumer who never
+imports `@costorah/sdk/nest` never installs or ships these packages at
+all — the main `@costorah/sdk` entry point's zero-dependency guarantee
+is untouched; (2) a consumer who *does* use the NestJS integration runs
+whatever NestJS/RxJS version *they* installed, not a version pinned at
+this SDK's build time — this SDK never controls or vendors that
+dependency's supply chain, the consumer's own `package-lock.json` does.
+This was a deliberate, necessary exception (see `NESTJS.md`): real Nest
+decorators must be genuine runtime imports for Nest's reflection-based
+DI to recognize the resulting classes — there's no structural-typing
+equivalent for a decorator-based framework the way `express.ts`/
+`node.ts` avoid an Express/Node dependency.
 
 Dev dependencies carry a small number of transitive advisories (`npm
 audit`: vite/esbuild, pulled in by `vitest`) — these affect only the
@@ -81,3 +133,12 @@ terms).
 - **Continuous dependency scanning**: an automated tool (Dependabot,
   Snyk, etc.) wired into CI is not set up as part of this pass; the
   audit above is a one-time manual check, not continuous monitoring.
+- **Deno-specific security review (EP-18.6)**: since Deno wasn't
+  available to test in this EP's environment (see `DENO.md`), no
+  Deno-specific runtime behavior (e.g. its permission model interacting
+  with this SDK's `fetch` calls) was verified — only assessed by code
+  review.
+- **NestJS peer-dependency supply chain**: this review does not audit
+  `@nestjs/common`/`@nestjs/core`/`rxjs` themselves (they're peer
+  dependencies a consumer supplies, not something this SDK vendors or
+  controls the version of — see the dependency audit section above).

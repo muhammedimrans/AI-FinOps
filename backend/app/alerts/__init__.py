@@ -36,15 +36,20 @@ Submodules:
 
 Honesty note (see docs/realtime/ALERT_ARCHITECTURE.md for the full
 accounting): of the 18 ticket-named alert types, this EP wires real
-triggers for budget_threshold, budget_exceeded, provider_error,
-provider_recovery, api_key_created, api_key_revoked, org_member_added,
-and org_member_removed — the alert types with an actual code path that
-already runs in this backend to hang a trigger off of. The remaining 10
-(daily/hourly spend spike, sdk_offline/reconnected, api_key_expired,
-high_latency, rate_limit_spike, large_cost_increase,
-usage_ingestion_failure, webhook_delivery_failure) have no existing
-signal source in this backend (no SDK heartbeat tracking, no latency/
-rate-limit telemetry, no webhook subsystem) and are defined in AlertType
-for forward compatibility only, exactly like EP-19.1's own unemitted
-event types.
+triggers for budget_threshold, budget_exceeded, org_member_added,
+org_member_removed, api_key_created, and api_key_revoked — the alert
+types with an actual, organization-scoped code path that already runs in
+this backend to hang a trigger off of. provider_error/provider_recovery
+were deliberately NOT wired: the only related endpoint
+(`POST /v1/providers/{provider}/test`) takes no organization context and
+persists no `ProviderConnection` row, so there is no real per-org
+provider-health signal to trigger from today (the `ProviderConnection`
+health-tracking columns added by this EP's migration exist for a future
+org-scoped connection-test endpoint, not for this one). The remaining 12
+(daily/hourly spend spike, provider_error, provider_recovery,
+sdk_offline/reconnected, api_key_expired, high_latency, rate_limit_spike,
+large_cost_increase, usage_ingestion_failure, webhook_delivery_failure)
+have no existing signal source in this backend and are defined in
+AlertType for forward compatibility only, exactly like EP-19.1's own
+unemitted event types.
 """

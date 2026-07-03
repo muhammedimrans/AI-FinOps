@@ -3,11 +3,11 @@ fire an alert. Persists (with dedup + suppression applied) and publishes
 to the EventBus for live delivery, reusing EP-19.1's infrastructure
 end to end rather than adding a parallel one.
 
-Call sites (see docs/realtime/ALERT_ARCHITECTURE.md for the full list):
-  app/api/v1/ingest.py     — budget_threshold / budget_exceeded
-  app/api/v1/providers.py  — provider_error / provider_recovery
-  app/services/organization_api_key_service.py — api_key_created / api_key_revoked
-  app/api/v1/organizations.py — org_member_added / org_member_removed
+Call sites (see docs/realtime/ALERT_ARCHITECTURE.md for the full list,
+including the alert types this EP deliberately left unwired):
+  app/api/v1/ingest.py        — budget_threshold / budget_exceeded
+  app/api/v1/organizations.py — org_member_added / org_member_removed /
+                                 api_key_created / api_key_revoked
 """
 
 from __future__ import annotations

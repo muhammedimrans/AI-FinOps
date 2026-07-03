@@ -34,19 +34,25 @@ JWT-only; a key cannot mint or revoke other keys in this phase.
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import and_
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DbDep
+from app.alerts.dedup import api_key_scope, membership_scope
+from app.alerts.dispatcher import AlertService
+from app.api.deps import DbDep, EventBusDep
 from app.auth.api_key_auth import RequireMembershipOrApiKeyPermission
 from app.auth.dependencies import CurrentMembership, CurrentUser, RequirePermission
 from app.auth.rbac import Permission
 from app.db.mixins import uuid7
+from app.models.alert import AlertSeverity, AlertType
 from app.models.membership import Membership, MembershipRole
 from app.models.organization_api_key import OrganizationApiKey
 from app.models.user import User
+from app.realtime.event_bus import EventBus
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_api_key_repository import OrganizationApiKeyRepository
 from app.repositories.user_repository import UserRepository
@@ -70,7 +76,47 @@ from app.services.organization_api_key_service import (
     OrganizationApiKeyService,
 )
 
+log = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/organizations", tags=["organizations"])
+
+
+async def _fire_alert_safely(
+    db: AsyncSession,
+    event_bus: EventBus,
+    *,
+    organization_id: uuid.UUID,
+    alert_type: AlertType,
+    severity: AlertSeverity,
+    title: str,
+    message: str,
+    source: str,
+    scope: str,
+    metadata: dict[str, Any],
+) -> None:
+    """EP-19.3 — fires a membership/API-key lifecycle alert. Errors here are
+    logged and swallowed, never raised: an alerting bug must never fail the
+    membership or API-key mutation that triggered it (matching the same
+    never-block-the-primary-flow discipline used in app/api/v1/ingest.py's
+    `_check_budget_alerts`)."""
+    try:
+        await AlertService(db, event_bus).fire(
+            organization_id=organization_id,
+            alert_type=alert_type,
+            severity=severity,
+            title=title,
+            message=message,
+            source=source,
+            scope=scope,
+            metadata=metadata,
+        )
+    except Exception:
+        log.warning(
+            "alert_fire_failed",
+            organization_id=str(organization_id),
+            alert_type=alert_type.value,
+            exc_info=True,
+        )
 
 
 def _parse_role(value: str) -> MembershipRole:
@@ -165,6 +211,7 @@ async def invite_member(
     org_id: uuid.UUID,
     body: InviteMemberRequest,
     db: DbDep,
+    event_bus: EventBusDep,
     caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
 ) -> MemberResponse:
     role = _parse_role(body.role)
@@ -191,6 +238,19 @@ async def invite_member(
     membership.user_id = existing_user.id if existing_user else None
     membership.role = role
     created = await repo.create(membership)
+
+    await _fire_alert_safely(
+        db,
+        event_bus,
+        organization_id=org_id,
+        alert_type=AlertType.ORG_MEMBER_ADDED,
+        severity=AlertSeverity.INFO,
+        title=f"{body.email} joined the organization",
+        message=f"{body.email} was added as {role.value}.",
+        source="membership",
+        scope=membership_scope(org_id, body.email),
+        metadata={"email": body.email, "role": role.value},
+    )
 
     return _to_member_response(created, existing_user)
 
@@ -240,6 +300,7 @@ async def remove_member(
     org_id: uuid.UUID,
     membership_id: uuid.UUID,
     db: DbDep,
+    event_bus: EventBusDep,
     _caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
 ) -> None:
     repo = MembershipRepository(db)
@@ -253,7 +314,21 @@ async def remove_member(
             detail="Cannot remove the organization's only owner",
         )
 
+    removed_email, removed_role = target.user_email, target.role
     await repo.soft_delete(target)
+
+    await _fire_alert_safely(
+        db,
+        event_bus,
+        organization_id=org_id,
+        alert_type=AlertType.ORG_MEMBER_REMOVED,
+        severity=AlertSeverity.INFO,
+        title=f"{removed_email} was removed from the organization",
+        message=f"{removed_email} ({removed_role.value}) was removed from the organization.",
+        source="membership",
+        scope=membership_scope(org_id, removed_email),
+        metadata={"email": removed_email, "role": removed_role.value},
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -318,6 +393,7 @@ async def create_api_key(
     org_id: uuid.UUID,
     body: CreateApiKeyRequest,
     db: DbDep,
+    event_bus: EventBusDep,
     current_user: CurrentUser,
     _caller: Annotated[Membership, RequirePermission(Permission.API_KEY_WRITE)],
 ) -> ApiKeyCreatedResponse:
@@ -336,6 +412,22 @@ async def create_api_key(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unrecognized permission scope: {exc}",
         ) from exc
+
+    # Never include raw_key here — the raw secret is returned exactly once,
+    # in the response below, and must never be persisted, logged, or stored
+    # in alert metadata.
+    await _fire_alert_safely(
+        db,
+        event_bus,
+        organization_id=org_id,
+        alert_type=AlertType.API_KEY_CREATED,
+        severity=AlertSeverity.INFO,
+        title=f"API key '{record.name}' created",
+        message=f"A new API key '{record.name}' ({record.key_prefix}...) was created.",
+        source="api_key",
+        scope=api_key_scope(record.id),
+        metadata={"api_key_id": str(record.id), "name": record.name, "prefix": record.key_prefix},
+    )
 
     return ApiKeyCreatedResponse(
         id=record.id,
@@ -357,6 +449,7 @@ async def delete_api_key(
     org_id: uuid.UUID,
     key_id: uuid.UUID,
     db: DbDep,
+    event_bus: EventBusDep,
     current_user: CurrentUser,
     _caller: Annotated[Membership, RequirePermission(Permission.API_KEY_WRITE)],
 ) -> None:
@@ -367,3 +460,16 @@ async def delete_api_key(
 
     service = OrganizationApiKeyService(db)
     await service.delete_key(target, deleted_by=current_user.id)
+
+    await _fire_alert_safely(
+        db,
+        event_bus,
+        organization_id=org_id,
+        alert_type=AlertType.API_KEY_REVOKED,
+        severity=AlertSeverity.MEDIUM,
+        title=f"API key '{target.name}' revoked",
+        message=f"API key '{target.name}' ({target.key_prefix}...) was revoked.",
+        source="api_key",
+        scope=api_key_scope(target.id),
+        metadata={"api_key_id": str(target.id), "name": target.name, "prefix": target.key_prefix},
+    )

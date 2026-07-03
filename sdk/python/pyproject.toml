@@ -64,6 +64,7 @@ dev = [
     "langchain-core>=0.3",
     "langchain-openai>=0.2",
     "crewai>=0.80",
+    "mcp>=1.0",
 ]
 
 [project.urls]
@@ -118,7 +119,7 @@ ignore_missing_imports = true
 # python_version target — the waiver covers those transitive stub failures,
 # not costorah's own code.
 [[tool.mypy.overrides]]
-module = ["langchain_core.*", "langchain_openai.*", "crewai.*"]
+module = ["langchain_core.*", "langchain_openai.*", "crewai.*", "mcp.*"]
 ignore_missing_imports = true
 follow_imports = "skip"
 

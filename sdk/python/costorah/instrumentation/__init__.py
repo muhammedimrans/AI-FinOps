@@ -18,6 +18,7 @@ instrumentor's `instrument()` does.
 
 from __future__ import annotations
 
+from costorah.instrumentation._submission import set_default_client
 from costorah.instrumentation.anthropic import AnthropicInstrumentor
 from costorah.instrumentation.azure_openai import AzureOpenAIInstrumentor
 from costorah.instrumentation.base import BaseInstrumentor, ExtractedUsage, InstrumentationError
@@ -44,4 +45,5 @@ __all__ = [
     "OllamaInstrumentor",
     "OpenAIInstrumentor",
     "OpenRouterInstrumentor",
+    "set_default_client",
 ]

@@ -10,6 +10,7 @@
 
 export { Costorah } from "./client.js";
 export type { CostorahOptions, ResolvedConfig } from "./config.js";
+export { getRequestContext, runWithRequestContext } from "./context.js";
 export {
   AuthenticationError,
   ConfigurationError,
@@ -38,6 +39,7 @@ export { OllamaInstrumentor } from "./instrumentation/ollama.js";
 export { OpenAIInstrumentor } from "./instrumentation/openai.js";
 export { OpenAICompatibleInstrumentor } from "./instrumentation/openaiCompatible.js";
 export { OpenRouterInstrumentor } from "./instrumentation/openrouter.js";
+export { setDefaultClient } from "./instrumentation/submission.js";
 
 export { BackgroundWorker } from "./reliability/worker.js";
 export type { BackgroundWorkerOptions } from "./reliability/worker.js";

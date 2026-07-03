@@ -7,6 +7,11 @@ Telemetry submission must never break the caller's actual AI request: any
 failure (missing API key, network error, validation error, exhausted
 retries) is logged and swallowed here, never raised into the instrumented
 provider SDK call.
+
+EP-18.4: if a framework integration (e.g. `costorah.integrations.fastapi`)
+has set ambient request context (`costorah.context.request_context`), it's
+merged into every event's `metadata["request_context"]` here — additive,
+never overwriting metadata the caller already set.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ import os
 from typing import TYPE_CHECKING
 
 from costorah._logging import get_logger
+from costorah.context import get_request_context
 from costorah.exceptions import CostorahError
 
 if TYPE_CHECKING:
@@ -25,6 +31,16 @@ _log = get_logger(__name__)
 
 _default_client: Costorah | None = None
 _default_client_failed = False
+
+
+def set_default_client(client: Costorah | None) -> None:
+    """Sets (or clears, with None) the client instrumentation submits
+    through when no explicit `client` is passed to an instrumentor —
+    used by framework integrations to wire up auto-initialization from
+    a single place (e.g. `CostorahMiddleware(client=...)`)."""
+    global _default_client, _default_client_failed
+    _default_client = client
+    _default_client_failed = False
 
 
 def _get_or_build_client(explicit_client: Costorah | None) -> Costorah | None:
@@ -69,6 +85,11 @@ def submit(usage: ExtractedUsage, *, client: Costorah | None = None) -> bool:
     if resolved is None:
         return False
 
+    metadata = usage.metadata
+    context = get_request_context()
+    if context:
+        metadata = {**usage.metadata, "request_context": context}
+
     try:
         resolved.track(
             provider=usage.provider,
@@ -83,7 +104,7 @@ def submit(usage: ExtractedUsage, *, client: Costorah | None = None) -> bool:
             status=usage.status,
             request_id=usage.request_id,
             timestamp=usage.timestamp,
-            metadata=usage.metadata,
+            metadata=metadata,
         )
         return True
     except CostorahError as exc:

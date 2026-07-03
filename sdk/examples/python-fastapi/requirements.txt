@@ -1,0 +1,4 @@
+costorah
+fastapi
+uvicorn[standard]
+openai

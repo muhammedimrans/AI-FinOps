@@ -60,9 +60,9 @@ export interface MinimalResponse {
 export type MinimalNextFunction = (err?: unknown) => void;
 
 export interface CostorahMiddlewareOptions {
-  apiKey?: string;
+  apiKey?: string | undefined;
   client?: Costorah;
-  organizationId?: string;
+  organizationId?: string | undefined;
 }
 
 export function costorahMiddleware(

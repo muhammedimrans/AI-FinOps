@@ -19,6 +19,13 @@ export interface DerivedAlert {
   category: "budget" | "anomaly" | "live";
   read: boolean;
   timestamp?: string;
+  /** The persisted backend Alert's id, when this DerivedAlert originated
+   * from a live event the EP-19.3 dispatcher fired (see
+   * `AlertService._publish()`'s payload, which always includes
+   * `alert_id`). Undefined for client-derived (budget/anomaly heuristic)
+   * alerts, which have no backend row to acknowledge/resolve/archive via
+   * the REST API — those can only be dismissed locally. */
+  alertId?: string;
 }
 
 // Event types this panel treats as notification-worthy, matching the
@@ -35,6 +42,10 @@ const NOTIFICATION_EVENT_TYPES: ReadonlySet<RealtimeEventType> = new Set([
   "api_key.deleted",
   "sdk.connected",
   "sdk.disconnected",
+  // EP-19.3: org_member_added/removed both ride on organization.updated
+  // (see backend/app/alerts/dispatcher.py's _EVENT_TYPE_MAP) rather than
+  // a dedicated event type — reusing what EP-19.1 already defined.
+  "organization.updated",
   "notification.created",
 ]);
 
@@ -47,7 +58,16 @@ const EVENT_COPY: Partial<Record<RealtimeEventType, { severity: AlertSeverity; t
   "api_key.deleted": { severity: "warning", title: "API key deleted" },
   "sdk.connected": { severity: "info", title: "SDK connected" },
   "sdk.disconnected": { severity: "warning", title: "SDK disconnected" },
+  "organization.updated": { severity: "info", title: "Organization updated" },
   "notification.created": { severity: "info", title: "Notification" },
+};
+
+const SEVERITY_FROM_ALERT: Record<string, AlertSeverity> = {
+  info: "info",
+  low: "info",
+  medium: "warning",
+  high: "danger",
+  critical: "danger",
 };
 
 /** Best-effort description from whatever fields a payload happens to carry
@@ -68,14 +88,27 @@ function describePayload(event: RealtimeEvent): string {
 
 function fromLiveEvent(event: RealtimeEvent): DerivedAlert {
   const copy = EVENT_COPY[event.type] ?? { severity: "info" as const, title: event.type };
+  const alertId = event.payload["alert_id"];
+  // AlertService._publish() always includes the persisted alert's own
+  // title/severity — prefer those over the generic per-event-type copy
+  // above when present, since they're specific ("acme@x.com joined the
+  // organization") rather than generic ("Organization updated").
+  const payloadTitle = event.payload["title"];
+  const payloadSeverity = event.payload["severity"];
+  const title = typeof payloadTitle === "string" && payloadTitle ? payloadTitle : copy.title;
+  const severity =
+    typeof payloadSeverity === "string" && SEVERITY_FROM_ALERT[payloadSeverity]
+      ? SEVERITY_FROM_ALERT[payloadSeverity]
+      : copy.severity;
   return {
     id: event.event_id,
-    severity: copy.severity,
-    title: copy.title,
+    severity,
+    title,
     description: describePayload(event),
     category: "live",
     read: false,
     timestamp: event.timestamp,
+    alertId: typeof alertId === "string" ? alertId : undefined,
   };
 }
 
@@ -86,12 +119,15 @@ function fromLiveEvent(event: RealtimeEvent): DerivedAlert {
  * (budget.threshold_reached/exceeded, provider.error/recovery, sdk.*,
  * api_key.*, notification.created) pushed over the EP-19.1 WebSocket.
  *
- * Honesty note: as of this EP, the backend only actually emits
- * `usage.created` (see backend/docs/realtime/04-event-model.md) — none of
- * the notification-shaped types above have a real trigger yet, so this
- * merge is wired and ready but will not produce any "live" category alerts
- * until a later backend EP adds those triggers. That's a deliberate,
- * documented gap, not an oversight.
+ * Honesty note (updated for EP-19.3): the backend's alert engine now
+ * really fires budget.threshold_reached, budget.exceeded, and — via
+ * organization.updated — org_member_added/removed and
+ * api_key_created/revoked, off real ingestion and membership/API-key
+ * mutations (see backend/docs/realtime/ALERT_ARCHITECTURE.md). The
+ * remaining types in this map (provider.error/recovery, sdk.*) still have
+ * no real trigger — no per-org provider-health signal or SDK heartbeat
+ * tracking exists in this backend — and stay wired-but-dormant, exactly
+ * as before.
  */
 export function useAlerts(): { alerts: DerivedAlert[]; unreadCount: number } {
   const projects = useProjects();

@@ -24,20 +24,38 @@ returns the original response, not an error).
 from __future__ import annotations
 
 import time
+import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts.dedup import budget_scope
+from app.alerts.dispatcher import AlertService
+from app.alerts.rule_engine import RuleEngine
 from app.api.deps import DbDep, EventBusDep
 from app.auth.api_key_auth import RequireApiKeyPermission
 from app.auth.rbac import Permission
+from app.models.alert import AlertSeverity, AlertType
+from app.realtime.event_bus import EventBus
 from app.realtime.events import EventType, RealtimeEvent
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.usage_record_repository import UsageRecordRepository
 from app.schemas.usage_ingestion import IngestUsageRequest, IngestUsageResponse
 from app.services.api_key_auth_service import ApiKeyAuthContext
 from app.services.usage_ingestion_service import UnknownProjectError, UsageIngestionService
 
 log = structlog.get_logger(__name__)
+
+# (alert_type, severity) checked on every ingestion with a budgeted
+# project — exceeded first so a single ingestion that crosses both
+# thresholds in one shot reports the more severe one as well.
+_BUDGET_CHECKS: tuple[tuple[AlertType, AlertSeverity], ...] = (
+    (AlertType.BUDGET_EXCEEDED, AlertSeverity.CRITICAL),
+    (AlertType.BUDGET_THRESHOLD, AlertSeverity.HIGH),
+)
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])
 
@@ -143,6 +161,13 @@ async def ingest_usage(
                 trace_id=record.request_id,
             )
         )
+        if record.project_id is not None:
+            await _check_budget_alerts(
+                db,
+                event_bus,
+                organization_id=current_api_key.organization_id,
+                project_id=record.project_id,
+            )
 
     return IngestUsageResponse(
         usage_id=record.id,
@@ -152,3 +177,64 @@ async def ingest_usage(
         processed_at=record.ingested_at,
         duplicate=is_duplicate,
     )
+
+
+async def _check_budget_alerts(
+    db: AsyncSession,
+    event_bus: EventBus,
+    *,
+    organization_id: uuid.UUID,
+    project_id: uuid.UUID,
+) -> None:
+    """EP-19.3 — evaluates the project's `budget_threshold`/`budget_exceeded`
+    AlertRule rows (if the organization has configured any) against
+    month-to-date spend. A project with no `budget` set, or an
+    organization with no rules configured for these two types, simply has
+    nothing to evaluate — this never fabricates a default threshold.
+    Errors here are logged and swallowed, never raised: a budget-alert
+    bug must never fail the usage-ingestion request that triggered it.
+    """
+    try:
+        project = await ProjectRepository(db).get(project_id)
+        if project is None or project.budget is None or project.budget <= 0:
+            return
+
+        month_to_date = await UsageRecordRepository(db).get_project_month_to_date_total(
+            organization_id, project_id, as_of=datetime.now(UTC).date()
+        )
+        pct_used = float((month_to_date / project.budget) * 100)
+
+        rule_engine = RuleEngine(db)
+        alert_service = AlertService(db, event_bus)
+
+        for alert_type, severity in _BUDGET_CHECKS:
+            matched_rules = await rule_engine.evaluate_type(
+                organization_id=organization_id,
+                alert_type=alert_type,
+                current_value=pct_used,
+            )
+            for rule in matched_rules:
+                await alert_service.fire(
+                    organization_id=organization_id,
+                    alert_type=alert_type,
+                    severity=severity,
+                    title=f"{project.name}: {alert_type.value.replace('_', ' ')}",
+                    message=(
+                        f"{project.name} has used {pct_used:.1f}% of its "
+                        f"{project.budget} budget this month."
+                    ),
+                    source="ingestion",
+                    scope=budget_scope(project_id),
+                    rule_id=rule.id,
+                    metadata={
+                        "project_id": str(project_id),
+                        "project_name": project.name,
+                        "pct_used": round(pct_used, 2),
+                        "budget": str(project.budget),
+                        "month_to_date": str(month_to_date),
+                    },
+                )
+    except Exception:
+        log.warning(
+            "budget_alert_check_failed", organization_id=str(organization_id), exc_info=True
+        )

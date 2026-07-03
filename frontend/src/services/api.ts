@@ -580,6 +580,119 @@ export async function getRecentActivity(limit = 20): Promise<UsageEventsResponse
   return { events: [], total: 0, page: 1, page_size: limit };
 }
 
+// ── Alerts (EP-19.3) ─────────────────────────────────────────────────────────
+
+export type AlertApiStatus = "open" | "acknowledged" | "resolved" | "dismissed";
+export type AlertApiSeverity = "info" | "low" | "medium" | "high" | "critical";
+
+export interface AlertRecord {
+  id: string;
+  alert_type: string;
+  severity: AlertApiSeverity;
+  status: AlertApiStatus;
+  title: string;
+  message: string;
+  source: string;
+  occurrence_count: number;
+  metadata: Record<string, unknown>;
+  first_occurred_at: string;
+  last_occurred_at: string;
+  acknowledged_by: string | null;
+  acknowledged_at: string | null;
+  acknowledgement_reason: string | null;
+  resolved_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+}
+
+export interface AlertsListResponse {
+  alerts: AlertRecord[];
+  total: number;
+}
+
+export interface ListAlertsParams {
+  organizationId: string;
+  status?: AlertApiStatus;
+  severity?: AlertApiSeverity;
+  alertType?: string;
+  since?: string;
+  until?: string;
+  search?: string;
+  limit?: number;
+}
+
+/** Persisted alert history — search/filter over what the backend's alert
+ * engine has actually fired (budget/membership/API-key triggers as of this
+ * EP; see backend/docs/realtime/ALERT_ARCHITECTURE.md for the full
+ * accounting). Distinct from `useAlerts()`'s client-derived + live-merged
+ * feed, which stays as-is; this is the "View history" / search surface. */
+export async function listAlerts(params: ListAlertsParams): Promise<AlertsListResponse> {
+  return get<AlertsListResponse>("/v1/alerts", {
+    organization_id: params.organizationId,
+    status: params.status,
+    severity: params.severity,
+    alert_type: params.alertType,
+    since: params.since,
+    until: params.until,
+    search: params.search,
+    limit: params.limit ? String(params.limit) : undefined,
+  });
+}
+
+export async function acknowledgeAlert(
+  organizationId: string,
+  alertId: string,
+  reason?: string,
+): Promise<AlertRecord> {
+  return request<AlertRecord>("POST", `/v1/alerts/${alertId}/acknowledge`, {
+    params: { organization_id: organizationId },
+    body: { reason: reason ?? null },
+  });
+}
+
+export async function resolveAlert(organizationId: string, alertId: string): Promise<AlertRecord> {
+  return request<AlertRecord>("POST", `/v1/alerts/${alertId}/resolve`, {
+    params: { organization_id: organizationId },
+  });
+}
+
+export async function dismissAlert(organizationId: string, alertId: string): Promise<AlertRecord> {
+  return request<AlertRecord>("POST", `/v1/alerts/${alertId}/dismiss`, {
+    params: { organization_id: organizationId },
+  });
+}
+
+export async function reopenAlert(organizationId: string, alertId: string): Promise<AlertRecord> {
+  return request<AlertRecord>("POST", `/v1/alerts/${alertId}/reopen`, {
+    params: { organization_id: organizationId },
+  });
+}
+
+export interface AlertPreferences {
+  enabled_alert_types: string[];
+  min_severity: AlertApiSeverity;
+  quiet_hours_start: string | null;
+  quiet_hours_end: string | null;
+  timezone: string;
+  daily_digest: boolean;
+  immediate_notifications: boolean;
+  max_notifications: number | null;
+}
+
+export async function getAlertPreferences(organizationId: string): Promise<AlertPreferences> {
+  return get<AlertPreferences>("/v1/alerts/preferences", { organization_id: organizationId });
+}
+
+export async function updateAlertPreferences(
+  organizationId: string,
+  body: Partial<AlertPreferences>,
+): Promise<AlertPreferences> {
+  return patch<AlertPreferences>(
+    `/v1/alerts/preferences?organization_id=${encodeURIComponent(organizationId)}`,
+    body,
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function delay(ms: number): Promise<void> {

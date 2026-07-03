@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Response, status
 
+from app.alerts.metrics import render_alerts_metrics
 from app.api.deps import ContainerDep
 from app.core.database import check_database
 from app.core.redis import check_redis
@@ -125,8 +126,11 @@ async def metrics() -> Response:
     # static payload above rather than replacing it (that payload is a
     # previously-shipped EP's endpoint output).
     realtime_payload = render_realtime_metrics().decode("utf-8")
+    # EP-19.3 — alert engine metrics, appended as a third block for the
+    # same reason: additive, never replacing a previously-shipped payload.
+    alerts_payload = render_alerts_metrics().decode("utf-8")
     return Response(
-        content=payload + "\n" + realtime_payload,
+        content=payload + "\n" + realtime_payload + "\n" + alerts_payload,
         media_type="text/plain; version=0.0.4; charset=utf-8",
     )
 

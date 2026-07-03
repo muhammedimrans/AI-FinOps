@@ -149,6 +149,35 @@ class UsageRecordRepository(BaseRepository[UsageRecord]):
             for row in result.all()
         ]
 
+    async def get_project_month_to_date_total(
+        self,
+        organization_id: uuid.UUID,
+        project_id: uuid.UUID,
+        *,
+        as_of: date,
+    ) -> Decimal:
+        """Sum of `cost` for this project from the 1st of `as_of`'s month
+        through `as_of`, inclusive — the "month-to-date spend" a
+        `Project.budget` is compared against (EP-19.3). Ignores currency
+        mixing (sums whatever currency each record was ingested in) since
+        `UsageIngestionService` doesn't convert currencies today; a project
+        billed in more than one currency would need real FX conversion
+        before this number means anything, which is out of scope here and
+        stated rather than silently wrong."""
+        month_start = as_of.replace(day=1)
+        day = func.date(UsageRecord.request_timestamp)
+        stmt = select(func.coalesce(func.sum(UsageRecord.cost), Decimal(0))).where(
+            and_(
+                UsageRecord.organization_id == organization_id,
+                UsageRecord.project_id == project_id,
+                day >= month_start,
+                day <= as_of,
+                UsageRecord.deleted_at.is_(None),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one() or Decimal(0)
+
     async def get_totals_by_provider(
         self,
         organization_id: uuid.UUID,

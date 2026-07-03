@@ -7,6 +7,8 @@ import CommandPalette from "../components/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
 import OnboardingModal from "../components/OnboardingModal";
 import { routeLabel } from "../lib/navigation";
+import { useRealtimeConnection } from "../realtime/hooks";
+import { useRealtimeQueryBridge } from "../realtime/queryBridge";
 
 function PageSkeleton() {
   return (
@@ -26,6 +28,11 @@ export default function AppLayout() {
   const location = useLocation();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
+
+  // Real-time connection + React Query bridge — mounted once here so every
+  // page under this layout gets live updates without wiring anything itself.
+  useRealtimeConnection();
+  useRealtimeQueryBridge();
 
   // Close the mobile drawer, reset scroll, and sync the document title
   // whenever the route changes.

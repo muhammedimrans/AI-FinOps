@@ -61,6 +61,17 @@ export function useLatestEvent(type: RealtimeEventType) {
 }
 
 /**
+ * Returns `false` (no polling) while the real-time connection is healthy,
+ * or `fallbackMs` otherwise — the "when disconnected, polling resumes
+ * automatically" half of the ticket's React Query integration. Pass this
+ * straight into a query's `refetchInterval` option.
+ */
+export function useRealtimeRefetchInterval(fallbackMs: number): number | false {
+  const status = useRealtimeStore((s) => s.connection.status);
+  return status === "connected" ? false : fallbackMs;
+}
+
+/**
  * Subscribes `handler` to one event type (or `"*"` for all) for the
  * lifetime of the calling component. `handler` is captured fresh on every
  * render via a ref, so callers don't need to `useCallback` it.

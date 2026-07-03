@@ -1,0 +1,140 @@
+# COSTORAH Monitoring Agent — Kubernetes Deployment.
+#
+# The agent typically runs as a single Deployment replica per cluster (it
+# polls provider-level usage APIs, not per-pod traffic — running multiple
+# replicas would just poll the same account and produce duplicate work,
+# though never duplicate *data*, since EP-16's request_id dedup makes
+# over-collection harmless). A DaemonSet is not appropriate for this
+# workload for the same reason.
+#
+# Usage:
+#   kubectl create namespace costorah
+#   kubectl -n costorah create secret generic costorah-agent-api-key \
+#       --from-literal=api-key=costorah_live_xxxxxxxxxxxxx
+#   kubectl -n costorah apply -f deployment.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: costorah-agent-config
+data:
+  config.yaml: |
+    server:
+      endpoint: https://api.costorah.com
+      timeout_seconds: 10
+      verify_tls: true
+    collection:
+      interval_seconds: 5
+      batch_size: 50
+    providers:
+      openai: true
+      anthropic: true
+      google: true
+      azure: true
+      openrouter: true
+      ollama: false
+    retry:
+      backoff_seconds: [1, 2, 4, 8, 16, 30, 60]
+      max_attempts: null
+    queue:
+      max_memory_events: 10000
+      sqlite_path: /var/lib/costorah-agent/queue.db
+    logging:
+      level: INFO
+    http_server:
+      enabled: true
+      host: 0.0.0.0
+      port: 9091
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: costorah-agent
+  labels:
+    app: costorah-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: costorah-agent
+  template:
+    metadata:
+      labels:
+        app: costorah-agent
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: costorah-agent
+          image: costorah-agent:latest
+          imagePullPolicy: IfNotPresent
+          args: ["start", "--config", "/etc/costorah-agent/config.yaml"]
+          env:
+            - name: COSTORAH_AGENT_ORGANIZATION__API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: costorah-agent-api-key
+                  key: api-key
+          ports:
+            - name: http
+              containerPort: 9091
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/costorah-agent
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/costorah-agent
+      volumes:
+        - name: config
+          configMap:
+            name: costorah-agent-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: costorah-agent-data
+---
+# PersistentVolumeClaim, not emptyDir: the SQLite offline-retry queue must
+# survive pod restarts/rescheduling or "never lose telemetry" doesn't hold
+# during a cluster event that coincides with a COSTORAH outage.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: costorah-agent-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: costorah-agent
+spec:
+  selector:
+    app: costorah-agent
+  ports:
+    - name: http
+      port: 9091
+      targetPort: 9091

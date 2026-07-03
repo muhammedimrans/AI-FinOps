@@ -1,0 +1,52 @@
+# COSTORAH Monitoring Agent configuration.
+#
+# Copy this file to config.yaml and fill in organization.api_key, or (safer
+# for production) leave it blank here and set it via the environment
+# instead: COSTORAH_AGENT_ORGANIZATION__API_KEY=costorah_live_...
+#
+# Any value here can be overridden by an environment variable named
+# COSTORAH_AGENT_<SECTION>__<FIELD> (double underscore between section and
+# field), e.g. COSTORAH_AGENT_SERVER__ENDPOINT=https://api.costorah.com
+
+server:
+  endpoint: https://api.costorah.com
+  timeout_seconds: 10
+  verify_tls: true
+
+organization:
+  api_key: costorah_live_xxxxxxxxxxxxx
+
+collection:
+  interval_seconds: 5
+  batch_size: 50
+
+providers:
+  openai: true
+  anthropic: true
+  google: true
+  azure: true
+  grok: false
+  openrouter: true
+  ollama: true
+  cohere: false
+  bedrock: false
+  mistral: false
+
+retry:
+  backoff_seconds: [1, 2, 4, 8, 16, 30, 60]
+  max_attempts: null # null = retry forever (events are never dropped)
+
+queue:
+  max_memory_events: 10000
+  sqlite_path: costorah-agent-queue.db
+
+logging:
+  level: INFO
+  file: null # null = stdout only
+  max_bytes: 10485760 # 10 MB
+  backup_count: 5
+
+http_server:
+  enabled: true
+  host: 127.0.0.1
+  port: 9091

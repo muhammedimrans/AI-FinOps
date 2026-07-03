@@ -13,8 +13,8 @@ import {
   BarChart,
   Bar,
 } from "recharts";
-import { motion } from "framer-motion";
-import { DollarSign, Activity, Layers, Zap, Clock, Download } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { DollarSign, Activity, Layers, Zap, Clock, Download, Radio } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import ProviderBadge from "../components/ProviderBadge";
@@ -28,6 +28,7 @@ import {
   useModels,
   useRecentActivity,
 } from "../hooks/useDashboard";
+import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
 import {
   formatCost,
   formatDate,
@@ -114,6 +115,8 @@ export default function Overview() {
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [hoveredProvider, setHoveredProvider] = useState<string | null>(null);
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
+  const liveMetrics = useLiveMetrics();
+  const connection = useConnectionStatus();
 
   const overview = useOverview();
   const timeSeries = useTimeSeries();
@@ -214,6 +217,34 @@ export default function Overview() {
           </button>
         }
       />
+
+      {/* Live-update strip — appears once a usage.created event has landed
+          since the socket connected; the KPI numbers below refresh via the
+          normal query-invalidation path (see realtime/queryBridge.ts), this
+          is just the "yes, something just happened" acknowledgment. */}
+      <AnimatePresence>
+        {connection.status === "connected" && liveMetrics.requestCount > 0 && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex items-center gap-2 text-xs text-tx-muted overflow-hidden"
+          >
+            <Radio size={12} className="text-brand flex-shrink-0" />
+            <span>
+              <span className="font-semibold text-tx-primary tabular-nums">
+                +{formatNumber(liveMetrics.requestCount)}
+              </span>{" "}
+              request{liveMetrics.requestCount === 1 ? "" : "s"} ·{" "}
+              <span className="font-semibold text-tx-primary tabular-nums">
+                +{formatCost(liveMetrics.costDelta, currency, true)}
+              </span>{" "}
+              live since you opened this page
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

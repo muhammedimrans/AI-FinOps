@@ -14,6 +14,7 @@ const USAGE_AFFECTED_QUERY_PREFIXES = [
   "providers",
   "models",
   "projects",
+  "organization",
   "recent-activity",
 ] as const;
 

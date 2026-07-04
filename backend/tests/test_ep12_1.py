@@ -20,17 +20,15 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.db.mixins import uuid7
 from app.models.membership import Membership, MembershipRole
-from app.models.organization import Organization, OrganizationStatus
-from app.schemas.organizations import OrgMembershipItem, OrganizationsResponse
-from tests.conftest import make_membership, make_org, make_user
-
+from app.models.organization import OrganizationStatus
+from app.schemas.organizations import OrganizationsResponse, OrgMembershipItem
+from tests.conftest import make_membership, make_org
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +45,7 @@ def _make_membership_with_org(
     org = make_org(name=org_name, slug=org_slug, status=org_status)
     if org_deleted:
         from datetime import UTC, datetime
+
         org.deleted_at = datetime.now(UTC)
 
     mem = make_membership(org_id=org.id, user_email=user_email, role=role)
@@ -80,9 +79,7 @@ class TestOrganizationsSchemas:
 
     def test_organizations_response_single(self) -> None:
         resp = OrganizationsResponse(
-            organizations=[
-                OrgMembershipItem(id="org_x", name="X", slug="x", role="admin")
-            ]
+            organizations=[OrgMembershipItem(id="org_x", name="X", slug="x", role="admin")]
         )
         assert len(resp.organizations) == 1
         assert resp.organizations[0].role == "admin"
@@ -259,6 +256,7 @@ class TestOrganizationsEndpoint:
         finally:
             app.dependency_overrides.clear()
             from app.repositories.membership_repository import MembershipRepository
+
             if hasattr(MembershipRepository.list_by_user_email_with_orgs, "reset_mock"):
                 pass  # already a mock; leave it for the next test to replace
 

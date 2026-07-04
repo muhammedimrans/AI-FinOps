@@ -98,9 +98,7 @@ async def websocket_gateway(
             await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
             await websocket.send_json({"type": "ping"})
             try:
-                await asyncio.wait_for(
-                    websocket.receive_text(), timeout=HEARTBEAT_TIMEOUT_SECONDS
-                )
+                await asyncio.wait_for(websocket.receive_text(), timeout=HEARTBEAT_TIMEOUT_SECONDS)
             except TimeoutError:
                 connection_manager.record_heartbeat_failure(info.connection_id)
                 heartbeat_failures_total.inc()
@@ -118,12 +116,12 @@ async def websocket_gateway(
             task.cancel()
         for task in done:
             if task.exception() and not isinstance(task.exception(), WebSocketDisconnect):
-                exc = task.exception()
-                if exc is not None and not isinstance(exc, asyncio.CancelledError):
+                task_exc = task.exception()
+                if task_exc is not None and not isinstance(task_exc, asyncio.CancelledError):
                     log.info(
                         "realtime_ws_closed",
                         connection_id=info.connection_id,
-                        reason=str(exc),
+                        reason=str(task_exc),
                     )
     finally:
         forward_task.cancel()

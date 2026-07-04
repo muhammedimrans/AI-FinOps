@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
@@ -63,12 +63,22 @@ class UsageCollectionRun(BaseModel):
     )
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[CollectionRunStatus] = mapped_column(
-        SQLEnum(CollectionRunStatus, name="collection_run_status", create_type=True, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(
+            CollectionRunStatus,
+            name="collection_run_status",
+            create_type=True,
+            values_callable=lambda e: [m.value for m in e],
+        ),
         nullable=False,
         default=CollectionRunStatus.PENDING,
     )
     triggered_by: Mapped[CollectionTrigger] = mapped_column(
-        SQLEnum(CollectionTrigger, name="collection_trigger", create_type=True, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(
+            CollectionTrigger,
+            name="collection_trigger",
+            create_type=True,
+            values_callable=lambda e: [m.value for m in e],
+        ),
         nullable=False,
         default=CollectionTrigger.MANUAL,
     )

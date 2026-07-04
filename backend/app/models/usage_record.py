@@ -136,9 +136,7 @@ class UsageRecord(BaseModel):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "organization_id", "request_id", name="uq_usage_records_org_request_id"
-        ),
+        UniqueConstraint("organization_id", "request_id", name="uq_usage_records_org_request_id"),
         Index("ix_usage_records_organization_id", "organization_id"),
         Index("ix_usage_records_project_id", "project_id"),
         Index("ix_usage_records_api_key_id", "api_key_id"),

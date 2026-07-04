@@ -123,10 +123,7 @@ class TestDdlParserSyntheticStatements:
         assert {"ix_widgets_name", "ix_widgets_slug"} <= snap.tables["widgets"].indexes
 
     def test_drop_index_removes_it(self) -> None:
-        sql = (
-            "CREATE INDEX ix_widgets_name ON widgets (name);\n"
-            "DROP INDEX ix_widgets_name;"
-        )
+        sql = "CREATE INDEX ix_widgets_name ON widgets (name);\n" "DROP INDEX ix_widgets_name;"
         snap, unrecognized = parse_ddl(sql)
         assert unrecognized == []
         assert "ix_widgets_name" not in snap.tables["widgets"].indexes
@@ -217,8 +214,16 @@ class TestDdlParserRealMigrations:
         assert "organization_api_keys" in snap.tables
         assert "alerts" in snap.tables
         assert set(snap.enums["provider_type"].values) == {
-            "openai", "anthropic", "grok", "google", "azure_openai",
-            "openrouter", "ollama", "cohere", "bedrock", "mistral",
+            "openai",
+            "anthropic",
+            "grok",
+            "google",
+            "azure_openai",
+            "openrouter",
+            "ollama",
+            "cohere",
+            "bedrock",
+            "mistral",
         }
 
 

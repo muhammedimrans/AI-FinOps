@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, or_
 
 from app.models.model_pricing import ModelPricing
 from app.repositories.base_repository import BaseRepository
@@ -37,7 +37,9 @@ class ModelPricingRepository(BaseRepository[ModelPricing]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_for_date(self, provider: str, model: str, usage_date: date) -> ModelPricing | None:
+    async def get_for_date(
+        self, provider: str, model: str, usage_date: date
+    ) -> ModelPricing | None:
         """Return pricing effective on the given date for historical cost calculation.
 
         Selects records where:

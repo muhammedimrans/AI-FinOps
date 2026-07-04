@@ -18,7 +18,7 @@ full BILLING_WRITE RBAC on create remains deferred.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 import structlog
@@ -168,15 +168,16 @@ async def list_pricing_providers(
 ) -> list[str]:
     """Return distinct provider names with active pricing."""
     from sqlalchemy import distinct, select
-    from app.models.model_pricing import ModelPricing as MP
+
+    from app.models.model_pricing import ModelPricing
 
     stmt = (
-        select(distinct(MP.provider))
+        select(distinct(ModelPricing.provider))
         .where(
-            MP.deleted_at.is_(None),
-            MP.is_active.is_(True),
+            ModelPricing.deleted_at.is_(None),
+            ModelPricing.is_active.is_(True),
         )
-        .order_by(MP.provider)
+        .order_by(ModelPricing.provider)
     )
     result = await db.execute(stmt)
     return list(result.scalars().all())

@@ -34,10 +34,7 @@ class TestSecurityHeaders:
         )
         app = create_app(settings)
         # Verify the middleware was registered with hsts=True
-        added = [
-            m for m in app.user_middleware
-            if m.cls.__name__ == "SecurityHeadersMiddleware"
-        ]
+        added = [m for m in app.user_middleware if m.cls.__name__ == "SecurityHeadersMiddleware"]
         assert added, "SecurityHeadersMiddleware not registered"
         assert added[0].kwargs.get("hsts") is True
 

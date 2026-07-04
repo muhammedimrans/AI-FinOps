@@ -20,21 +20,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
-from decimal import Decimal
 from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Query
 
+from app.analytics.service import AnalyticsService
 from app.api.deps import DbDep
 from app.auth.dependencies import CurrentMembership, OrgScopedMembership
-from app.analytics.service import AnalyticsService
 from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
 from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
 from app.schemas.analytics import (
     CostByCurrencyItem,
     CostSummaryResponse,
-    DailyTrendItem,
     ModelBreakdownItem,
     OrgSummaryResponse,
     ProjectBreakdownItem,

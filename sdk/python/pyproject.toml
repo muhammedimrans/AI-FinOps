@@ -65,6 +65,16 @@ dev = [
     "langchain-openai>=0.2",
     "crewai>=0.80",
     "mcp>=1.0",
+    # Transitive dependency of crewai's chromadb/onnxruntime/pyarrow chain.
+    # Pinned (not left floating) because pip resolves a different numpy
+    # version per Python interpreter — 2.2.6 on 3.10, 2.5.0 on 3.12 as of
+    # this writing — and 2.3+'s bundled .pyi stubs use a `type` statement
+    # that is 3.12-only syntax, which fails to even parse under this
+    # project's `python_version = "3.10"` mypy target (see the numpy
+    # override below): a hard parse error, not a missing-imports warning,
+    # so `ignore_errors` can't rescue it. Pinning keeps both matrix legs
+    # (3.10 and 3.12) resolving the identical, mypy-parseable numpy build.
+    "numpy==2.2.6",
 ]
 
 [project.urls]

@@ -50,9 +50,7 @@ class SecurityHeadersMiddleware:
                 headers.setdefault(
                     "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
                 )
-                headers.setdefault(
-                    "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-                )
+                headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
                 if self._hsts:
                     headers.setdefault(
                         "Strict-Transport-Security", "max-age=63072000; includeSubDomains"

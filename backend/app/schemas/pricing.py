@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import Annotated
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+if TYPE_CHECKING:
+    from app.models.model_pricing import ModelPricing
 
 # ── Response schemas ───────────────────────────────────────────────────────────
 
@@ -41,34 +43,26 @@ class ModelPricingResponse(BaseModel):
     created_at: str
 
     @classmethod
-    def from_orm_model(cls, pricing: object) -> ModelPricingResponse:
+    def from_orm_model(cls, pricing: ModelPricing) -> ModelPricingResponse:
         """Build response from ORM object, converting Decimal fields to str."""
         return cls(
-            id=getattr(pricing, "id"),
-            external_id=getattr(pricing, "external_id"),
-            provider=getattr(pricing, "provider"),
-            model=getattr(pricing, "model"),
-            version=getattr(pricing, "version"),
-            currency=getattr(pricing, "currency"),
-            effective_from=getattr(pricing, "effective_from"),
-            effective_to=getattr(pricing, "effective_to"),
-            prompt_token_price=str(getattr(pricing, "prompt_token_price")),
-            completion_token_price=str(getattr(pricing, "completion_token_price")),
-            cached_token_price=(
-                str(v) if (v := getattr(pricing, "cached_token_price")) is not None else None
-            ),
-            audio_token_price=(
-                str(v) if (v := getattr(pricing, "audio_token_price")) is not None else None
-            ),
-            image_price=(
-                str(v) if (v := getattr(pricing, "image_price")) is not None else None
-            ),
-            embedding_price=(
-                str(v) if (v := getattr(pricing, "embedding_price")) is not None else None
-            ),
-            is_active=getattr(pricing, "is_active"),
-            notes=getattr(pricing, "notes"),
-            created_at=str(getattr(pricing, "created_at")),
+            id=pricing.id,
+            external_id=pricing.external_id,
+            provider=pricing.provider,
+            model=pricing.model,
+            version=pricing.version,
+            currency=pricing.currency,
+            effective_from=pricing.effective_from,
+            effective_to=pricing.effective_to,
+            prompt_token_price=str(pricing.prompt_token_price),
+            completion_token_price=str(pricing.completion_token_price),
+            cached_token_price=(str(v) if (v := pricing.cached_token_price) is not None else None),
+            audio_token_price=(str(v) if (v := pricing.audio_token_price) is not None else None),
+            image_price=(str(v) if (v := pricing.image_price) is not None else None),
+            embedding_price=(str(v) if (v := pricing.embedding_price) is not None else None),
+            is_active=pricing.is_active,
+            notes=pricing.notes,
+            created_at=str(pricing.created_at),
         )
 
 

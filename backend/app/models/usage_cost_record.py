@@ -136,8 +136,12 @@ class UsageCostRecord(BaseModel):
             name="uq_usage_cost_records_event",
         ),
         Index("ix_usage_cost_records_org_date", "organization_id", "usage_date"),
-        Index("ix_usage_cost_records_org_provider_date", "organization_id", "provider", "usage_date"),
-        Index("ix_usage_cost_records_org_project_date", "organization_id", "project_id", "usage_date"),
+        Index(
+            "ix_usage_cost_records_org_provider_date", "organization_id", "provider", "usage_date"
+        ),
+        Index(
+            "ix_usage_cost_records_org_project_date", "organization_id", "project_id", "usage_date"
+        ),
         Index("ix_usage_cost_records_org_model_date", "organization_id", "model", "usage_date"),
         Index("ix_usage_cost_records_pricing_id", "model_pricing_id"),
     )

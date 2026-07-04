@@ -37,9 +37,11 @@ class AlertRuleRepository(BaseRepository[AlertRule]):
         return list(result.scalars().all())
 
     async def list_for_org(self, organization_id: uuid.UUID) -> list[AlertRule]:
-        stmt = self._active_query().where(
-            AlertRule.organization_id == organization_id
-        ).order_by(AlertRule.created_at.desc())
+        stmt = (
+            self._active_query()
+            .where(AlertRule.organization_id == organization_id)
+            .order_by(AlertRule.created_at.desc())
+        )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
 
@@ -146,8 +148,10 @@ class AlertSuppressionRepository(BaseRepository[AlertSuppression]):
         return list(result.scalars().all())
 
     async def list_for_org(self, organization_id: uuid.UUID) -> list[AlertSuppression]:
-        stmt = self._active_query().where(
-            AlertSuppression.organization_id == organization_id
-        ).order_by(AlertSuppression.created_at.desc())
+        stmt = (
+            self._active_query()
+            .where(AlertSuppression.organization_id == organization_id)
+            .order_by(AlertSuppression.created_at.desc())
+        )
         result = await self._session.execute(stmt)
         return list(result.scalars().all())

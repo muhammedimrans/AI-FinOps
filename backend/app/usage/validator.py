@@ -81,6 +81,4 @@ class UsageEventValidator:
             if event.cached_tokens < 0:
                 raise UsageValidationError("cached_tokens must be >= 0", event)
             if event.cached_tokens > event.prompt_tokens:
-                raise UsageValidationError(
-                    "cached_tokens cannot exceed prompt_tokens", event
-                )
+                raise UsageValidationError("cached_tokens cannot exceed prompt_tokens", event)

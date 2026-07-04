@@ -27,10 +27,10 @@ export function useAlertsHistory(filters: AlertHistoryFilters = {}) {
     queryFn: () =>
       api.listAlerts({
         organizationId: organizationId!,
-        status: filters.status,
-        severity: filters.severity,
-        alertType: filters.alertType,
-        search: filters.search,
+        ...(filters.status !== undefined && { status: filters.status }),
+        ...(filters.severity !== undefined && { severity: filters.severity }),
+        ...(filters.alertType !== undefined && { alertType: filters.alertType }),
+        ...(filters.search !== undefined && { search: filters.search }),
         limit: 100,
       }),
     enabled: !!organizationId,

@@ -16,17 +16,17 @@ All tests are hermetic — no network calls, no real database.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pydantic import ValidationError
 
 # ── Import test subjects ───────────────────────────────────────────────────────
-
 from app.providers.models import NormalizedUsageEvent, UsagePage
+from app.usage.background import BackgroundCollectionFramework
 from app.usage.normalizer import (
     AnthropicUsageNormalizer,
     NormalizerRegistry,
@@ -102,7 +102,7 @@ class TestNormalizedUsageEvent:
 
     def test_immutable(self) -> None:
         event = _make_norm_event()
-        with pytest.raises(Exception):  # frozen model
+        with pytest.raises(ValidationError):  # frozen model
             event.provider = "anthropic"  # type: ignore[misc]
 
     def test_cached_tokens_optional(self) -> None:
@@ -126,7 +126,7 @@ class TestUsagePage:
 
     def test_immutable(self) -> None:
         page = UsagePage()
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             page.has_more = True  # type: ignore[misc]
 
 
@@ -409,9 +409,7 @@ class TestUsageEventValidator:
             self.validator.validate(event)
 
     def test_negative_total_tokens_fails(self) -> None:
-        event = _make_norm_event(
-            prompt_tokens=0, completion_tokens=0, total_tokens=-1
-        )
+        event = _make_norm_event(prompt_tokens=0, completion_tokens=0, total_tokens=-1)
         with pytest.raises(UsageValidationError, match="total_tokens"):
             self.validator.validate(event)
 
@@ -635,7 +633,7 @@ class TestUsageCollectionService:
         has_more: bool = False,
     ) -> tuple[Any, MagicMock, MagicMock, MagicMock, MagicMock]:
         """Build a service instance wired to mock repos and adapter."""
-        from app.models.usage_collection_run import CollectionRunStatus, UsageCollectionRun
+        from app.models.usage_collection_run import CollectionRunStatus
         from app.usage.service import UsageCollectionService
 
         # Create a mock adapter
@@ -648,9 +646,6 @@ class TestUsageCollectionService:
         # Patch ProviderFactory to return our mock adapter
         mock_factory = MagicMock()
         mock_factory.create.return_value = mock_adapter
-
-        # Patch _build_config
-        mock_config = MagicMock()
 
         # Mock repos
         mock_run_repo = AsyncMock()
@@ -665,8 +660,9 @@ class TestUsageCollectionService:
 
         mock_checkpoint_repo = AsyncMock()
         mock_checkpoint_repo.get_by_org_provider.return_value = None
-        from app.models.usage_collection_checkpoint import UsageCollectionCheckpoint
         from app.db.mixins import uuid7
+        from app.models.usage_collection_checkpoint import UsageCollectionCheckpoint
+
         chk = UsageCollectionCheckpoint()
         chk.id = uuid7()
         chk.organization_id = _ORG_ID
@@ -886,7 +882,7 @@ class TestUsageCollectionService:
                 ),
             ):
                 service = UsageCollectionService(session)
-                run = await service.collect(
+                await service.collect(
                     organization_id=_ORG_ID,
                     provider="openai",
                     start_date=_START,
@@ -910,14 +906,8 @@ class TestUsageCollectionService:
 
 class TestBackgroundCollectionFramework:
     def setup_method(self) -> None:
-        from app.usage.background import BackgroundCollectionFramework
-
-        global BackgroundCollectionFramework  # make available to test methods
-
         self.session_factory = MagicMock()
-        self.framework = BackgroundCollectionFramework(
-            self.session_factory, max_concurrent=2
-        )
+        self.framework = BackgroundCollectionFramework(self.session_factory, max_concurrent=2)
 
     def _make_session_factory(self) -> Any:
         mock_session = AsyncMock()
@@ -933,10 +923,10 @@ class TestBackgroundCollectionFramework:
         session_factory, _ = self._make_session_factory()
         framework = BackgroundCollectionFramework(session_factory, max_concurrent=2)
 
-        with patch("app.usage.service.UsageCollectionService") as MockService:
+        with patch("app.usage.service.UsageCollectionService") as mock_service_cls:
             mock_service = AsyncMock()
             mock_service.collect.return_value = _make_collection_run()
-            MockService.return_value = mock_service
+            mock_service_cls.return_value = mock_service
 
             task_id = await framework.submit(
                 organization_id=_ORG_ID,
@@ -968,11 +958,11 @@ class TestBackgroundCollectionFramework:
         session_factory, _ = self._make_session_factory()
         framework = BackgroundCollectionFramework(session_factory, max_concurrent=2)
 
-        with patch("app.usage.service.UsageCollectionService") as MockService:
+        with patch("app.usage.service.UsageCollectionService") as mock_service_cls:
             mock_service = AsyncMock()
             run = _make_collection_run()
             mock_service.collect.return_value = run
-            MockService.return_value = mock_service
+            mock_service_cls.return_value = mock_service
 
             task_id = await framework.submit(
                 organization_id=_ORG_ID,
@@ -991,10 +981,10 @@ class TestBackgroundCollectionFramework:
         session_factory, _ = self._make_session_factory()
         framework = BackgroundCollectionFramework(session_factory, max_concurrent=2)
 
-        with patch("app.usage.service.UsageCollectionService") as MockService:
+        with patch("app.usage.service.UsageCollectionService") as mock_service_cls:
             mock_service = AsyncMock()
             mock_service.collect.return_value = _make_collection_run()
-            MockService.return_value = mock_service
+            mock_service_cls.return_value = mock_service
 
             await framework.submit(
                 organization_id=_ORG_ID,
@@ -1021,7 +1011,7 @@ class TestBackgroundCollectionFramework:
 class TestUsageAPI:
     """API-level tests using the ASGI test client."""
 
-    _COLLECT_BODY: dict[str, Any] = {
+    _COLLECT_BODY: ClassVar[dict[str, Any]] = {
         "organization_id": str(_ORG_ID),
         "start_date": _START.isoformat(),
         "end_date": _END.isoformat(),
@@ -1073,9 +1063,7 @@ class TestUsageAPI:
 
     @pytest.mark.asyncio
     async def test_list_events_returns_501(self, auth_client: Any) -> None:
-        resp = await auth_client.get(
-            "/v1/usage/events", params={"organization_id": str(_ORG_ID)}
-        )
+        resp = await auth_client.get("/v1/usage/events", params={"organization_id": str(_ORG_ID)})
         assert resp.status_code == 501
         assert "EP-09" in resp.json()["detail"]
 
@@ -1090,9 +1078,7 @@ class TestUsageAPI:
 
     @pytest.mark.asyncio
     async def test_list_runs_returns_501(self, auth_client: Any) -> None:
-        resp = await auth_client.get(
-            "/v1/usage/runs", params={"organization_id": str(_ORG_ID)}
-        )
+        resp = await auth_client.get("/v1/usage/runs", params={"organization_id": str(_ORG_ID)})
         assert resp.status_code == 501
         assert "EP-09" in resp.json()["detail"]
 
@@ -1179,7 +1165,7 @@ class TestOpenAIAdapterGetUsage:
             display_name="OpenAI",
             api_key_ref=SecretReference(
                 secret_store=SecretStoreType.ENV,
-                secret_key="OPENAI_API_KEY",
+                lookup_key="OPENAI_API_KEY",
             ),
         )
         return OpenAIProvider(config)
@@ -1246,7 +1232,9 @@ class TestOpenAIAdapterGetUsage:
             await adapter.get_usage(_START, _END, cursor="page_2", limit=50)
 
         call_kwargs = mock_client.get.call_args
-        params = call_kwargs[1].get("params") or call_kwargs[0][1] if len(call_kwargs[0]) > 1 else {}
+        params = (
+            call_kwargs[1].get("params") or call_kwargs[0][1] if len(call_kwargs[0]) > 1 else {}
+        )
         if not params and call_kwargs[1]:
             params = call_kwargs[1].get("params", {})
 
@@ -1265,7 +1253,7 @@ class TestAnthropicAdapterGetUsage:
             display_name="Anthropic",
             api_key_ref=SecretReference(
                 secret_store=SecretStoreType.ENV,
-                secret_key="ANTHROPIC_API_KEY",
+                lookup_key="ANTHROPIC_API_KEY",
             ),
         )
         return AnthropicProvider(config)
@@ -1379,7 +1367,7 @@ class TestStubAdapterGetUsage:
             display_name="Azure OpenAI",
             api_key_ref=SecretReference(
                 secret_store=SecretStoreType.ENV,
-                secret_key="AZURE_OPENAI_API_KEY",
+                lookup_key="AZURE_OPENAI_API_KEY",
             ),
             azure_endpoint="https://example.openai.azure.com",
             azure_deployment="gpt-4o",
@@ -1399,7 +1387,7 @@ class TestStubAdapterGetUsage:
             display_name="Google",
             api_key_ref=SecretReference(
                 secret_store=SecretStoreType.ENV,
-                secret_key="GOOGLE_API_KEY",
+                lookup_key="GOOGLE_API_KEY",
             ),
         )
         adapter = GoogleProvider(config)

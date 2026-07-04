@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from typing import Any
 
 import structlog
 from redis.asyncio import Redis
@@ -32,7 +31,7 @@ class AppContainer:
     settings: Settings
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
-    redis: Redis[Any]
+    redis: Redis
     event_bus: EventBus
     connection_manager: ConnectionManager
     realtime_rate_limiter: ConnectionRateLimiter

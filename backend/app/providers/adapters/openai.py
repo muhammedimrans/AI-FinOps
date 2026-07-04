@@ -33,10 +33,8 @@ from app.providers.models import (
     HealthStatus,
     ModelCapabilityFlag,
     ModelMetadata,
-    NormalizedUsageEvent,
     ProviderRequest,
     ProviderResponse,
-    UsageData,
     UsagePage,
 )
 

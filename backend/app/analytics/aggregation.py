@@ -57,14 +57,22 @@ class AggregationService:
                 UsageCostRecord.provider,
                 UsageCostRecord.model,
                 UsageCostRecord.currency,
-                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.sum(UsageCostRecord.cached_tokens).label("total_cached_tokens"),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
                 func.count(UsageCostRecord.id).label("total_requests"),
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
-                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label(
+                    "total_prompt_cost"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label(
+                    "total_completion_cost"
+                ),
                 func.sum(UsageCostRecord.cached_cost).label("total_cached_cost"),
                 func.count(UsageCostRecord.id).label("event_count"),
             )

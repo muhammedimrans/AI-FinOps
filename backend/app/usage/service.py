@@ -24,13 +24,16 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 import structlog
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.provider_usage_summary import ProviderUsageSummary
-from app.models.usage_collection_checkpoint import UsageCollectionCheckpoint
-from app.models.usage_collection_run import CollectionRunStatus, CollectionTrigger, UsageCollectionRun
+from app.models.usage_collection_run import (
+    CollectionRunStatus,
+    CollectionTrigger,
+    UsageCollectionRun,
+)
 from app.models.usage_event import UsageEvent
 from app.providers.config import (
     AnthropicConfig,
@@ -38,11 +41,13 @@ from app.providers.config import (
     SecretReference,
     SecretStoreType,
 )
-from app.providers.errors import ProviderError
 from app.providers.factory import ProviderFactory
 from app.providers.models import NormalizedUsageEvent, UsagePage
-from app.providers.registry import get_registry
+from app.providers.registry import ProviderRegistry, get_registry
 from app.usage.validator import UsageEventValidator, UsageValidationError
+
+if TYPE_CHECKING:
+    from app.repositories.usage_event_repository import UsageEventRepository
 
 log = structlog.get_logger(__name__)
 
@@ -59,7 +64,7 @@ def _build_config(provider: str) -> OpenAIConfig | AnthropicConfig:
                 display_name="OpenAI",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="OPENAI_API_KEY",
+                    lookup_key="OPENAI_API_KEY",
                 ),
             )
         case "anthropic":
@@ -68,7 +73,7 @@ def _build_config(provider: str) -> OpenAIConfig | AnthropicConfig:
                 display_name="Anthropic",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="ANTHROPIC_API_KEY",
+                    lookup_key="ANTHROPIC_API_KEY",
                 ),
             )
         case _:
@@ -95,9 +100,9 @@ class UsageCollectionService:
 
     def __init__(
         self,
-        session: Any,
+        session: AsyncSession,
         *,
-        registry: Any | None = None,
+        registry: ProviderRegistry | None = None,
         page_limit: int = 100,
     ) -> None:
         self._session = session
@@ -259,7 +264,7 @@ class UsageCollectionService:
         project_id: uuid.UUID | None,
         provider_connection_id: uuid.UUID | None,
         collection_run_id: uuid.UUID,
-        event_repo: Any,
+        event_repo: UsageEventRepository,
     ) -> tuple[int, int]:
         """Validate and upsert a page of events.
 
@@ -292,11 +297,11 @@ class UsageCollectionService:
 
             # Best-effort cost attribution — pricing may not exist for all models
             try:
+                from app.db.mixins import uuid7 as _uuid7
+                from app.models.usage_cost_record import UsageCostRecord as UsageCostRecordModel
                 from app.pricing.engine import PricingEngine, PricingNotFoundError
                 from app.repositories.model_pricing_repository import ModelPricingRepository
                 from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
-                from app.models.usage_cost_record import UsageCostRecord as UsageCostRecordModel
-                from app.db.mixins import uuid7 as _uuid7
 
                 pricing_repo = ModelPricingRepository(self._session)
                 cost_repo = UsageCostRecordRepository(self._session)

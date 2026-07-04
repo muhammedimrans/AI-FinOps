@@ -43,9 +43,7 @@ class UsageCollectionCheckpointRepository(BaseRepository[UsageCollectionCheckpoi
                 UsageCollectionCheckpoint.provider_connection_id == provider_connection_id
             )
         else:
-            filters.append(
-                UsageCollectionCheckpoint.provider_connection_id.is_(None)
-            )
+            filters.append(UsageCollectionCheckpoint.provider_connection_id.is_(None))
 
         stmt = self._active_query().where(and_(*filters))
         result = await self._session.execute(stmt)

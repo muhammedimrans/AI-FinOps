@@ -168,9 +168,7 @@ class TestEventBus:
         org_id = uuid.uuid4()
         e1, e2, e3 = _event(org_id), _event(org_id), _event(org_id)
         redis = AsyncMock()
-        redis.lrange.return_value = [
-            e.model_dump_json().encode() for e in (e1, e2, e3)
-        ]
+        redis.lrange.return_value = [e.model_dump_json().encode() for e in (e1, e2, e3)]
         bus = EventBus(redis)
 
         result = await bus.replay_since(org_id, e1.event_id)
@@ -595,9 +593,12 @@ class TestAuthenticateRealtimeConnectionJwt:
             org_id=self.org.id, user_email=self.user.email, role=MembershipRole.MEMBER
         )
         p_session, p_user, p_org, p_membership = self._patch_repos()
-        with p_session as mock_session_repo, p_user as mock_user_repo, p_org as mock_org_repo, (
-            p_membership
-        ) as mock_membership_repo:
+        with (
+            p_session as mock_session_repo,
+            p_user as mock_user_repo,
+            p_org as mock_org_repo,
+            p_membership as mock_membership_repo,
+        ):
             mock_session_repo.return_value.get_active = AsyncMock(return_value=object())
             mock_user_repo.return_value.get = AsyncMock(return_value=self.user)
             mock_org_repo.return_value.get = AsyncMock(return_value=self.org)
@@ -658,9 +659,12 @@ class TestAuthenticateRealtimeConnectionJwt:
 
     async def test_not_a_member_rejected(self) -> None:
         p_session, p_user, p_org, p_membership = self._patch_repos()
-        with p_session as mock_session_repo, p_user as mock_user_repo, p_org as mock_org_repo, (
-            p_membership
-        ) as mock_membership_repo:
+        with (
+            p_session as mock_session_repo,
+            p_user as mock_user_repo,
+            p_org as mock_org_repo,
+            p_membership as mock_membership_repo,
+        ):
             mock_session_repo.return_value.get_active = AsyncMock(return_value=object())
             mock_user_repo.return_value.get = AsyncMock(return_value=self.user)
             mock_org_repo.return_value.get = AsyncMock(return_value=self.org)
@@ -677,8 +681,11 @@ class TestAuthenticateRealtimeConnectionJwt:
     async def test_suspended_organization_rejected(self) -> None:
         suspended_org = make_org(status=OrganizationStatus.SUSPENDED)
         p_session, p_user, p_org, p_membership = self._patch_repos()
-        with p_session as mock_session_repo, p_user as mock_user_repo, p_org as mock_org_repo, (
-            p_membership
+        with (
+            p_session as mock_session_repo,
+            p_user as mock_user_repo,
+            p_org as mock_org_repo,
+            p_membership,
         ):
             mock_session_repo.return_value.get_active = AsyncMock(return_value=object())
             mock_user_repo.return_value.get = AsyncMock(return_value=self.user)
@@ -694,8 +701,11 @@ class TestAuthenticateRealtimeConnectionJwt:
 
     async def test_organization_not_found_rejected(self) -> None:
         p_session, p_user, p_org, p_membership = self._patch_repos()
-        with p_session as mock_session_repo, p_user as mock_user_repo, p_org as mock_org_repo, (
-            p_membership
+        with (
+            p_session as mock_session_repo,
+            p_user as mock_user_repo,
+            p_org as mock_org_repo,
+            p_membership,
         ):
             mock_session_repo.return_value.get_active = AsyncMock(return_value=object())
             mock_user_repo.return_value.get = AsyncMock(return_value=self.user)
@@ -710,9 +720,7 @@ class TestAuthenticateRealtimeConnectionJwt:
         assert exc_info.value.reason == RealtimeAuthErrorReason.ORGANIZATION_NOT_FOUND
 
     async def test_expired_token_rejected(self) -> None:
-        with patch(
-            "app.realtime.auth.decode_access_token", side_effect=ExpiredSignatureError()
-        ):
+        with patch("app.realtime.auth.decode_access_token", side_effect=ExpiredSignatureError()):
             with pytest.raises(RealtimeAuthError) as exc_info:
                 await authenticate_realtime_connection(
                     session_factory=_FakeSessionFactory(AsyncMock()),
@@ -739,9 +747,12 @@ class TestAuthenticateRealtimeConnectionJwt:
             org_id=self.org.id, user_email=self.user.email, role=MembershipRole.MEMBER
         )
         p_session, p_user, p_org, p_membership = self._patch_repos()
-        with p_session as mock_session_repo, p_user as mock_user_repo, p_org as mock_org_repo, (
-            p_membership
-        ) as mock_membership_repo:
+        with (
+            p_session as mock_session_repo,
+            p_user as mock_user_repo,
+            p_org as mock_org_repo,
+            p_membership as mock_membership_repo,
+        ):
             mock_session_repo.return_value.get_active = AsyncMock(return_value=object())
             mock_user_repo.return_value.get = AsyncMock(return_value=self.user)
             mock_org_repo.return_value.get = AsyncMock(return_value=self.org)
@@ -801,8 +812,9 @@ class TestWebSocketGateway:
             AsyncMock(return_value=principal),
         ):
             client = TestClient(app)
-            with client.websocket_connect("/v1/ws?token=whatever&organization_id="
-                                           f"{org_id}") as ws:
+            with client.websocket_connect(
+                "/v1/ws?token=whatever&organization_id=" f"{org_id}"
+            ) as ws:
                 assert container.connection_manager.connection_count(org_id) == 1
                 container.connection_manager.dispatch(org_id, _event(org_id))
                 message = ws.receive_text()
@@ -817,11 +829,7 @@ class TestWebSocketGateway:
 
         with patch(
             "app.api.v1.realtime.authenticate_realtime_connection",
-            AsyncMock(
-                side_effect=RealtimeAuthError(
-                    RealtimeAuthErrorReason.INVALID_TOKEN, "nope"
-                )
-            ),
+            AsyncMock(side_effect=RealtimeAuthError(RealtimeAuthErrorReason.INVALID_TOKEN, "nope")),
         ):
             client = TestClient(app)
             from starlette.websockets import WebSocketDisconnect
@@ -887,9 +895,7 @@ class TestSSEEndpoint:
                 "app.api.v1.realtime.authenticate_realtime_connection",
                 AsyncMock(return_value=principal),
             ),
-            patch.object(
-                container.event_bus, "replay_since", AsyncMock(return_value=[replayed])
-            ),
+            patch.object(container.event_bus, "replay_since", AsyncMock(return_value=[replayed])),
         ):
             transport = ASGITransport(app=app)
             async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -914,9 +920,7 @@ class TestSSEEndpoint:
         with patch(
             "app.api.v1.realtime.authenticate_realtime_connection",
             AsyncMock(
-                side_effect=RealtimeAuthError(
-                    RealtimeAuthErrorReason.MISSING_TOKEN, "no token"
-                )
+                side_effect=RealtimeAuthError(RealtimeAuthErrorReason.MISSING_TOKEN, "no token")
             ),
         ):
             transport = ASGITransport(app=app)

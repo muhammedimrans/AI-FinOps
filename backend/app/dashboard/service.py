@@ -4,19 +4,24 @@ Thin orchestration layer that composes responses from existing analytics
 services and repositories. Contains no business logic — all calculations
 are delegated to AnalyticsService and repositories.
 """
+
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, UTC
+from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    pass
+    from app.analytics.service import AnalyticsService
+    from app.repositories.usage_collection_run_repository import (
+        UsageCollectionRunRepository,
+    )
+    from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
 
 log = structlog.get_logger(__name__)
 
@@ -36,22 +41,22 @@ class DashboardService:
 
     # ── Internal helpers ────────────────────────────────────────────────────────
 
-    def _make_analytics_service(self):  # type: ignore[return]
+    def _make_analytics_service(self) -> AnalyticsService:
         from app.analytics.service import AnalyticsService
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
         from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
 
         return AnalyticsService(
             cost_record_repo=UsageCostRecordRepository(self._session),
             daily_summary_repo=DailyCostSummaryRepository(self._session),
         )
 
-    def _cost_repo(self):  # type: ignore[return]
+    def _cost_repo(self) -> UsageCostRecordRepository:
         from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
 
         return UsageCostRecordRepository(self._session)
 
-    def _run_repo(self):  # type: ignore[return]
+    def _run_repo(self) -> UsageCollectionRunRepository:
         from app.repositories.usage_collection_run_repository import UsageCollectionRunRepository
 
         return UsageCollectionRunRepository(self._session)
@@ -62,7 +67,7 @@ class DashboardService:
         self,
         organization_id: uuid.UUID,
         today: date | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Compose executive dashboard summary from cost and collection data."""
         if today is None:
             today = datetime.now(tz=UTC).date()
@@ -112,7 +117,6 @@ class DashboardService:
         active_models = len({(r["provider"], r["model"]) for r in model_rows})
 
         # Latest collection run
-        run_repo = self._run_repo()
         from app.models.usage_collection_run import UsageCollectionRun
 
         stmt = (
@@ -161,7 +165,7 @@ class DashboardService:
         start_date: date,
         end_date: date,
         granularity: str = "daily",
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Return time-bucketed cost data.
 
         Daily: raw rows from get_daily_trend.
@@ -184,7 +188,7 @@ class DashboardService:
             ]
 
         if granularity == "weekly":
-            buckets: dict[str, dict] = {}
+            buckets: dict[str, dict[str, Any]] = {}
             for r in daily_rows:
                 iso = r["usage_date"].isocalendar()
                 key = f"{iso.year}-W{iso.week:02d}"
@@ -202,7 +206,7 @@ class DashboardService:
             return list(buckets.values())
 
         if granularity == "monthly":
-            mbuckets: dict[str, dict] = {}
+            mbuckets: dict[str, dict[str, Any]] = {}
             for r in daily_rows:
                 d = r["usage_date"]
                 key = f"{d.year}-{d.month:02d}"
@@ -239,7 +243,7 @@ class DashboardService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-provider cost and token breakdown."""
         svc = self._make_analytics_service()
         rows = await svc.get_provider_breakdown(organization_id, start_date, end_date)
@@ -268,7 +272,7 @@ class DashboardService:
         start_date: date,
         end_date: date,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-model cost and token breakdown, sorted by total_cost desc."""
         svc = self._make_analytics_service()
         rows = await svc.get_top_models(organization_id, start_date, end_date, limit=limit)
@@ -297,7 +301,7 @@ class DashboardService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-project cost and token breakdown."""
         svc = self._make_analytics_service()
         rows = await svc.get_project_breakdown(organization_id, start_date, end_date)
@@ -319,7 +323,7 @@ class DashboardService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Derive KPIs from cost data: highest-cost provider/model, avg costs."""
         svc = self._make_analytics_service()
 

@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from typing import cast
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import Table, and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.daily_cost_summary import DailyCostSummary
@@ -50,7 +51,10 @@ class DailyCostSummaryRepository(BaseRepository[DailyCostSummary]):
             "event_count": summary.event_count,
         }
 
-        stmt = pg_insert(DailyCostSummary.__table__).values(**values)
+        # __table__ is typed as the broader FromClause by SQLAlchemy's
+        # declarative base but is always a concrete Table at runtime for this
+        # model; cast so pg_insert() sees the narrower type it requires.
+        stmt = pg_insert(cast("Table", DailyCostSummary.__table__)).values(**values)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_daily_cost_summaries",
             set_={

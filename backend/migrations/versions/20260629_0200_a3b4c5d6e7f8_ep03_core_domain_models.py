@@ -70,7 +70,7 @@ def upgrade() -> None:
         sa.Column("billing_email", sa.String(320), nullable=True),
         sa.Column(
             "status",
-            sa.Enum("active", "suspended", "archived", name="organization_status", create_type=False),
+            _org_status,
             nullable=False,
             server_default="active",
         ),
@@ -104,7 +104,7 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column(
             "environment",
-            sa.Enum("development", "staging", "production", name="project_environment", create_type=False),
+            _proj_env,
             nullable=False,
             server_default="production",
         ),
@@ -143,7 +143,7 @@ def upgrade() -> None:
         sa.Column("user_email", sa.String(320), nullable=False),
         sa.Column(
             "role",
-            sa.Enum("owner", "admin", "member", "viewer", name="membership_role", create_type=False),
+            _mem_role,
             nullable=False,
         ),
         sa.Column(
@@ -184,11 +184,7 @@ def upgrade() -> None:
         sa.Column("display_name", sa.String(255), nullable=False),
         sa.Column(
             "provider_type",
-            sa.Enum(
-                "openai", "anthropic", "grok", "google", "azure_openai", "openrouter", "ollama",
-                name="provider_type",
-                create_type=False,
-            ),
+            _prov_type,
             nullable=False,
         ),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),

@@ -96,9 +96,7 @@ class PricingValidator:
             errors.append("embedding_price must be >= 0 if provided")
 
         if errors:
-            raise PricingValidationError(
-                f"Pricing validation failed: {'; '.join(errors)}"
-            )
+            raise PricingValidationError(f"Pricing validation failed: {'; '.join(errors)}")
 
         log.debug(
             "pricing_validated",

@@ -76,7 +76,5 @@ class UsageCollectionRunRepository(BaseRepository[UsageCollectionRun]):
         organization_id: uuid.UUID,
         provider: str,
     ) -> UsageCollectionRun | None:
-        page = await self.list_by_provider(
-            organization_id, provider, limit=1, order="desc"
-        )
+        page = await self.list_by_provider(organization_id, provider, limit=1, order="desc")
         return page.items[0] if page.items else None

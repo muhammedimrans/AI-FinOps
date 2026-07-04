@@ -8,7 +8,7 @@ Covers (without a live database):
   - RBAC permission model: role → permission mapping (F-021)
   - Auth exception hierarchy (F-017)
   - Auth request/response schemas (F-017)
-  - AuthService method signatures via mocked repositories (F-017–F-019)
+  - AuthService method signatures via mocked repositories (F-017-F-019)
   - get_current_user dependency: JWT validation paths (F-022)
   - Auth API endpoints: login, logout, refresh, verify-email,
     request-password-reset, reset-password (F-017)

@@ -54,22 +54,26 @@ _ALERT_TYPE = postgresql.ENUM(
     "usage_ingestion_failure",
     "webhook_delivery_failure",
     name="alert_type",
+    create_type=False,
 )
 _ALERT_SEVERITY = postgresql.ENUM(
-    "info", "low", "medium", "high", "critical", name="alert_severity"
+    "info", "low", "medium", "high", "critical", name="alert_severity", create_type=False
 )
 _ALERT_SEVERITY_PREF = postgresql.ENUM(
-    "info", "low", "medium", "high", "critical", name="alert_severity_pref"
+    "info", "low", "medium", "high", "critical", name="alert_severity_pref", create_type=False
 )
 _ALERT_STATUS = postgresql.ENUM(
-    "open", "acknowledged", "resolved", "dismissed", name="alert_status"
+    "open", "acknowledged", "resolved", "dismissed", name="alert_status", create_type=False
 )
-_ALERT_OPERATOR = postgresql.ENUM("gt", "lt", "eq", "gte", "lte", name="alert_operator")
+_ALERT_OPERATOR = postgresql.ENUM(
+    "gt", "lt", "eq", "gte", "lte", name="alert_operator", create_type=False
+)
 _SUPPRESSION_SCOPE = postgresql.ENUM(
-    "organization", "provider", "alert_type", name="suppression_scope"
+    "organization", "provider", "alert_type", name="suppression_scope", create_type=False
 )
 _PROVIDER_HEALTH_STATUS = postgresql.ENUM(
-    "unknown", "healthy", "warning", "critical", "recovering", name="provider_health_status"
+    "unknown", "healthy", "warning", "critical", "recovering",
+    name="provider_health_status", create_type=False,
 )
 
 

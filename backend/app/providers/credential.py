@@ -34,10 +34,10 @@ class SecretResolver:
     def resolve(ref: SecretReference, *, provider_type: str) -> str:
         """Return the secret value for *ref* or raise AuthenticationError."""
         if ref.secret_store == SecretStoreType.ENV:
-            value = os.environ.get(ref.secret_key, "")
+            value = os.environ.get(ref.lookup_key, "")
             if not value:
                 raise AuthenticationError(
-                    f"Environment variable {ref.secret_key!r} is not set or empty. "
+                    f"Environment variable {ref.lookup_key!r} is not set or empty. "
                     f"Set it before connecting to the {provider_type} provider.",
                     provider_type=provider_type,
                 )

@@ -69,15 +69,11 @@ describe("useAlerts", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     useNotificationStore.setState({ readIds: {}, dismissedIds: {} });
-    mockedApi.getProjects.mockResolvedValue({ projects: [] });
+    mockedApi.getProjects.mockResolvedValue({ projects: [], currency: "USD" });
     mockedApi.getTimeSeries.mockResolvedValue({
       granularity: "daily",
-      start_date: "2026-06-01",
-      end_date: "2026-06-30",
-      points: [],
-      total_cost: "0",
-      total_tokens: 0,
-      total_requests: 0,
+      currency: "USD",
+      data: [],
     });
     useRealtimeStore.setState({
       recentActivity: [],
@@ -109,11 +105,17 @@ describe("useAlerts", () => {
         {
           project_id: "proj_1",
           project_name: "Prod",
+          team: "platform",
           total_cost: "150",
           budget: "100",
           budget_utilization_pct: 150,
+          request_count: 0,
+          top_models: [],
+          cost_trend: 0,
+          trend_data: [],
         },
       ],
+      currency: "USD",
     });
     renderHarness();
     expect(await screen.findByText(/over budget/i)).toBeInTheDocument();

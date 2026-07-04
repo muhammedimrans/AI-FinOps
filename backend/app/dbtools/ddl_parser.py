@@ -37,9 +37,7 @@ _DROP_INDEX_RE = re.compile(r"^DROP INDEX\s+(\w+)", re.IGNORECASE)
 _ALTER_ADD_COLUMN_RE = re.compile(
     r"^ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)\s+(.*)$", re.IGNORECASE | re.DOTALL
 )
-_ALTER_DROP_COLUMN_RE = re.compile(
-    r"^ALTER TABLE\s+(\w+)\s+DROP COLUMN\s+(\w+)", re.IGNORECASE
-)
+_ALTER_DROP_COLUMN_RE = re.compile(r"^ALTER TABLE\s+(\w+)\s+DROP COLUMN\s+(\w+)", re.IGNORECASE)
 _ALTER_ADD_CONSTRAINT_RE = re.compile(
     r"^ALTER TABLE\s+(\w+)\s+ADD CONSTRAINT\s+(\w+)\s+(.*)$", re.IGNORECASE | re.DOTALL
 )
@@ -113,8 +111,10 @@ def _parse_create_table_body(table: str, body: str) -> TableSchema:
         elif upper.startswith("CONSTRAINT "):
             name = piece.split(None, 2)[1]
             constraints.add(name)
-        elif upper.startswith("FOREIGN KEY") or upper.startswith("UNIQUE") or upper.startswith(
-            "CHECK"
+        elif (
+            upper.startswith("FOREIGN KEY")
+            or upper.startswith("UNIQUE")
+            or upper.startswith("CHECK")
         ):
             # Anonymous constraint — this project always names its
             # constraints explicitly, so this branch exists for
@@ -187,11 +187,11 @@ def parse_ddl(sql: str) -> tuple[SchemaSnapshot, list[str]]:
 
         if m := _ALTER_DROP_COLUMN_RE.match(stmt):
             table_name, col_name = m.group(1), m.group(2)
-            t = tables.get(table_name)
-            if t and col_name in t.columns:
-                new_cols = dict(t.columns)
+            existing_t = tables.get(table_name)
+            if existing_t and col_name in existing_t.columns:
+                new_cols = dict(existing_t.columns)
                 del new_cols[col_name]
-                tables[table_name] = replace(t, columns=new_cols)
+                tables[table_name] = replace(existing_t, columns=new_cols)
             continue
 
         if m := _ALTER_ADD_CONSTRAINT_RE.match(stmt):
@@ -202,11 +202,11 @@ def parse_ddl(sql: str) -> tuple[SchemaSnapshot, list[str]]:
 
         if m := _ALTER_SET_NOT_NULL_RE.match(stmt):
             table_name, col_name = m.group(1), m.group(2)
-            t = tables.get(table_name)
-            if t and col_name in t.columns:
-                new_cols = dict(t.columns)
+            existing_t = tables.get(table_name)
+            if existing_t and col_name in existing_t.columns:
+                new_cols = dict(existing_t.columns)
                 new_cols[col_name] = replace(new_cols[col_name], nullable=False)
-                tables[table_name] = replace(t, columns=new_cols)
+                tables[table_name] = replace(existing_t, columns=new_cols)
             continue
 
         if m := _DROP_TABLE_RE.match(stmt):

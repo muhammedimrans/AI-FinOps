@@ -113,9 +113,7 @@ async def ingest_usage(
     body: IngestUsageRequest,
     db: DbDep,
     event_bus: EventBusDep,
-    current_api_key: Annotated[
-        ApiKeyAuthContext, RequireApiKeyPermission(Permission.USAGE_WRITE)
-    ],
+    current_api_key: Annotated[ApiKeyAuthContext, RequireApiKeyPermission(Permission.USAGE_WRITE)],
 ) -> IngestUsageResponse:
     start = time.monotonic()
     service = UsageIngestionService(db)

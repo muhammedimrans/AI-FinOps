@@ -56,9 +56,7 @@ class Recommendation:
     summary: str
 
 
-def scan_revisions(
-    live: SchemaSnapshot, config: Config | None = None
-) -> list[RevisionScan]:
+def scan_revisions(live: SchemaSnapshot, config: Config | None = None) -> list[RevisionScan]:
     """Diff `live` against every revision in the chain. A revision whose
     migrations use DDL this parser doesn't recognize is reported with
     `error` set rather than silently skipped or guessed at."""

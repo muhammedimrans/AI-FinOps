@@ -100,9 +100,7 @@ class RealtimePrincipal:
     organization_id: uuid.UUID
 
 
-def extract_token(
-    *, authorization_header: str | None, query_token: str | None
-) -> str:
+def extract_token(*, authorization_header: str | None, query_token: str | None) -> str:
     if authorization_header:
         scheme, _, value = authorization_header.partition(" ")
         value = value.strip()
@@ -126,13 +124,9 @@ async def _authenticate_api_key(
     try:
         context: ApiKeyAuthContext = await ApiKeyAuthService(db).authenticate(token)
     except InvalidApiKeyError as exc:
-        raise RealtimeAuthError(
-            RealtimeAuthErrorReason.INVALID_TOKEN, "Invalid API Key"
-        ) from exc
+        raise RealtimeAuthError(RealtimeAuthErrorReason.INVALID_TOKEN, "Invalid API Key") from exc
     except ApiKeyExpiredError as exc:
-        raise RealtimeAuthError(
-            RealtimeAuthErrorReason.EXPIRED_TOKEN, "API Key expired"
-        ) from exc
+        raise RealtimeAuthError(RealtimeAuthErrorReason.EXPIRED_TOKEN, "API Key expired") from exc
     except OrganizationSuspendedError as exc:
         raise RealtimeAuthError(
             RealtimeAuthErrorReason.ORGANIZATION_INACTIVE, "Organization suspended"
@@ -167,13 +161,9 @@ async def _authenticate_jwt(
     try:
         claims = decode_access_token(token, settings=settings)
     except ExpiredSignatureError as exc:
-        raise RealtimeAuthError(
-            RealtimeAuthErrorReason.EXPIRED_TOKEN, "Token expired"
-        ) from exc
+        raise RealtimeAuthError(RealtimeAuthErrorReason.EXPIRED_TOKEN, "Token expired") from exc
     except (DecodeError, InvalidTokenError) as exc:
-        raise RealtimeAuthError(
-            RealtimeAuthErrorReason.INVALID_TOKEN, "Invalid token"
-        ) from exc
+        raise RealtimeAuthError(RealtimeAuthErrorReason.INVALID_TOKEN, "Invalid token") from exc
 
     user_id_str = claims.get("sub")
     session_id_str = claims.get("jti")
@@ -189,9 +179,7 @@ async def _authenticate_jwt(
 
     db_session = await SessionRepository(db).get_active(session_id)
     if db_session is None:
-        raise RealtimeAuthError(
-            RealtimeAuthErrorReason.INVALID_TOKEN, "Session has been revoked"
-        )
+        raise RealtimeAuthError(RealtimeAuthErrorReason.INVALID_TOKEN, "Session has been revoked")
 
     user = await UserRepository(db).get(user_id)
     if user is None:

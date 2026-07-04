@@ -61,18 +61,25 @@ def _inspect_tables(conn: Connection) -> dict[str, TableSchema]:
             for col in inspector.get_columns(table_name, schema="public")
         }
 
-        index_names = {idx["name"] for idx in inspector.get_indexes(table_name, schema="public")}
+        index_names = {
+            idx["name"]
+            for idx in inspector.get_indexes(table_name, schema="public")
+            if idx["name"] is not None
+        }
 
         constraint_names: set[str] = set()
         pk = inspector.get_pk_constraint(table_name, schema="public")
-        if pk.get("name"):
-            constraint_names.add(pk["name"])
+        pk_name = pk.get("name")
+        if pk_name:
+            constraint_names.add(pk_name)
         for uc in inspector.get_unique_constraints(table_name, schema="public"):
-            if uc.get("name"):
-                constraint_names.add(uc["name"])
+            uc_name = uc.get("name")
+            if uc_name:
+                constraint_names.add(uc_name)
         for fk in inspector.get_foreign_keys(table_name, schema="public"):
-            if fk.get("name"):
-                constraint_names.add(fk["name"])
+            fk_name = fk.get("name")
+            if fk_name:
+                constraint_names.add(fk_name)
 
         tables[table_name] = TableSchema(
             name=table_name,

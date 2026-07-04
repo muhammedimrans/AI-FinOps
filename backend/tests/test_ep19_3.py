@@ -235,9 +235,7 @@ class TestSuppression:
     @pytest.mark.asyncio
     async def test_no_suppressions_active(self) -> None:
         session = AsyncMock()
-        with patch(
-            "app.alerts.suppression.AlertSuppressionRepository"
-        ) as repo_cls:
+        with patch("app.alerts.suppression.AlertSuppressionRepository") as repo_cls:
             repo_cls.return_value.list_active = AsyncMock(return_value=[])
             result = await is_suppressed(
                 session, organization_id=_ORG_ID, alert_type=AlertType.PROVIDER_ERROR, provider=None
@@ -613,9 +611,7 @@ class TestAlertsApiLifecycle:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership_owner
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            with (
-                patch("app.api.v1.alerts.AlertRepository") as repo_cls,
-            ):
+            with (patch("app.api.v1.alerts.AlertRepository") as repo_cls,):
                 repo_cls.return_value.get = AsyncMock(return_value=alert)
 
                 async def _update(instance: Alert, **kwargs: Any) -> Alert:
@@ -876,9 +872,7 @@ class TestAlertsApiLifecycle:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership_owner
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/alerts",
                     params={"organization_id": str(_ORG_ID), "status": "not-a-real-status"},

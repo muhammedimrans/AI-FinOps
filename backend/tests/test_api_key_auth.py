@@ -376,9 +376,7 @@ def _patch_key_lookup(key: Any, org: Any) -> Any:
                 update_last_used=AsyncMock(side_effect=lambda k: k),
             )
         ),
-        OrganizationRepository=MagicMock(
-            return_value=MagicMock(get=AsyncMock(return_value=org))
-        ),
+        OrganizationRepository=MagicMock(return_value=MagicMock(get=AsyncMock(return_value=org))),
     )
 
 
@@ -396,9 +394,7 @@ class TestListApiKeysViaApiKeyAuth:
     @pytest.mark.asyncio
     async def test_valid_key_with_permission_succeeds(self, app: Any) -> None:
         _no_jwt_overrides(app)
-        key = make_api_key(
-            org_id=_ORG_ID, key_hash=_hash(_RAW_KEY), permissions=["api_key:read"]
-        )
+        key = make_api_key(org_id=_ORG_ID, key_hash=_hash(_RAW_KEY), permissions=["api_key:read"])
         org = _active_org()
         try:
             with (
@@ -543,9 +539,7 @@ class TestListApiKeysViaApiKeyAuth:
     async def test_malformed_header_is_401(self, app: Any) -> None:
         _no_jwt_overrides(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     f"/v1/organizations/{_ORG_ID}/api-keys",
                     headers={"Authorization": "NotBearer costorah_live_x"},
@@ -561,9 +555,7 @@ class TestListApiKeysViaApiKeyAuth:
     async def test_empty_bearer_token_is_401(self, app: Any) -> None:
         _no_jwt_overrides(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     f"/v1/organizations/{_ORG_ID}/api-keys",
                     headers={"Authorization": "Bearer "},
@@ -576,9 +568,7 @@ class TestListApiKeysViaApiKeyAuth:
     async def test_missing_header_falls_back_and_is_rejected(self, app: Any) -> None:
         _no_jwt_overrides(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(f"/v1/organizations/{_ORG_ID}/api-keys")
             assert resp.status_code == 401
         finally:
@@ -587,9 +577,7 @@ class TestListApiKeysViaApiKeyAuth:
     @pytest.mark.asyncio
     async def test_response_never_contains_hash_or_raw_key(self, app: Any) -> None:
         _no_jwt_overrides(app)
-        key = make_api_key(
-            org_id=_ORG_ID, key_hash=_hash(_RAW_KEY), permissions=["api_key:read"]
-        )
+        key = make_api_key(org_id=_ORG_ID, key_hash=_hash(_RAW_KEY), permissions=["api_key:read"])
         org = _active_org()
         try:
             with (

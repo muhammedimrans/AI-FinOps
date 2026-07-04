@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
@@ -14,8 +15,11 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
-    UsageData,
 )
+
+if TYPE_CHECKING:
+    from app.providers.info import ProviderInfo
+    from app.providers.models import UsagePage
 
 _CAPABILITIES = ProviderCapabilities(
     supports_streaming=True,
@@ -126,6 +130,7 @@ class AzureOpenAIProvider(AIProvider):
         limit: int = 100,
     ) -> UsagePage:
         from app.providers.models import UsagePage
+
         return UsagePage()
 
     def get_provider_info(self, health: HealthStatus | None = None) -> ProviderInfo:

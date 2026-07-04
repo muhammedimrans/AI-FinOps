@@ -106,9 +106,7 @@ class TestEnsureOrgMembership:
             OrganizationRepository=MagicMock(return_value=org_repo),
             MembershipRepository=MagicMock(return_value=mem_repo),
         ):
-            await ensure_org_membership(
-                AsyncMock(), user=_user("alice@corp.com"), org_id=_ORG_ID
-            )
+            await ensure_org_membership(AsyncMock(), user=_user("alice@corp.com"), org_id=_ORG_ID)
         mem_repo.get_by_org_and_email.assert_awaited_once_with(
             org_id=_ORG_ID, user_email="alice@corp.com"
         )
@@ -182,8 +180,13 @@ class TestAccessTokenRevocation:
 
         now = int(_time.time())
         token = pyjwt.encode(
-            {"sub": str(uuid.uuid4()), "email": "x@x.com", "iat": now,
-             "exp": now + 300, "type": "access"},
+            {
+                "sub": str(uuid.uuid4()),
+                "email": "x@x.com",
+                "iat": now,
+                "exp": now + 300,
+                "type": "access",
+            },
             settings.jwt_secret.get_secret_value(),
             algorithm="HS256",
         )
@@ -212,9 +215,7 @@ class TestDashboardOrgScoping:
     @pytest.mark.asyncio
     async def test_overview_unauthenticated_is_401(self, app: Any) -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            resp = await ac.get(
-                "/v1/dashboard/overview", params={"organization_id": str(_ORG_ID)}
-            )
+            resp = await ac.get("/v1/dashboard/overview", params={"organization_id": str(_ORG_ID)})
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
@@ -273,9 +274,7 @@ class TestDashboardOrgScoping:
     @pytest.mark.asyncio
     async def test_usage_events_unauthenticated_is_401(self, app: Any) -> None:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            resp = await ac.get(
-                "/v1/usage/events", params={"organization_id": str(_ORG_ID)}
-            )
+            resp = await ac.get("/v1/usage/events", params={"organization_id": str(_ORG_ID)})
         assert resp.status_code == 401
 
     @pytest.mark.asyncio

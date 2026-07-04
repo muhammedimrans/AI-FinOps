@@ -20,9 +20,17 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+# ── Import test subjects ───────────────────────────────────────────────────────
+from app.analytics.service import AnalyticsService
+from app.models.daily_cost_summary import DailyCostSummary
+from app.models.model_pricing import ModelPricing
+from app.models.usage_cost_record import UsageCostRecord
+from app.pricing.engine import CALCULATION_VERSION, PricingEngine, PricingNotFoundError
+from app.pricing.validator import PricingValidationError, PricingValidator
 
 
 async def _mock_org_membership() -> object:
@@ -33,14 +41,6 @@ async def _mock_org_membership() -> object:
 
     return MagicMock(spec=Membership)
 
-# ── Import test subjects ───────────────────────────────────────────────────────
-
-from app.models.model_pricing import ModelPricing
-from app.models.usage_cost_record import UsageCostRecord
-from app.models.daily_cost_summary import DailyCostSummary
-from app.pricing.engine import CALCULATION_VERSION, PricingEngine, PricingNotFoundError
-from app.pricing.validator import PricingValidationError, PricingValidator
-from app.analytics.service import AnalyticsService
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -342,12 +342,13 @@ class TestModelPricingRepository:
 
     def _make_repo(self) -> Any:
         from app.repositories.model_pricing_repository import ModelPricingRepository
+
         session = AsyncMock()
         return ModelPricingRepository(session), session
 
     @pytest.mark.asyncio
     async def test_get_active_for_model_returns_pricing(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         pricing = _make_pricing()
         mock_result = MagicMock()
@@ -359,7 +360,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_get_active_for_model_not_found(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -370,7 +371,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_get_for_date_returns_pricing(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         pricing = _make_pricing(effective_from=date(2024, 1, 1))
         mock_result = MagicMock()
@@ -382,7 +383,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_get_for_date_not_found(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -393,7 +394,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_list_for_provider(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         pricings = [_make_pricing(), _make_pricing(model="gpt-3.5-turbo")]
         mock_result = MagicMock()
@@ -405,7 +406,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_list_for_model(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         pricings = [_make_pricing(version="v1"), _make_pricing(version="v2")]
         mock_result = MagicMock()
@@ -417,7 +418,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_version(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         pricing = _make_pricing(version="v2")
         mock_result = MagicMock()
@@ -430,7 +431,7 @@ class TestModelPricingRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_version_not_found(self) -> None:
-        from app.repositories.model_pricing_repository import ModelPricingRepository
+
         repo, session = self._make_repo()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -450,12 +451,13 @@ class TestUsageCostRecordRepository:
 
     def _make_repo(self) -> Any:
         from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         session = AsyncMock()
         return UsageCostRecordRepository(session), session
 
     @pytest.mark.asyncio
     async def test_get_by_event_found(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
         record = _make_cost_record()
         mock_result = MagicMock()
@@ -467,7 +469,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_event_not_found(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -478,7 +480,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_upsert_calls_execute(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
         record = _make_cost_record()
 
@@ -497,7 +499,7 @@ class TestUsageCostRecordRepository:
     @pytest.mark.asyncio
     async def test_get_totals_by_org_returns_list(self) -> None:
         """get_totals_by_org returns list[dict], one entry per currency (RH-01)."""
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
@@ -523,7 +525,7 @@ class TestUsageCostRecordRepository:
     @pytest.mark.asyncio
     async def test_get_totals_by_org_multi_currency_separate(self) -> None:
         """RH-01: USD and EUR totals are returned as separate list entries, never summed."""
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_usd = MagicMock()
@@ -564,7 +566,7 @@ class TestUsageCostRecordRepository:
     @pytest.mark.asyncio
     async def test_get_totals_by_org_empty_returns_empty_list(self) -> None:
         """RH-01: No records → empty list, not an error."""
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_result = MagicMock()
@@ -576,7 +578,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_get_totals_by_provider(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
@@ -601,7 +603,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_get_totals_by_model(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
@@ -626,7 +628,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_get_totals_by_project(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
@@ -646,7 +648,7 @@ class TestUsageCostRecordRepository:
 
     @pytest.mark.asyncio
     async def test_get_daily_trend(self) -> None:
-        from app.repositories.usage_cost_record_repository import UsageCostRecordRepository
+
         repo, session = self._make_repo()
 
         mock_row = MagicMock()
@@ -678,12 +680,13 @@ class TestDailyCostSummaryRepository:
 
     def _make_repo(self) -> Any:
         from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         session = AsyncMock()
         return DailyCostSummaryRepository(session), session
 
     @pytest.mark.asyncio
     async def test_upsert_calls_execute(self) -> None:
-        from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         repo, session = self._make_repo()
         summary = _make_summary()
 
@@ -699,7 +702,7 @@ class TestDailyCostSummaryRepository:
 
     @pytest.mark.asyncio
     async def test_upsert_returns_original_on_miss(self) -> None:
-        from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         repo, session = self._make_repo()
         summary = _make_summary()
 
@@ -715,7 +718,7 @@ class TestDailyCostSummaryRepository:
 
     @pytest.mark.asyncio
     async def test_get_for_date_range(self) -> None:
-        from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         repo, session = self._make_repo()
         summaries = [_make_summary(summary_date=date(2026, 6, 1))]
         mock_result = MagicMock()
@@ -727,7 +730,7 @@ class TestDailyCostSummaryRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_provider(self) -> None:
-        from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         repo, session = self._make_repo()
         summaries = [_make_summary(provider="anthropic")]
         mock_result = MagicMock()
@@ -740,7 +743,7 @@ class TestDailyCostSummaryRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_model(self) -> None:
-        from app.repositories.daily_cost_summary_repository import DailyCostSummaryRepository
+
         repo, session = self._make_repo()
         summaries = [_make_summary(model="claude-3-5-sonnet")]
         mock_result = MagicMock()
@@ -1378,7 +1381,9 @@ class TestAnalyticsService:
         cost_repo.get_totals_by_provider = AsyncMock(return_value=[])
 
         service = AnalyticsService(cost_repo, daily_repo)
-        result = await service.get_top_projects(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3)
+        result = await service.get_top_projects(
+            _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3
+        )
         cost_repo.get_totals_by_project.assert_called_once_with(
             _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3
         )
@@ -1554,9 +1559,10 @@ class TestPricingAPI:
     async def test_list_models_with_mock_auth(self, app: Any) -> None:
         """GET /pricing/models returns 200 with mocked auth + DB."""
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1577,9 +1583,7 @@ class TestPricingAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/pricing/models",
                     params={"organization_id": str(_ORG_ID)},
@@ -1594,9 +1598,10 @@ class TestPricingAPI:
     async def test_list_providers_with_mock_auth(self, app: Any) -> None:
         """GET /pricing/providers returns 200 with mocked auth + DB."""
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1617,9 +1622,7 @@ class TestPricingAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/pricing/providers",
                     params={"organization_id": str(_ORG_ID)},
@@ -1634,9 +1637,10 @@ class TestPricingAPI:
     async def test_calculate_price_not_found_with_mock(self, app: Any) -> None:
         """POST /pricing/calculate returns 404 when no pricing found."""
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1657,9 +1661,7 @@ class TestPricingAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.post(
                     "/v1/pricing/calculate",
                     json={
@@ -1677,9 +1679,10 @@ class TestPricingAPI:
     async def test_calculate_price_success_with_mock(self, app: Any) -> None:
         """POST /pricing/calculate returns 200 with valid pricing."""
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1704,9 +1707,7 @@ class TestPricingAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.post(
                     "/v1/pricing/calculate",
                     json={
@@ -1827,9 +1828,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_usage_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1856,9 +1858,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/analytics/usage",
                     params={
@@ -1877,9 +1877,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_cost_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1907,9 +1908,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/analytics/cost",
                     params={
@@ -1928,9 +1927,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_provider_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1951,9 +1951,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/analytics/providers",
                     params={
@@ -1970,9 +1968,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_model_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -1993,9 +1992,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/analytics/models",
                     params={
@@ -2012,9 +2009,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_project_breakdown_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -2035,9 +2033,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     "/v1/analytics/projects",
                     params={
@@ -2054,9 +2050,10 @@ class TestAnalyticsAPI:
     @pytest.mark.asyncio
     async def test_org_summary_with_mock_auth(self, app: Any) -> None:
         from httpx import ASGITransport, AsyncClient
+
+        from app.api.deps import get_db
         from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
-        from app.api.deps import get_db
 
         mock_user = MagicMock(spec=User)
 
@@ -2083,9 +2080,7 @@ class TestAnalyticsAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 response = await ac.get(
                     f"/v1/analytics/organizations/{_ORG_ID}/summary",
                     params={
@@ -2111,6 +2106,7 @@ class TestPricingSchemas:
 
     def test_model_pricing_response_from_orm(self) -> None:
         from app.schemas.pricing import ModelPricingResponse
+
         pricing = _make_pricing()
         response = ModelPricingResponse.from_orm_model(pricing)
         assert response.provider == "openai"
@@ -2120,6 +2116,7 @@ class TestPricingSchemas:
 
     def test_model_pricing_response_decimal_as_string(self) -> None:
         from app.schemas.pricing import ModelPricingResponse
+
         pricing = _make_pricing(prompt_price=Decimal("0.00001"))
         response = ModelPricingResponse.from_orm_model(pricing)
         # Should be string representation
@@ -2127,6 +2124,7 @@ class TestPricingSchemas:
 
     def test_price_calculation_response(self) -> None:
         from app.schemas.pricing import PriceCalculationResponse
+
         response = PriceCalculationResponse(
             provider="openai",
             model="gpt-4",
@@ -2147,6 +2145,7 @@ class TestPricingSchemas:
 
     def test_model_pricing_create_validation(self) -> None:
         from app.schemas.pricing import ModelPricingCreate
+
         create = ModelPricingCreate(
             provider="openai",
             model="gpt-4",
@@ -2159,8 +2158,11 @@ class TestPricingSchemas:
         assert create.is_active is True
 
     def test_model_pricing_create_invalid_date_range(self) -> None:
+        from pydantic import ValidationError
+
         from app.schemas.pricing import ModelPricingCreate
-        with pytest.raises(Exception):
+
+        with pytest.raises(ValidationError):
             ModelPricingCreate(
                 provider="openai",
                 model="gpt-4",
@@ -2173,6 +2175,7 @@ class TestPricingSchemas:
 
     def test_model_pricing_list_response(self) -> None:
         from app.schemas.pricing import ModelPricingListResponse, ModelPricingResponse
+
         pricing = _make_pricing()
         item = ModelPricingResponse.from_orm_model(pricing)
         response = ModelPricingListResponse(
@@ -2189,6 +2192,7 @@ class TestAnalyticsSchemas:
 
     def test_cost_summary_response(self) -> None:
         from app.schemas.analytics import CostSummaryResponse
+
         resp = CostSummaryResponse(
             organization_id=str(_ORG_ID),
             start_date="2026-01-01",
@@ -2201,6 +2205,7 @@ class TestAnalyticsSchemas:
 
     def test_usage_summary_response(self) -> None:
         from app.schemas.analytics import UsageSummaryResponse
+
         resp = UsageSummaryResponse(
             organization_id=str(_ORG_ID),
             start_date="2026-01-01",
@@ -2215,6 +2220,7 @@ class TestAnalyticsSchemas:
 
     def test_provider_breakdown_item(self) -> None:
         from app.schemas.analytics import ProviderBreakdownItem
+
         item = ProviderBreakdownItem(
             provider="openai",
             currency="USD",
@@ -2230,6 +2236,7 @@ class TestAnalyticsSchemas:
 
     def test_model_breakdown_item(self) -> None:
         from app.schemas.analytics import ModelBreakdownItem
+
         item = ModelBreakdownItem(
             provider="openai",
             model="gpt-4",
@@ -2246,6 +2253,7 @@ class TestAnalyticsSchemas:
 
     def test_project_breakdown_item(self) -> None:
         from app.schemas.analytics import ProjectBreakdownItem
+
         item = ProjectBreakdownItem(
             project_id=str(_PROJECT_ID),
             currency="USD",
@@ -2257,6 +2265,7 @@ class TestAnalyticsSchemas:
 
     def test_project_breakdown_item_no_project(self) -> None:
         from app.schemas.analytics import ProjectBreakdownItem
+
         item = ProjectBreakdownItem(
             project_id=None,
             currency="USD",
@@ -2268,6 +2277,7 @@ class TestAnalyticsSchemas:
 
     def test_daily_trend_item(self) -> None:
         from app.schemas.analytics import DailyTrendItem
+
         item = DailyTrendItem(
             usage_date="2026-06-01",
             currency="USD",
@@ -2281,6 +2291,7 @@ class TestAnalyticsSchemas:
 
     def test_org_summary_response(self) -> None:
         from app.schemas.analytics import OrgSummaryResponse
+
         resp = OrgSummaryResponse(
             organization_id=str(_ORG_ID),
             start_date="2026-01-01",

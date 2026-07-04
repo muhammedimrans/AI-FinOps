@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +76,7 @@ class UsageRecordRepository(BaseRepository[UsageRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by calendar date (of request_timestamp) and currency."""
         day = func.date(UsageRecord.request_timestamp)
         stmt = (
@@ -114,7 +115,7 @@ class UsageRecordRepository(BaseRepository[UsageRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by calendar month (of request_timestamp) and currency."""
         month = func.date_trunc("month", UsageRecord.request_timestamp)
         day = func.date(UsageRecord.request_timestamp)
@@ -183,7 +184,7 @@ class UsageRecordRepository(BaseRepository[UsageRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by provider and currency."""
         day = func.date(UsageRecord.request_timestamp)
         stmt = (
@@ -223,7 +224,7 @@ class UsageRecordRepository(BaseRepository[UsageRecord]):
         start_date: date,
         end_date: date,
         limit: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by provider+model and currency. SQL LIMIT, not Python slicing."""
         day = func.date(UsageRecord.request_timestamp)
         stmt = (

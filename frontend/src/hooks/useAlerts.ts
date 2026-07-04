@@ -25,7 +25,7 @@ export interface DerivedAlert {
    * `alert_id`). Undefined for client-derived (budget/anomaly heuristic)
    * alerts, which have no backend row to acknowledge/resolve/archive via
    * the REST API — those can only be dismissed locally. */
-  alertId?: string;
+  alertId?: string | undefined;
 }
 
 // Event types this panel treats as notification-worthy, matching the

@@ -5,7 +5,7 @@ from typing import Any
 from redis.asyncio import Redis
 
 
-def create_redis(redis_url: str) -> Redis[Any]:
+def create_redis(redis_url: str) -> Redis:
     """
     Create a Redis connection pool from a URL.
     Connection is lazy — no socket opened until first command.
@@ -21,7 +21,7 @@ def create_redis(redis_url: str) -> Redis[Any]:
     )
 
 
-async def check_redis(redis: Redis[Any]) -> dict[str, Any]:
+async def check_redis(redis: Redis) -> dict[str, Any]:
     """
     Ping Redis. Returns a health-check result dict.
     Does not raise — callers decide how to handle failures.

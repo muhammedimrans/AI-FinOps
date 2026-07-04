@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import Depends, Request
 from redis.asyncio import Redis
@@ -35,7 +35,7 @@ async def get_db(
 
 async def get_redis(
     container: Annotated[AppContainer, Depends(get_container)],
-) -> Redis[Any]:
+) -> Redis:
     """Return the shared Redis client from the container."""
     return container.redis
 

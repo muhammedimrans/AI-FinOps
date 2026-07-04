@@ -20,8 +20,8 @@ from __future__ import annotations
 import time
 
 import structlog
-from sqlalchemy import inspect, text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+from sqlalchemy import Connection, inspect, text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = structlog.get_logger(__name__)
 
@@ -34,12 +34,18 @@ async def verify_database(engine: AsyncEngine) -> str:
     return version
 
 
-def _has_tables(conn: AsyncConnection) -> bool:  # called via run_sync
+def _has_tables(conn: Connection) -> bool:
+    """Called via ``AsyncConnection.run_sync`` — which, despite the outer
+    connection being async, invokes this callback with a *sync* ``Connection``
+    (it runs the sync driver call in a worker thread). The parameter is
+    typed ``Connection`` (not ``AsyncConnection``) to match what run_sync
+    actually passes and what it requires for its own typing.
+    """
     inspector = inspect(conn)
     return bool(inspector.get_table_names(schema="public"))
 
 
-def _drop_stale_enum_types(conn: AsyncConnection) -> None:  # called via run_sync
+def _drop_stale_enum_types(conn: Connection) -> None:  # called via run_sync — see _has_tables
     """
     Drop any PostgreSQL enum types that were left behind by a previously
     failed create_all() run.  Safe to call only when no tables exist, because
@@ -60,7 +66,7 @@ def _drop_stale_enum_types(conn: AsyncConnection) -> None:  # called via run_syn
     )
     enum_names = [row[0] for row in result]
     for name in enum_names:
-        conn.execute(text(f'DROP TYPE IF EXISTS "{name}" CASCADE'))  # noqa: S608
+        conn.execute(text(f'DROP TYPE IF EXISTS "{name}" CASCADE'))
         logger.info("schema_dropped_stale_enum", enum=name)
 
 

@@ -32,10 +32,16 @@ from __future__ import annotations
 import asyncio
 import enum
 import uuid
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.providers.registry import ProviderRegistry
 
 log = structlog.get_logger(__name__)
 
@@ -52,18 +58,18 @@ class CollectionTaskRecord:
     """In-memory state for a single background collection task."""
 
     __slots__ = (
-        "task_id",
+        "_asyncio_task",
+        "completed_at",
+        "end_date",
+        "error",
         "organization_id",
         "provider",
-        "start_date",
-        "end_date",
-        "status",
         "run_id",
-        "error",
-        "submitted_at",
+        "start_date",
         "started_at",
-        "completed_at",
-        "_asyncio_task",
+        "status",
+        "submitted_at",
+        "task_id",
     )
 
     def __init__(
@@ -123,9 +129,9 @@ class BackgroundCollectionFramework:
 
     def __init__(
         self,
-        session_factory: Any,
+        session_factory: Callable[[], Awaitable[AsyncSession]],
         *,
-        registry: Any | None = None,
+        registry: ProviderRegistry | None = None,
         max_concurrent: int = 5,
     ) -> None:
         self._session_factory = session_factory
@@ -218,9 +224,7 @@ class BackgroundCollectionFramework:
         return [r.to_dict() for r in results]
 
     def running_count(self) -> int:
-        return sum(
-            1 for r in self._tasks.values() if r.status == TaskStatus.RUNNING
-        )
+        return sum(1 for r in self._tasks.values() if r.status == TaskStatus.RUNNING)
 
     # ── Private ────────────────────────────────────────────────────────────────
 

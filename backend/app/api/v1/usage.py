@@ -35,10 +35,9 @@ from app.models.membership import Membership
 from app.models.usage_collection_run import CollectionRunStatus
 from app.schemas.usage import (
     CheckpointListResponse,
-    CheckpointResponse,
-    CollectUsageRequest,
     CollectionRunListResponse,
     CollectionRunResponse,
+    CollectUsageRequest,
     ProviderCollectionStatusResponse,
     UsageEventListResponse,
     UsageEventResponse,
@@ -94,7 +93,6 @@ async def collect_all(
     _member: BodyOrgMembership,
 ) -> list[CollectionRunResponse]:
     """Trigger collection for all supported providers."""
-    from app.usage.service import UsageCollectionService
 
     results: list[CollectionRunResponse] = []
     errors: list[str] = []
@@ -152,6 +150,10 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
     The returned UsageCollectionRun is a transient ORM object.  It is not saved
     to the database and will not appear in any subsequent GET /runs query.
     """
+    from app.models.usage_collection_run import (
+        CollectionRunStatus,
+        UsageCollectionRun,
+    )
     from app.providers.config import (
         AnthropicConfig,
         OpenAIConfig,
@@ -160,14 +162,10 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
     )
     from app.providers.factory import ProviderFactory
     from app.providers.registry import get_registry
-    from app.models.usage_collection_run import (
-        CollectionRunStatus,
-        CollectionTrigger,
-        UsageCollectionRun,
-    )
 
     registry = get_registry()
 
+    config: OpenAIConfig | AnthropicConfig
     match provider:
         case "openai":
             config = OpenAIConfig(
@@ -175,7 +173,7 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
                 display_name="OpenAI",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="OPENAI_API_KEY",
+                    lookup_key="OPENAI_API_KEY",
                 ),
             )
         case "anthropic":
@@ -184,7 +182,7 @@ async def _run_collection_sync(*, provider: str, body: CollectUsageRequest) -> o
                 display_name="Anthropic",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="ANTHROPIC_API_KEY",
+                    lookup_key="ANTHROPIC_API_KEY",
                 ),
             )
         case _:
@@ -259,7 +257,10 @@ async def list_events(
 ) -> UsageEventListResponse:
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="GET /usage/events is not yet implemented. Database query endpoints are available in EP-09.",
+        detail=(
+            "GET /usage/events is not yet implemented. "
+            "Database query endpoints are available in EP-09."
+        ),
     )
 
 
@@ -303,7 +304,10 @@ async def list_runs(
 ) -> CollectionRunListResponse:
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="GET /usage/runs is not yet implemented. Database query endpoints are available in EP-09.",
+        detail=(
+            "GET /usage/runs is not yet implemented. "
+            "Database query endpoints are available in EP-09."
+        ),
     )
 
 
@@ -346,7 +350,10 @@ async def list_checkpoints(
 ) -> CheckpointListResponse:
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="GET /usage/checkpoints is not yet implemented. Database query endpoints are available in EP-09.",
+        detail=(
+            "GET /usage/checkpoints is not yet implemented. "
+            "Database query endpoints are available in EP-09."
+        ),
     )
 
 
@@ -373,5 +380,8 @@ async def get_provider_status(
     _require_collection_provider(provider)
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"GET /usage/providers/{provider}/status is not yet implemented. Database query endpoints are available in EP-09.",
+        detail=(
+            f"GET /usage/providers/{provider}/status is not yet implemented. "
+            "Database query endpoints are available in EP-09."
+        ),
     )

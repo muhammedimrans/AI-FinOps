@@ -148,9 +148,7 @@ class TestUpdateLastUsed:
 
 class TestValidatePermissions:
     def test_accepts_known_permissions(self) -> None:
-        result = OrganizationApiKeyService.validate_permissions(
-            ["usage:read", "org:read"]
-        )
+        result = OrganizationApiKeyService.validate_permissions(["usage:read", "org:read"])
         assert result == ["usage:read", "org:read"]
 
     def test_accepts_empty_list(self) -> None:
@@ -204,9 +202,7 @@ class TestCreateKey:
     async def test_generates_key_with_correct_prefix(self) -> None:
         mock_session = AsyncMock()
         service = OrganizationApiKeyService(mock_session)
-        with patch.object(
-            service._repo, "create", new=AsyncMock(side_effect=lambda r: r)
-        ):
+        with patch.object(service._repo, "create", new=AsyncMock(side_effect=lambda r: r)):
             record, raw_key = await service.create_key(
                 organization_id=_ORG_ID,
                 name="CI key",
@@ -225,9 +221,7 @@ class TestCreateKey:
     async def test_never_persists_raw_key(self) -> None:
         mock_session = AsyncMock()
         service = OrganizationApiKeyService(mock_session)
-        with patch.object(
-            service._repo, "create", new=AsyncMock(side_effect=lambda r: r)
-        ):
+        with patch.object(service._repo, "create", new=AsyncMock(side_effect=lambda r: r)):
             record, raw_key = await service.create_key(
                 organization_id=_ORG_ID,
                 name="CI key",
@@ -244,9 +238,7 @@ class TestCreateKey:
     async def test_two_keys_never_collide(self) -> None:
         mock_session = AsyncMock()
         service = OrganizationApiKeyService(mock_session)
-        with patch.object(
-            service._repo, "create", new=AsyncMock(side_effect=lambda r: r)
-        ):
+        with patch.object(service._repo, "create", new=AsyncMock(side_effect=lambda r: r)):
             _, raw_a = await service.create_key(
                 organization_id=_ORG_ID,
                 name="a",
@@ -285,9 +277,7 @@ class TestCreateKey:
     async def test_sets_expires_at_for_30d(self) -> None:
         mock_session = AsyncMock()
         service = OrganizationApiKeyService(mock_session)
-        with patch.object(
-            service._repo, "create", new=AsyncMock(side_effect=lambda r: r)
-        ):
+        with patch.object(service._repo, "create", new=AsyncMock(side_effect=lambda r: r)):
             record, _ = await service.create_key(
                 organization_id=_ORG_ID,
                 name="expiring",
@@ -395,9 +385,7 @@ def _auth_patches(org_repo: Any, mem_repo_lookup: Any) -> Any:
 class TestListApiKeysEndpoint:
     @pytest.mark.asyncio
     async def test_unauthenticated_is_401(self, app: Any) -> None:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.get(f"/v1/organizations/{_ORG_ID}/api-keys")
         assert resp.status_code == 401
 
@@ -433,9 +421,7 @@ class TestListApiKeysEndpoint:
     @pytest.mark.asyncio
     async def test_viewer_can_list(self, app: Any) -> None:
         """API_KEY_READ is granted to every role, including VIEWER."""
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.VIEWER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.VIEWER)
         try:
             key = make_api_key(org_id=_ORG_ID, name="Prod ingestion")
             with (
@@ -465,19 +451,13 @@ class TestListApiKeysEndpoint:
 class TestCreateApiKeyEndpoint:
     @pytest.mark.asyncio
     async def test_unauthenticated_is_401(self, app: Any) -> None:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
-            resp = await ac.post(
-                f"/v1/organizations/{_ORG_ID}/api-keys", json={"name": "x"}
-            )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.post(f"/v1/organizations/{_ORG_ID}/api-keys", json={"name": "x"})
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
     async def test_viewer_cannot_create(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.VIEWER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.VIEWER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
@@ -492,9 +472,7 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_member_cannot_create(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.MEMBER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.MEMBER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
@@ -509,9 +487,7 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_admin_can_create_and_receives_raw_key_once(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.ADMIN
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         try:
             with (
                 _auth_patches(org_repo, mem_repo_lookup),
@@ -547,9 +523,7 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_owner_can_create(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.OWNER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
             with (
                 _auth_patches(org_repo, mem_repo_lookup),
@@ -572,9 +546,7 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_invalid_permission_scope_is_422(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.OWNER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
@@ -590,9 +562,7 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_invalid_expiration_is_422(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.OWNER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
@@ -608,17 +578,13 @@ class TestCreateApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_missing_name_is_422(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.OWNER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as ac:
-                    resp = await ac.post(
-                        f"/v1/organizations/{_ORG_ID}/api-keys", json={}
-                    )
+                    resp = await ac.post(f"/v1/organizations/{_ORG_ID}/api-keys", json={})
             assert resp.status_code == 422
         finally:
             app.dependency_overrides.clear()
@@ -627,36 +593,26 @@ class TestCreateApiKeyEndpoint:
 class TestDeleteApiKeyEndpoint:
     @pytest.mark.asyncio
     async def test_unauthenticated_is_401(self, app: Any) -> None:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
-            resp = await ac.delete(
-                f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}"
-            )
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+            resp = await ac.delete(f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}")
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
     async def test_viewer_cannot_delete(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.VIEWER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.VIEWER)
         try:
             with _auth_patches(org_repo, mem_repo_lookup):
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as ac:
-                    resp = await ac.delete(
-                        f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}"
-                    )
+                    resp = await ac.delete(f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}")
             assert resp.status_code == 403
         finally:
             app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
     async def test_missing_key_is_404(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.ADMIN
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         try:
             with (
                 _auth_patches(org_repo, mem_repo_lookup),
@@ -669,18 +625,14 @@ class TestDeleteApiKeyEndpoint:
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as ac:
-                    resp = await ac.delete(
-                        f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}"
-                    )
+                    resp = await ac.delete(f"/v1/organizations/{_ORG_ID}/api-keys/{uuid.uuid4()}")
             assert resp.status_code == 404
         finally:
             app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
     async def test_key_from_another_org_is_404(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.ADMIN
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         other_org_key = make_api_key(org_id=uuid.uuid4())
         try:
             with (
@@ -703,9 +655,7 @@ class TestDeleteApiKeyEndpoint:
 
     @pytest.mark.asyncio
     async def test_admin_can_revoke(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.ADMIN
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         target = make_api_key(org_id=_ORG_ID)
         try:
             with (
@@ -724,9 +674,7 @@ class TestDeleteApiKeyEndpoint:
                 async with AsyncClient(
                     transport=ASGITransport(app=app), base_url="http://test"
                 ) as ac:
-                    resp = await ac.delete(
-                        f"/v1/organizations/{_ORG_ID}/api-keys/{target.id}"
-                    )
+                    resp = await ac.delete(f"/v1/organizations/{_ORG_ID}/api-keys/{target.id}")
             assert resp.status_code == 204
             soft_delete.assert_awaited_once()
         finally:

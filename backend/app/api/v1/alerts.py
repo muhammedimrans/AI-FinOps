@@ -44,6 +44,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, time
 from decimal import Decimal, InvalidOperation
+from enum import Enum
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -89,7 +90,7 @@ from app.schemas.alerts import (
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
-def _parse_enum(enum_cls: type, value: str, field: str) -> object:
+def _parse_enum[EnumT: Enum](enum_cls: type[EnumT], value: str, field: str) -> EnumT:
     try:
         return enum_cls(value)
     except ValueError as exc:
@@ -146,9 +147,7 @@ async def _get_org_alert(
 )
 async def list_alerts(
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_READ)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_READ)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     severity: Annotated[str | None, Query()] = None,
@@ -190,9 +189,7 @@ async def acknowledge_alert(
     body: AcknowledgeAlertRequest,
     db: DbDep,
     current_user: CurrentUser,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertResponse:
     repo = AlertRepository(db)
@@ -221,9 +218,7 @@ async def acknowledge_alert(
 async def resolve_alert(
     alert_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertResponse:
     repo = AlertRepository(db)
@@ -233,9 +228,7 @@ async def resolve_alert(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot resolve an alert in status {alert.status.value!r}",
         )
-    updated = await repo.update(
-        alert, status=AlertStatus.RESOLVED, resolved_at=datetime.now(UTC)
-    )
+    updated = await repo.update(alert, status=AlertStatus.RESOLVED, resolved_at=datetime.now(UTC))
     return _to_alert_response(updated)
 
 
@@ -247,9 +240,7 @@ async def resolve_alert(
 async def dismiss_alert(
     alert_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertResponse:
     repo = AlertRepository(db)
@@ -259,9 +250,7 @@ async def dismiss_alert(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Cannot dismiss an alert in status {alert.status.value!r}",
         )
-    updated = await repo.update(
-        alert, status=AlertStatus.DISMISSED, dismissed_at=datetime.now(UTC)
-    )
+    updated = await repo.update(alert, status=AlertStatus.DISMISSED, dismissed_at=datetime.now(UTC))
     return _to_alert_response(updated)
 
 
@@ -273,17 +262,13 @@ async def dismiss_alert(
 async def reopen_alert(
     alert_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertResponse:
     repo = AlertRepository(db)
     alert = await _get_org_alert(db, organization_id, alert_id)
     if alert.status == AlertStatus.OPEN:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="Alert is already open"
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Alert is already open")
     updated = await repo.update(alert, status=AlertStatus.OPEN)
     return _to_alert_response(updated)
 
@@ -325,9 +310,7 @@ def _to_preference_response(p: AlertPreference) -> AlertPreferenceResponse:
 async def get_preferences(
     db: DbDep,
     current_user: CurrentUser,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_READ)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_READ)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertPreferenceResponse:
     pref = await get_or_default(db, organization_id=organization_id, user_id=current_user.id)
@@ -344,9 +327,7 @@ async def update_preferences(
     body: UpdateAlertPreferenceRequest,
     db: DbDep,
     current_user: CurrentUser,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertPreferenceResponse:
     repo = AlertPreferenceRepository(db)
@@ -407,9 +388,7 @@ def _to_rule_response(r: AlertRule) -> AlertRuleResponse:
 )
 async def list_rules(
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_READ)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_READ)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertRulesListResponse:
     rules = await AlertRuleRepository(db).list_for_org(organization_id)
@@ -433,9 +412,7 @@ async def create_rule(
     body: CreateAlertRuleRequest,
     db: DbDep,
     current_user: CurrentUser,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertRuleResponse:
     alert_type = _parse_enum(AlertType, body.alert_type, "alert_type")
@@ -472,9 +449,7 @@ async def create_rule(
 async def delete_rule(
     rule_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> None:
     repo = AlertRuleRepository(db)
@@ -506,9 +481,7 @@ def _to_suppression_response(s: AlertSuppression) -> AlertSuppressionResponse:
 )
 async def list_suppressions(
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_READ)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_READ)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertSuppressionsListResponse:
     suppressions = await AlertSuppressionRepository(db).list_for_org(organization_id)
@@ -533,9 +506,7 @@ async def create_suppression(
     body: CreateAlertSuppressionRequest,
     db: DbDep,
     current_user: CurrentUser,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> AlertSuppressionResponse:
     scope = _parse_enum(SuppressionScope, body.scope, "scope")
@@ -564,15 +535,11 @@ async def create_suppression(
 async def delete_suppression(
     suppression_id: uuid.UUID,
     db: DbDep,
-    _member: Annotated[
-        object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)
-    ],
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
 ) -> None:
     repo = AlertSuppressionRepository(db)
     suppression = await repo.get(suppression_id)
     if suppression is None or suppression.organization_id != organization_id:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Suppression not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Suppression not found")
     await repo.soft_delete(suppression)

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import cast
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import Table, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,7 +42,13 @@ class UsageEventRepository(BaseRepository[UsageEvent]):
         already exists, its mutable columns are updated in-place and the existing
         ``id`` is preserved.
         """
-        tbl = UsageEvent.__table__
+        # UsageEvent.__table__ is typed as the broader FromClause by
+        # SQLAlchemy's declarative base, but is always a concrete Table at
+        # runtime (mapped classes always have a real Table, never a join or
+        # subquery, unless using __table__ = some non-Table selectable, which
+        # this model does not). Cast so pg_insert() sees the narrower type it
+        # actually requires.
+        tbl = cast("Table", UsageEvent.__table__)
         stmt = (
             pg_insert(tbl)
             .values(
@@ -201,6 +207,4 @@ class UsageEventRepository(BaseRepository[UsageEvent]):
         )
 
     async def count_by_org(self, organization_id: uuid.UUID) -> int:
-        return await self.count(
-            extra_filters=UsageEvent.organization_id == organization_id
-        )
+        return await self.count(extra_filters=UsageEvent.organization_id == organization_id)

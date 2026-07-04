@@ -51,7 +51,12 @@ class Project(BaseModel):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
     environment: Mapped[ProjectEnvironment] = mapped_column(
-        SQLEnum(ProjectEnvironment, name="project_environment", create_type=True, values_callable=lambda e: [m.value for m in e]),
+        SQLEnum(
+            ProjectEnvironment,
+            name="project_environment",
+            create_type=True,
+            values_callable=lambda e: [m.value for m in e],
+        ),
         nullable=False,
         default=ProjectEnvironment.PRODUCTION,
         server_default=ProjectEnvironment.PRODUCTION.value,

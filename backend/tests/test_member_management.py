@@ -164,17 +164,13 @@ def _override_auth(
 class TestListMembersEndpoint:
     @pytest.mark.asyncio
     async def test_unauthenticated_is_401(self, app: Any) -> None:
-        async with AsyncClient(
-            transport=ASGITransport(app=app), base_url="http://test"
-        ) as ac:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
             resp = await ac.get(f"/v1/organizations/{_ORG_ID}/members")
         assert resp.status_code == 401
 
     @pytest.mark.asyncio
     async def test_member_can_list(self, app: Any) -> None:
-        _session, org_repo, mem_repo_lookup = _override_auth(
-            app, caller_role=MembershipRole.VIEWER
-        )
+        _session, org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.VIEWER)
         try:
             with patch.multiple(
                 "app.auth.dependencies",

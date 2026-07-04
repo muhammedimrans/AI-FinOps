@@ -8,9 +8,10 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
+from typing import Any, cast
 
 import structlog
-from sqlalchemy import and_, func, select
+from sqlalchemy import Table, and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.usage_cost_record import UsageCostRecord
@@ -26,9 +27,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
 
     async def get_by_event(self, usage_event_id: uuid.UUID) -> UsageCostRecord | None:
         """Get the cost record for a specific usage event."""
-        stmt = self._active_query().where(
-            UsageCostRecord.usage_event_id == usage_event_id
-        )
+        stmt = self._active_query().where(UsageCostRecord.usage_event_id == usage_event_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -65,7 +64,10 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
             "calculation_version": record.calculation_version,
         }
 
-        stmt = pg_insert(UsageCostRecord.__table__).values(**values)
+        # __table__ is typed as the broader FromClause by SQLAlchemy's
+        # declarative base but is always a concrete Table at runtime for this
+        # model; cast so pg_insert() sees the narrower type it requires.
+        stmt = pg_insert(cast("Table", UsageCostRecord.__table__)).values(**values)
         stmt = stmt.on_conflict_do_update(
             constraint="uq_usage_cost_records_event",
             set_={
@@ -100,7 +102,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Sum total_cost, total_tokens, request count for org + date range.
 
         Groups by currency so that USD and EUR totals are never summed together.
@@ -112,8 +114,12 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                 UsageCostRecord.currency,
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.count(UsageCostRecord.id).label("record_count"),
             )
             .where(
@@ -145,18 +151,26 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by provider, sum costs and tokens."""
         stmt = (
             select(
                 UsageCostRecord.provider,
                 UsageCostRecord.currency,
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
-                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label(
+                    "total_prompt_cost"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label(
+                    "total_completion_cost"
+                ),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.count(UsageCostRecord.id).label("record_count"),
             )
             .where(
@@ -192,7 +206,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         start_date: date,
         end_date: date,
         limit: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by model, sum costs and tokens.
 
         If ``limit`` is provided the query applies SQL LIMIT, avoiding the
@@ -204,11 +218,19 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                 UsageCostRecord.model,
                 UsageCostRecord.currency,
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
-                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label(
+                    "total_prompt_cost"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label(
+                    "total_completion_cost"
+                ),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label("total_prompt_tokens"),
-                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label("total_completion_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.count(UsageCostRecord.id).label("record_count"),
             )
             .where(
@@ -247,7 +269,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         start_date: date,
         end_date: date,
         limit: int | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by project_id, sum costs and tokens.
 
         If ``limit`` is provided the query applies SQL LIMIT, avoiding the
@@ -291,15 +313,19 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Group by usage_date, sum costs. Returns date-ordered list."""
         stmt = (
             select(
                 UsageCostRecord.usage_date,
                 UsageCostRecord.currency,
                 func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
-                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label("total_prompt_cost"),
-                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label("total_completion_cost"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_cost), Decimal(0)).label(
+                    "total_prompt_cost"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_cost), Decimal(0)).label(
+                    "total_completion_cost"
+                ),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
                 func.count(UsageCostRecord.id).label("record_count"),
             )

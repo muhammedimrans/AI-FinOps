@@ -146,7 +146,9 @@ def RequireApiKeyPermission(permission: Permission) -> Callable[..., Any]:  # no
         except InsufficientApiKeyPermissionsError as exc:
             raise _403_INSUFFICIENT_PERMISSIONS from exc
 
-    return Depends(_check_and_map)
+    # FastAPI's Depends() is typed to return `Any` by design; cast to the
+    # documented factory return type rather than letting `Any` leak out.
+    return cast("Callable[..., Any]", Depends(_check_and_map))
 
 
 # ── Dual auth: JWT membership OR API key ────────────────────────────────────
@@ -224,4 +226,4 @@ def RequireMembershipOrApiKeyPermission(  # noqa: N802
             )
         return principal
 
-    return Depends(_check)
+    return cast("Callable[..., Any]", Depends(_check))

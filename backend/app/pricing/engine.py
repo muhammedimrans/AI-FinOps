@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -79,7 +79,7 @@ class PricingEngine:
         prompt_tokens: int,
         completion_tokens: int,
         cached_tokens: int | None = None,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Compute costs from token counts using the given pricing record.
 
         Returns a dict with:
@@ -106,9 +106,9 @@ class PricingEngine:
                 _QUANT, rounding=ROUND_HALF_UP
             )
 
-        total_cost = (
-            prompt_cost + completion_cost + (cached_cost or Decimal(0))
-        ).quantize(_QUANT, rounding=ROUND_HALF_UP)
+        total_cost = (prompt_cost + completion_cost + (cached_cost or Decimal(0))).quantize(
+            _QUANT, rounding=ROUND_HALF_UP
+        )
 
         return {
             "prompt_cost": prompt_cost,
@@ -124,7 +124,7 @@ class PricingEngine:
         self,
         usage_event: UsageEvent,
         usage_date: date,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Convenience: resolve pricing + calculate cost from a UsageEvent.
 
         Raises PricingNotFoundError if no pricing is found for the event's

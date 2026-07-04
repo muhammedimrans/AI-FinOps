@@ -60,14 +60,14 @@ def _require_supported(provider: str) -> ProviderType:
     """
     try:
         pt = ProviderType(provider)
-    except ValueError:
+    except ValueError as err:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
                 f"Provider {provider!r} is not supported. "
                 f"Supported: {sorted(p.value for p in _PRODUCTION_PROVIDERS)}"
             ),
-        )
+        ) from err
     if pt not in _PRODUCTION_PROVIDERS:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -88,7 +88,7 @@ def _make_config_with_key(pt: ProviderType) -> OpenAIConfig | AnthropicConfig:
                 display_name="OpenAI",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="OPENAI_API_KEY",
+                    lookup_key="OPENAI_API_KEY",
                 ),
             )
         case ProviderType.ANTHROPIC:
@@ -97,7 +97,7 @@ def _make_config_with_key(pt: ProviderType) -> OpenAIConfig | AnthropicConfig:
                 display_name="Anthropic",
                 api_key_ref=SecretReference(
                     secret_store=SecretStoreType.ENV,
-                    secret_key="ANTHROPIC_API_KEY",
+                    lookup_key="ANTHROPIC_API_KEY",
                 ),
             )
         case _:

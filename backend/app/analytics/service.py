@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -40,7 +40,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Total tokens, requests, events for org in date range.
 
         Token counts are currency-agnostic (tokens are not monetary), so we
@@ -67,7 +67,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Total costs by currency for org in date range.
 
         Returns a list of per-currency totals so that USD and EUR costs are
@@ -98,7 +98,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-provider cost and token breakdown."""
         return await self._cost_repo.get_totals_by_provider(organization_id, start_date, end_date)
 
@@ -107,7 +107,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-model cost and token breakdown."""
         return await self._cost_repo.get_totals_by_model(organization_id, start_date, end_date)
 
@@ -116,7 +116,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Per-project cost and token breakdown."""
         return await self._cost_repo.get_totals_by_project(organization_id, start_date, end_date)
 
@@ -125,7 +125,7 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Day-by-day cost totals ordered by date."""
         return await self._cost_repo.get_daily_trend(organization_id, start_date, end_date)
 
@@ -135,7 +135,7 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Top N models by total cost. SQL LIMIT applied in the repository."""
         return await self._cost_repo.get_totals_by_model(
             organization_id, start_date, end_date, limit=limit
@@ -147,7 +147,7 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
         limit: int = 10,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Top N projects by total cost. SQL LIMIT applied in the repository."""
         return await self._cost_repo.get_totals_by_project(
             organization_id, start_date, end_date, limit=limit

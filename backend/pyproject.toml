@@ -41,11 +41,21 @@ dev = [
     "pytest-cov>=5.0.0",
     "anyio[trio]>=4.6.0",
     # Linting & formatting
-    "black>=24.8.0",
-    "ruff>=0.6.0",
+    # Pinned exactly (not >=): black and ruff both ship formatting/lint-rule
+    # changes in "stable" releases, so a loose bound lets CI silently drift
+    # to a newer ruleset than the code was written against, turning
+    # `black --check`/`ruff check` red without any code change. Bump these
+    # deliberately, in the same commit as any resulting reformatting.
+    "black==26.5.1",
+    "ruff==0.15.20",
     # Type checking
     "mypy>=1.11.0",
-    "types-redis>=4.6.0",
+    # NOTE: types-redis is intentionally NOT listed here. redis>=5 ships its
+    # own inline type hints (py.typed) that are more accurate and current
+    # than the third-party types-redis stub package, which stopped tracking
+    # redis-py after 4.6.0. Installing both causes mypy to prefer the stale
+    # stub over the library's real types (e.g. it doesn't know about
+    # PubSub.aclose), producing false-positive attr-defined errors.
     # Pre-commit
     "pre-commit>=3.8.0",
     # SQLAlchemy stubs

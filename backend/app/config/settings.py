@@ -8,9 +8,7 @@ from pydantic import AliasChoices, Field, SecretStr, computed_field, model_valid
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # libpq connection parameters that asyncpg does not understand.
-_ASYNCPG_UNSUPPORTED_PARAMS = frozenset(
-    {"channel_binding", "gssencmode", "target_session_attrs"}
-)
+_ASYNCPG_UNSUPPORTED_PARAMS = frozenset({"channel_binding", "gssencmode", "target_session_attrs"})
 
 
 def _normalize_asyncpg_url(url: str) -> str:
@@ -43,6 +41,7 @@ def _normalize_asyncpg_url(url: str) -> str:
         (scheme, parsed.netloc, parsed.path, parsed.params, urlencode(params), parsed.fragment)
     )
     return normalized
+
 
 # Sentinel used when APP_SECRET_KEY is not set; rejected in production.
 _DEV_SECRET = "CHANGE-ME-IN-PRODUCTION-THIS-IS-NOT-SECURE!!"  # noqa: S105

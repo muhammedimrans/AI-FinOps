@@ -115,8 +115,7 @@ class IngestUsageRequest(BaseModel):
             raise ValueError("metadata must be JSON-serializable") from exc
         if metadata_size > MAX_METADATA_BYTES:
             raise ValueError(
-                f"metadata is too large ({metadata_size} bytes; "
-                f"max {MAX_METADATA_BYTES} bytes)"
+                f"metadata is too large ({metadata_size} bytes; " f"max {MAX_METADATA_BYTES} bytes)"
             )
         return self
 

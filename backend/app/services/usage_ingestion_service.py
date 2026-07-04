@@ -83,9 +83,7 @@ class UsageIngestionService:
         Returns (record, is_duplicate). Raises UnknownProjectError if
         payload.project_id doesn't belong to `organization`.
         """
-        existing = await self._usage_repo.get_by_request_id(
-            organization.id, payload.request_id
-        )
+        existing = await self._usage_repo.get_by_request_id(organization.id, payload.request_id)
         if existing is not None:
             return existing, True
 
@@ -106,9 +104,7 @@ class UsageIngestionService:
             # Concurrent request won the race on (organization_id, request_id) —
             # the unique constraint, not this check, is the real guarantee.
             await self._session.rollback()
-            existing = await self._usage_repo.get_by_request_id(
-                organization.id, payload.request_id
-            )
+            existing = await self._usage_repo.get_by_request_id(organization.id, payload.request_id)
             if existing is not None:
                 return existing, True
             raise
@@ -218,6 +214,4 @@ class UsageIngestionService:
         await UsageCostRecordRepository(self._session).upsert(cost_record)
 
         # Bounded to this one organization+day — never a full-table scan.
-        await AggregationService(self._session).build_daily_summaries(
-            organization_id, usage_date
-        )
+        await AggregationService(self._session).build_daily_summaries(organization_id, usage_date)

@@ -1,10 +1,10 @@
 """Dashboard API request/response schemas — EP-10 (F-060 through F-066)."""
+
 from __future__ import annotations
 
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # ── F-060 — Executive overview ─────────────────────────────────────────────────
 
@@ -14,9 +14,9 @@ class OverviewResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    total_spend: str          # Decimal serialized as string
-    today_spend: str          # Decimal as string
-    month_spend: str          # Decimal as string
+    total_spend: str  # Decimal serialized as string
+    today_spend: str  # Decimal as string
+    month_spend: str  # Decimal as string
     total_tokens: int
     total_requests: int
     active_providers: int
@@ -34,8 +34,8 @@ class TimeSeriesPoint(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    date: str                 # ISO date string or ISO week ("2026-W26") or "YYYY-MM"
-    cost: str                 # Decimal as string
+    date: str  # ISO date string or ISO week ("2026-W26") or "YYYY-MM"
+    cost: str  # Decimal as string
     tokens: int
     requests: int
     currency: str
@@ -50,7 +50,7 @@ class TimeSeriesResponse(BaseModel):
     start_date: str
     end_date: str
     points: list[TimeSeriesPoint] = Field(default_factory=list)
-    total_cost: str           # Decimal as string — sum of all points
+    total_cost: str  # Decimal as string — sum of all points
     total_tokens: int
     total_requests: int
 
@@ -64,7 +64,7 @@ class ProviderMetrics(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     provider: str
-    total_cost: str           # Decimal as string
+    total_cost: str  # Decimal as string
     total_tokens: int
     total_requests: int
     avg_cost_per_request: str  # Decimal as string
@@ -77,7 +77,7 @@ class ProviderBreakdownResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     providers: list[ProviderMetrics] = Field(default_factory=list)
-    total_cost: str           # Decimal as string — sum across all providers
+    total_cost: str  # Decimal as string — sum across all providers
     period_start: str
     period_end: str
 
@@ -92,7 +92,7 @@ class ModelMetrics(BaseModel):
 
     provider: str
     model: str
-    total_cost: str           # Decimal as string
+    total_cost: str  # Decimal as string
     total_tokens: int
     total_requests: int
     avg_cost_per_request: str  # Decimal as string
@@ -105,7 +105,7 @@ class ModelBreakdownResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     models: list[ModelMetrics] = Field(default_factory=list)
-    total_cost: str           # Decimal as string — sum across listed models
+    total_cost: str  # Decimal as string — sum across listed models
     period_start: str
     period_end: str
 
@@ -118,8 +118,8 @@ class ProjectMetrics(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    project_id: str | None    # UUID as string, or None for unattributed
-    total_cost: str           # Decimal as string
+    project_id: str | None  # UUID as string, or None for unattributed
+    total_cost: str  # Decimal as string
     total_tokens: int
     total_requests: int
     currency: str
@@ -131,7 +131,7 @@ class ProjectBreakdownResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     projects: list[ProjectMetrics] = Field(default_factory=list)
-    total_cost: str           # Decimal as string — sum across all projects
+    total_cost: str  # Decimal as string — sum across all projects
     period_start: str
     period_end: str
 
@@ -146,8 +146,8 @@ class KPIResponse(BaseModel):
 
     highest_cost_provider: str | None
     highest_cost_model: str | None
-    avg_cost_per_request: str | None   # Decimal as string
-    avg_cost_per_token: str | None     # Decimal as string
+    avg_cost_per_request: str | None  # Decimal as string
+    avg_cost_per_token: str | None  # Decimal as string
     period_start: str
     period_end: str
     currency: str
@@ -169,7 +169,7 @@ class OrganizationOverviewBlock(BaseModel):
     active_providers: int
     active_models: int
     collection_status: str | None
-    last_collection_at: str | None     # ISO datetime string or null
+    last_collection_at: str | None  # ISO datetime string or null
 
 
 class OrganizationProviderItem(BaseModel):

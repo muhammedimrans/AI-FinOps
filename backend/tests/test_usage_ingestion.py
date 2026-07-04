@@ -76,17 +76,25 @@ class TestIngestUsageRequestValidation:
         assert req.resolved_total_tokens == 1520
 
     def test_accepts_minimal_payload(self) -> None:
-        req = IngestUsageRequest(
-            provider="openai", model="gpt-4.1", request_id="r1", cost=0.01
-        )
+        req = IngestUsageRequest(provider="openai", model="gpt-4.1", request_id="r1", cost=0.01)
         assert req.resolved_total_tokens == 0
         assert req.currency == "USD"
         assert req.status == "success"
 
     @pytest.mark.parametrize(
         "provider",
-        ["openai", "anthropic", "google", "azure_openai", "grok", "openrouter",
-         "ollama", "cohere", "bedrock", "mistral"],
+        [
+            "openai",
+            "anthropic",
+            "google",
+            "azure_openai",
+            "grok",
+            "openrouter",
+            "ollama",
+            "cohere",
+            "bedrock",
+            "mistral",
+        ],
     )
     def test_accepts_every_catalog_provider(self, provider: str) -> None:
         req = IngestUsageRequest(**_valid_payload(provider=provider))
@@ -356,9 +364,7 @@ class TestUsageIngestionServiceProjectOwnership:
     async def test_unknown_project_raises(self) -> None:
         org = make_org()
         org.id = _ORG_ID
-        payload = IngestUsageRequest(
-            **_valid_payload(project_id=str(uuid.uuid4()))
-        )
+        payload = IngestUsageRequest(**_valid_payload(project_id=str(uuid.uuid4())))
         session = _mock_ingestion_session()
         service = UsageIngestionService(session)
         with (
@@ -375,9 +381,7 @@ class TestUsageIngestionServiceProjectOwnership:
         org = make_org()
         org.id = _ORG_ID
         other_org_project = make_project(org_id=uuid.uuid4())
-        payload = IngestUsageRequest(
-            **_valid_payload(project_id=str(other_org_project.id))
-        )
+        payload = IngestUsageRequest(**_valid_payload(project_id=str(other_org_project.id)))
         session = _mock_ingestion_session()
         service = UsageIngestionService(session)
         with (
@@ -405,9 +409,7 @@ class TestUsageIngestionServiceProjectOwnership:
                 service._usage_repo, "get_by_request_id", new=AsyncMock(return_value=None)
             ),
             patch.object(service._project_repo, "get", new=AsyncMock(return_value=project)),
-            patch.object(
-                service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)
-            ),
+            patch.object(service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)),
             patch(
                 "app.repositories.usage_event_repository.UsageEventRepository.upsert",
                 new=AsyncMock(side_effect=lambda e: e),
@@ -442,9 +444,7 @@ class TestUsageIngestionServiceCreate:
             patch.object(
                 service._usage_repo, "get_by_request_id", new=AsyncMock(return_value=None)
             ),
-            patch.object(
-                service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)
-            ),
+            patch.object(service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)),
             patch(
                 "app.repositories.usage_event_repository.UsageEventRepository.upsert",
                 new=AsyncMock(side_effect=lambda e: e),
@@ -491,9 +491,7 @@ class TestUsageIngestionServiceCreate:
             patch.object(
                 service._usage_repo, "get_by_request_id", new=AsyncMock(return_value=None)
             ),
-            patch.object(
-                service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)
-            ),
+            patch.object(service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)),
             patch(
                 "app.repositories.usage_event_repository.UsageEventRepository.upsert",
                 new=AsyncMock(side_effect=lambda e: e),
@@ -606,9 +604,7 @@ def _patch_key_lookup(key: Any, org: Any) -> Any:
                 update_last_used=AsyncMock(side_effect=lambda k: k),
             )
         ),
-        OrganizationRepository=MagicMock(
-            return_value=MagicMock(get=AsyncMock(return_value=org))
-        ),
+        OrganizationRepository=MagicMock(return_value=MagicMock(get=AsyncMock(return_value=org))),
     )
 
 
@@ -867,9 +863,7 @@ class TestIngestUsageConcurrency:
         org = _active_org()
 
         async def _post(request_id: str) -> int:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.post(
                     "/v1/ingest/usage",
                     json=_valid_payload(request_id=request_id),
@@ -879,9 +873,7 @@ class TestIngestUsageConcurrency:
 
         try:
             with _patch_key_lookup(key, org), _patch_ingestion_writes():
-                statuses = await asyncio.gather(
-                    *(_post(f"req_concurrent_{i}") for i in range(10))
-                )
+                statuses = await asyncio.gather(*(_post(f"req_concurrent_{i}") for i in range(10)))
             assert statuses == [200] * 10
         finally:
             app.dependency_overrides.clear()
@@ -907,9 +899,7 @@ class TestPerformance:
             patch.object(
                 service._usage_repo, "get_by_request_id", new=AsyncMock(return_value=None)
             ),
-            patch.object(
-                service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)
-            ),
+            patch.object(service._usage_repo, "create", new=AsyncMock(side_effect=lambda r: r)),
             patch(
                 "app.repositories.usage_event_repository.UsageEventRepository.upsert",
                 new=AsyncMock(side_effect=lambda e: e),

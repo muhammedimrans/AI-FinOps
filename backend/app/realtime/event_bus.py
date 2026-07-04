@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from typing import Any
 
 import structlog
 from redis.asyncio import Redis
@@ -42,7 +41,7 @@ class EventBus:
 
     def __init__(
         self,
-        redis: Redis[Any],
+        redis: Redis,
         *,
         replay_buffer_size: int = DEFAULT_REPLAY_BUFFER_SIZE,
         replay_ttl_seconds: int = DEFAULT_REPLAY_TTL_SECONDS,
@@ -145,7 +144,11 @@ class EventBus:
                 yield organization_id, event
         finally:
             await pubsub.punsubscribe(ORG_CHANNEL_PATTERN)
-            await pubsub.aclose()
+            # redis-py's PubSub.aclose() has no type annotations at all
+            # (verified against the installed redis==8.0.1 source), despite
+            # the package being marked py.typed — a genuine upstream typing
+            # gap, not a call-site bug.
+            await pubsub.aclose()  # type: ignore[no-untyped-call]
 
 
 __all__ = ["EventBus", "org_channel"]

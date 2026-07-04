@@ -359,24 +359,24 @@ class TestProviderResponse:
 
 class TestSecretReference:
     def test_basic(self) -> None:
-        ref = SecretReference(secret_key="OPENAI_API_KEY")
+        ref = SecretReference(lookup_key="OPENAI_API_KEY")
         assert ref.secret_store == "env"
-        assert ref.secret_key == "OPENAI_API_KEY"
+        assert ref.lookup_key == "OPENAI_API_KEY"
 
     def test_custom_store(self) -> None:
-        ref = SecretReference(secret_store="vault", secret_key="my-secret")
+        ref = SecretReference(secret_store="vault", lookup_key="my-secret")
         assert ref.secret_store == "vault"
 
     def test_repr_redacts_key(self) -> None:
-        ref = SecretReference(secret_key="supersecret")
+        ref = SecretReference(lookup_key="supersecret")
         r = repr(ref)
         assert "supersecret" not in r
         assert "<redacted>" in r
 
     def test_frozen(self) -> None:
-        ref = SecretReference(secret_key="key")
+        ref = SecretReference(lookup_key="key")
         with pytest.raises((AttributeError, TypeError, ValueError)):
-            ref.secret_key = "newkey"  # type: ignore[misc]
+            ref.lookup_key = "newkey"  # type: ignore[misc]
 
 
 class TestProviderConfig:
@@ -420,14 +420,14 @@ class TestProviderConfig:
         assert cfg.extra["model_alias"] == "my-gpt4"
 
     def test_with_secret_reference(self) -> None:
-        ref = SecretReference(secret_key="OPENAI_API_KEY")
+        ref = SecretReference(lookup_key="OPENAI_API_KEY")
         cfg = ProviderConfig(
             provider_type="openai",
             display_name="OpenAI",
             api_key_ref=ref,
         )
         assert cfg.api_key_ref is not None
-        assert cfg.api_key_ref.secret_key == "OPENAI_API_KEY"
+        assert cfg.api_key_ref.lookup_key == "OPENAI_API_KEY"
 
 
 class TestOpenAIConfig:
@@ -1176,21 +1176,21 @@ class TestSecretStoreType:
     def test_secret_reference_uses_secret_store_type(self) -> None:
         from app.providers.config import SecretReference, SecretStoreType
 
-        ref = SecretReference(secret_store=SecretStoreType.VAULT, secret_key="my/path")
+        ref = SecretReference(secret_store=SecretStoreType.VAULT, lookup_key="my/path")
         assert ref.secret_store == SecretStoreType.VAULT
         assert isinstance(ref.secret_store, SecretStoreType)
 
     def test_secret_reference_default_store_is_env(self) -> None:
         from app.providers.config import SecretReference, SecretStoreType
 
-        ref = SecretReference(secret_key="MY_API_KEY")
+        ref = SecretReference(lookup_key="MY_API_KEY")
         assert ref.secret_store == SecretStoreType.ENV
 
     def test_secret_reference_aws_store(self) -> None:
         from app.providers.config import SecretReference, SecretStoreType
 
         ref = SecretReference(
-            secret_store=SecretStoreType.AWS_SECRETS_MANAGER, secret_key="prod/api-key"
+            secret_store=SecretStoreType.AWS_SECRETS_MANAGER, lookup_key="prod/api-key"
         )
         assert ref.secret_store == SecretStoreType.AWS_SECRETS_MANAGER
 
@@ -1434,7 +1434,9 @@ class TestGetUsage:
         from app.providers.models import UsagePage
 
         p = GrokProvider(GrokConfig(display_name="Grok"))
-        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC)
+        )
         assert isinstance(page, UsagePage)
         assert page.events == []
 
@@ -1445,7 +1447,9 @@ class TestGetUsage:
         from app.providers.models import UsagePage
 
         p = GoogleProvider(GoogleConfig(display_name="Google"))
-        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC)
+        )
         assert isinstance(page, UsagePage)
         assert page.events == []
 
@@ -1458,7 +1462,9 @@ class TestGetUsage:
         p = AzureOpenAIProvider(
             AzureOpenAIConfig(display_name="Azure", azure_endpoint="https://x.openai.azure.com")
         )
-        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC)
+        )
         assert isinstance(page, UsagePage)
         assert page.events == []
 
@@ -1469,7 +1475,9 @@ class TestGetUsage:
         from app.providers.models import UsagePage
 
         p = OpenRouterProvider(OpenRouterConfig(display_name="OpenRouter"))
-        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC)
+        )
         assert isinstance(page, UsagePage)
         assert page.events == []
 
@@ -1480,6 +1488,8 @@ class TestGetUsage:
         from app.providers.models import UsagePage
 
         p = OllamaProvider(OllamaConfig(display_name="Ollama"))
-        page = await p.get_usage(datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC))
+        page = await p.get_usage(
+            datetime(2025, 1, 1, tzinfo=UTC), datetime(2025, 1, 31, tzinfo=UTC)
+        )
         assert isinstance(page, UsagePage)
         assert page.events == []

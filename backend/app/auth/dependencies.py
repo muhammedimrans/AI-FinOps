@@ -12,16 +12,16 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, HTTPException, Query, Request, Security, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 
-from app.api.deps import DbDep, get_settings
+from app.api.deps import DbDep
 from app.auth.rbac import Permission, has_permission
 from app.auth.tokens import decode_access_token
-from app.config.settings import Settings
+from app.config.settings import Settings, get_settings
 from app.models.membership import Membership
 from app.models.organization import Organization, OrganizationStatus
 from app.models.user import User, UserStatus
@@ -205,7 +205,11 @@ def RequirePermission(permission: Permission) -> Callable[..., Any]:  # noqa: N8
             raise _403
         return membership
 
-    return Depends(_check)
+    # FastAPI's Depends() is typed to return `Any` by design (its return value
+    # is a sentinel object consumed by FastAPI's DI machinery, not literally a
+    # callable) — cast to the documented factory return type instead of
+    # letting `Any` leak out of this function's declared signature.
+    return cast("Callable[..., Any]", Depends(_check))
 
 
 def RequireQueryPermission(permission: Permission) -> Callable[..., Any]:  # noqa: N802
@@ -229,4 +233,4 @@ def RequireQueryPermission(permission: Permission) -> Callable[..., Any]:  # noq
             raise _403
         return membership
 
-    return Depends(_check)
+    return cast("Callable[..., Any]", Depends(_check))

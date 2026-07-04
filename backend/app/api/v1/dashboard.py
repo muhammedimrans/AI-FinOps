@@ -16,11 +16,12 @@ All endpoints require a valid JWT AND verified membership of the requested
 organization (OrgScopedMembership) — the organization_id query parameter is
 never trusted without a membership check.
 """
+
 from __future__ import annotations
 
 import enum
 import uuid
-from datetime import date, datetime, timedelta, UTC
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Annotated
 
@@ -57,7 +58,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 # ── Granularity enum (RH-01) ──────────────────────────────────────────────────
 
 
-class Granularity(str, enum.Enum):
+class Granularity(enum.StrEnum):
     """Valid time-series granularity values.
 
     FastAPI will return HTTP 422 automatically for any value not in this enum.
@@ -280,7 +281,9 @@ async def get_organization_dashboard(
     db: DbDep,
     _member: OrgScopedMembership,
     organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
-    start_date: Annotated[date | None, Query(description="Start date (defaults to first of current month)")] = None,
+    start_date: Annotated[
+        date | None, Query(description="Start date (defaults to first of current month)")
+    ] = None,
     end_date: Annotated[date | None, Query(description="End date (defaults to today)")] = None,
     currency: Annotated[str, Query(description="Target currency")] = "USD",
 ) -> OrganizationDashboardResponse:
@@ -302,8 +305,12 @@ async def get_organization_dashboard(
     # asyncio.gather() with a shared session is not safe with SQLAlchemy async.
     # Parallel execution would require per-call sessions — deferred to EP-11 optimization.
     overview_data = await svc.get_overview(organization_id, today=today)
-    provider_rows = await svc.get_provider_breakdown(organization_id, effective_start, effective_end)
-    model_rows = await svc.get_model_breakdown(organization_id, effective_start, effective_end, limit=5)
+    provider_rows = await svc.get_provider_breakdown(
+        organization_id, effective_start, effective_end
+    )
+    model_rows = await svc.get_model_breakdown(
+        organization_id, effective_start, effective_end, limit=5
+    )
     project_rows = await svc.get_project_breakdown(organization_id, effective_start, effective_end)
 
     trend_start = today - timedelta(days=29)
@@ -329,9 +336,11 @@ async def get_organization_dashboard(
             active_providers=overview_data["active_providers"],
             active_models=overview_data["active_models"],
             collection_status=overview_data["collection_status"],
-            last_collection_at=overview_data["last_collection_at"].isoformat()
-            if overview_data["last_collection_at"]
-            else None,
+            last_collection_at=(
+                overview_data["last_collection_at"].isoformat()
+                if overview_data["last_collection_at"]
+                else None
+            ),
         ),
         provider_breakdown=[
             OrganizationProviderItem(
@@ -458,12 +467,12 @@ async def get_kpis(
     return KPIResponse(
         highest_cost_provider=data["highest_cost_provider"],
         highest_cost_model=data["highest_cost_model"],
-        avg_cost_per_request=str(data["avg_cost_per_request"])
-        if data["avg_cost_per_request"] is not None
-        else None,
-        avg_cost_per_token=str(data["avg_cost_per_token"])
-        if data["avg_cost_per_token"] is not None
-        else None,
+        avg_cost_per_request=(
+            str(data["avg_cost_per_request"]) if data["avg_cost_per_request"] is not None else None
+        ),
+        avg_cost_per_token=(
+            str(data["avg_cost_per_token"]) if data["avg_cost_per_token"] is not None else None
+        ),
         period_start=start_date.isoformat(),
         period_end=end_date.isoformat(),
         currency=currency,

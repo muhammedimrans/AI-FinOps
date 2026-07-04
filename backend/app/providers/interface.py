@@ -15,7 +15,6 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
-    UsageData,
     UsagePage,
 )
 

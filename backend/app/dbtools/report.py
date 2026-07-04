@@ -151,7 +151,7 @@ alembic -c migrations/alembic.ini upgrade head</pre>
         </div>"""
     else:
         steps_html = "".join(
-            f'<li><p>{_e(step.description)}</p><pre>{_e(step.sql)}</pre></li>'
+            f"<li><p>{_e(step.description)}</p><pre>{_e(step.sql)}</pre></li>"
             for step in recommendation.repair_plan
         )
         rec_panel = f"""
@@ -173,32 +173,40 @@ alembic -c migrations/alembic.ini upgrade head</pre>
             status = '<span class="pill err">unparseable</span>'
             detail = f"<details><summary>parser error</summary><pre>{_e(s.error)}</pre></details>"
         else:
-            status = _diff_pill(s.diff.total_mismatches)  # type: ignore[union-attr]
+            # RevisionScan's invariant is diff is not None exactly when error
+            # is None (see app/dbtools/recommend.py) — the type system can't
+            # express that cross-field relationship, so assert it here once
+            # to narrow `diff` for the rest of this branch instead of
+            # sprinkling `# type: ignore[union-attr]` on every attribute
+            # access below.
+            diff = s.diff
+            assert diff is not None, "diff must be set when scan.error is None"
+            status = _diff_pill(diff.total_mismatches)
             detail = ""
-            if s.diff.total_mismatches > 0:  # type: ignore[union-attr]
+            if diff.total_mismatches > 0:
                 parts = []
-                if s.diff.missing_tables:
+                if diff.missing_tables:
                     parts.append(
                         f'<li class="tag-missing">missing tables: '
-                        f'{", ".join(f"<code>{_e(t)}</code>" for t in s.diff.missing_tables)}</li>'
+                        f'{", ".join(f"<code>{_e(t)}</code>" for t in diff.missing_tables)}</li>'
                     )
-                if s.diff.extra_tables:
+                if diff.extra_tables:
                     parts.append(
                         f'<li class="tag-extra">extra tables: '
-                        f'{", ".join(f"<code>{_e(t)}</code>" for t in s.diff.extra_tables)}</li>'
+                        f'{", ".join(f"<code>{_e(t)}</code>" for t in diff.extra_tables)}</li>'
                     )
-                if s.diff.missing_enums:
+                if diff.missing_enums:
                     parts.append(
                         f'<li class="tag-missing">missing enums: '
-                        f'{", ".join(f"<code>{_e(t)}</code>" for t in s.diff.missing_enums)}</li>'
+                        f'{", ".join(f"<code>{_e(t)}</code>" for t in diff.missing_enums)}</li>'
                     )
-                if s.diff.extra_enums:
+                if diff.extra_enums:
                     parts.append(
                         f'<li class="tag-extra">extra enums: '
-                        f'{", ".join(f"<code>{_e(t)}</code>" for t in s.diff.extra_enums)}</li>'
+                        f'{", ".join(f"<code>{_e(t)}</code>" for t in diff.extra_enums)}</li>'
                     )
-                table_bits = "".join(_render_table_diff(td) for td in s.diff.table_diffs)
-                enum_bits = "".join(_render_enum_diff(ed) for ed in s.diff.enum_diffs)
+                table_bits = "".join(_render_table_diff(td) for td in diff.table_diffs)
+                enum_bits = "".join(_render_enum_diff(ed) for ed in diff.enum_diffs)
                 detail = (
                     "<details><summary>show diff</summary>"
                     f'<ul class="diff-list">{"".join(parts)}</ul>{table_bits}{enum_bits}'

@@ -12,6 +12,7 @@ Coverage targets:
 
 All tests are hermetic — no network calls, no real database.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -24,15 +25,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 # ── Test subject imports ───────────────────────────────────────────────────────
-
 from app.dashboard.service import DashboardService
-
-
-async def _mock_org_membership() -> Any:
-    """Bypass the org-membership guard — authz behavior is tested separately."""
-    from app.models.membership import Membership
-
-    return MagicMock(spec=Membership)
 from app.schemas.dashboard import (
     KPIResponse,
     ModelBreakdownResponse,
@@ -45,6 +38,14 @@ from app.schemas.dashboard import (
     TimeSeriesPoint,
     TimeSeriesResponse,
 )
+
+
+async def _mock_org_membership() -> Any:
+    """Bypass the org-membership guard — authz behavior is tested separately."""
+    from app.models.membership import Membership
+
+    return MagicMock(spec=Membership)
+
 
 # ── Test helpers ───────────────────────────────────────────────────────────────
 
@@ -124,11 +125,21 @@ def _make_cost_repo_mock(
     daily_rows: list | None = None,
 ) -> AsyncMock:
     repo = AsyncMock()
-    repo.get_totals_by_org = AsyncMock(return_value=org_rows if org_rows is not None else [_ORG_ROW])
-    repo.get_totals_by_provider = AsyncMock(return_value=provider_rows if provider_rows is not None else [_PROVIDER_ROW])
-    repo.get_totals_by_model = AsyncMock(return_value=model_rows if model_rows is not None else [_MODEL_ROW])
-    repo.get_totals_by_project = AsyncMock(return_value=project_rows if project_rows is not None else [_PROJECT_ROW])
-    repo.get_daily_trend = AsyncMock(return_value=daily_rows if daily_rows is not None else [_DAILY_TREND_ROW])
+    repo.get_totals_by_org = AsyncMock(
+        return_value=org_rows if org_rows is not None else [_ORG_ROW]
+    )
+    repo.get_totals_by_provider = AsyncMock(
+        return_value=provider_rows if provider_rows is not None else [_PROVIDER_ROW]
+    )
+    repo.get_totals_by_model = AsyncMock(
+        return_value=model_rows if model_rows is not None else [_MODEL_ROW]
+    )
+    repo.get_totals_by_project = AsyncMock(
+        return_value=project_rows if project_rows is not None else [_PROJECT_ROW]
+    )
+    repo.get_daily_trend = AsyncMock(
+        return_value=daily_rows if daily_rows is not None else [_DAILY_TREND_ROW]
+    )
     return repo
 
 
@@ -201,13 +212,17 @@ class TestDashboardSchemas:
         assert resp.last_collection_at is None
 
     def test_time_series_point(self) -> None:
-        pt = TimeSeriesPoint(date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD")
+        pt = TimeSeriesPoint(
+            date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD"
+        )
         assert pt.date == "2026-06-30"
         assert pt.cost == "10.00"
         assert pt.tokens == 500
 
     def test_time_series_response(self) -> None:
-        pts = [TimeSeriesPoint(date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD")]
+        pts = [
+            TimeSeriesPoint(date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD")
+        ]
         resp = TimeSeriesResponse(
             granularity="daily",
             start_date="2026-06-01",
@@ -471,8 +486,13 @@ class TestDashboardServiceTimeSeries:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
-            result = await svc.get_time_series(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "daily")
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
+            result = await svc.get_time_series(
+                _ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "daily"
+            )
 
         assert len(result) == 1
         assert result[0]["date"] == "2026-06-30"
@@ -485,13 +505,30 @@ class TestDashboardServiceTimeSeries:
         svc, _ = _make_dashboard_service()
         # Two rows in the same week
         two_day_rows = [
-            {**_DAILY_TREND_ROW, "usage_date": date(2026, 6, 29), "total_cost": Decimal("5.00"), "total_tokens": 200, "record_count": 1},
-            {**_DAILY_TREND_ROW, "usage_date": date(2026, 6, 30), "total_cost": Decimal("7.00"), "total_tokens": 300, "record_count": 2},
+            {
+                **_DAILY_TREND_ROW,
+                "usage_date": date(2026, 6, 29),
+                "total_cost": Decimal("5.00"),
+                "total_tokens": 200,
+                "record_count": 1,
+            },
+            {
+                **_DAILY_TREND_ROW,
+                "usage_date": date(2026, 6, 30),
+                "total_cost": Decimal("7.00"),
+                "total_tokens": 300,
+                "record_count": 2,
+            },
         ]
         analytics_svc = _make_analytics_service_mock(daily_rows=two_day_rows)
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
-            result = await svc.get_time_series(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "weekly")
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
+            result = await svc.get_time_series(
+                _ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "weekly"
+            )
 
         # Both dates are in ISO week 27 of 2026
         assert len(result) == 1
@@ -503,13 +540,30 @@ class TestDashboardServiceTimeSeries:
     async def test_monthly_granularity(self) -> None:
         svc, _ = _make_dashboard_service()
         two_month_rows = [
-            {**_DAILY_TREND_ROW, "usage_date": date(2026, 5, 15), "total_cost": Decimal("30.00"), "total_tokens": 1000, "record_count": 3},
-            {**_DAILY_TREND_ROW, "usage_date": date(2026, 6, 30), "total_cost": Decimal("20.00"), "total_tokens": 800, "record_count": 2},
+            {
+                **_DAILY_TREND_ROW,
+                "usage_date": date(2026, 5, 15),
+                "total_cost": Decimal("30.00"),
+                "total_tokens": 1000,
+                "record_count": 3,
+            },
+            {
+                **_DAILY_TREND_ROW,
+                "usage_date": date(2026, 6, 30),
+                "total_cost": Decimal("20.00"),
+                "total_tokens": 800,
+                "record_count": 2,
+            },
         ]
         analytics_svc = _make_analytics_service_mock(daily_rows=two_month_rows)
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
-            result = await svc.get_time_series(_ORG_ID, date(2026, 5, 1), date(2026, 6, 30), "monthly")
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
+            result = await svc.get_time_series(
+                _ORG_ID, date(2026, 5, 1), date(2026, 6, 30), "monthly"
+            )
 
         assert len(result) == 2
         months = {r["date"] for r in result}
@@ -521,8 +575,13 @@ class TestDashboardServiceTimeSeries:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock(daily_rows=[])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
-            result = await svc.get_time_series(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "daily")
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
+            result = await svc.get_time_series(
+                _ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "daily"
+            )
 
         assert result == []
 
@@ -531,8 +590,13 @@ class TestDashboardServiceTimeSeries:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
-            result = await svc.get_time_series(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "unknown")
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
+            result = await svc.get_time_series(
+                _ORG_ID, date(2026, 6, 1), date(2026, 6, 30), "unknown"
+            )
 
         # Falls back to daily — same result as daily
         assert len(result) == 1
@@ -547,7 +611,10 @@ class TestDashboardServiceProviderBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_provider_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert len(result) == 1
@@ -560,7 +627,10 @@ class TestDashboardServiceProviderBreakdown:
         row = {**_PROVIDER_ROW, "total_cost": Decimal("80.00"), "record_count": 8}
         analytics_svc = _make_analytics_service_mock(provider_rows=[row])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_provider_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result[0]["avg_cost_per_request"] == Decimal("10.00")
@@ -571,7 +641,10 @@ class TestDashboardServiceProviderBreakdown:
         row = {**_PROVIDER_ROW, "total_cost": Decimal("0"), "record_count": 0}
         analytics_svc = _make_analytics_service_mock(provider_rows=[row])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_provider_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result[0]["avg_cost_per_request"] == Decimal(0)
@@ -581,7 +654,10 @@ class TestDashboardServiceProviderBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock(provider_rows=[])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_provider_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result == []
@@ -595,7 +671,10 @@ class TestDashboardServiceModelBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_model_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert len(result) == 1
@@ -608,7 +687,10 @@ class TestDashboardServiceModelBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             await svc.get_model_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), limit=5)
 
         analytics_svc.get_top_models.assert_called_once_with(
@@ -620,7 +702,10 @@ class TestDashboardServiceModelBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock(model_rows=[])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_model_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result == []
@@ -634,7 +719,10 @@ class TestDashboardServiceProjectBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert len(result) == 1
@@ -646,7 +734,10 @@ class TestDashboardServiceProjectBreakdown:
         null_row = {**_PROJECT_ROW, "project_id": None}
         analytics_svc = _make_analytics_service_mock(project_rows=[null_row])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result[0]["project_id"] is None
@@ -656,7 +747,10 @@ class TestDashboardServiceProjectBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock(project_rows=[])
 
-        with patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc):
+        with patch(
+            "app.dashboard.service.DashboardService._make_analytics_service",
+            return_value=analytics_svc,
+        ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert result == []
@@ -672,7 +766,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock()
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -694,7 +791,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock()
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -712,7 +812,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock()
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -727,7 +830,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock(org_rows=[_ORG_ROW])
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -742,7 +848,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock(org_rows=[_ORG_ROW])
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -756,7 +865,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock(org_rows=[])
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -773,7 +885,10 @@ class TestDashboardServiceKPIs:
         cost_repo = _make_cost_repo_mock()
 
         with (
-            patch("app.dashboard.service.DashboardService._make_analytics_service", return_value=analytics_svc),
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
             patch("app.dashboard.service.DashboardService._cost_repo", return_value=cost_repo),
         ):
             result = await svc.get_kpis(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
@@ -907,8 +1022,8 @@ class TestDashboardValidationGuards:
 
     @pytest.mark.asyncio
     async def test_models_limit_exceeds_max(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -923,9 +1038,7 @@ class TestDashboardValidationGuards:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -948,8 +1061,8 @@ def _app_with_mocked_auth_and_service(app: Any, mock_service_methods: dict) -> t
 
     Returns (app, mock_svc) where mock_svc is the patched DashboardService.
     """
-    from app.auth.dependencies import get_current_user, get_query_org_membership
     from app.api.deps import get_db
+    from app.auth.dependencies import get_current_user, get_query_org_membership
     from app.models.user import User
 
     mock_user = MagicMock(spec=User)
@@ -981,8 +1094,8 @@ class TestOverviewEndpoint:
 
     @pytest.mark.asyncio
     async def test_overview_returns_200_with_auth(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1019,8 +1132,12 @@ class TestOverviewEndpoint:
                 new_callable=lambda: lambda *a, **kw: AsyncMock(return_value=overview_data)(),
             ):
                 # Use patch on the class method instead
-                with patch.object(DashboardService, "get_overview", return_value=overview_data) as mock_method:
-                    mock_method.__get__ = lambda self, obj, objtype=None: AsyncMock(return_value=overview_data)
+                with patch.object(
+                    DashboardService, "get_overview", return_value=overview_data
+                ) as mock_method:
+                    mock_method.__get__ = lambda self, obj, objtype=None: AsyncMock(
+                        return_value=overview_data
+                    )
 
                     async with AsyncClient(
                         transport=ASGITransport(app=app), base_url="http://test"
@@ -1036,8 +1153,8 @@ class TestOverviewEndpoint:
     @pytest.mark.asyncio
     async def test_overview_response_shape(self, app: Any) -> None:
         """Test that the overview endpoint returns the correct shape."""
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1062,9 +1179,7 @@ class TestOverviewEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/overview",
                     params={"organization_id": str(_ORG_ID)},
@@ -1090,8 +1205,8 @@ class TestOverviewEndpoint:
     @pytest.mark.asyncio
     async def test_overview_decimal_values_are_strings(self, app: Any) -> None:
         """Critical: monetary values must be JSON strings, not numbers."""
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1114,9 +1229,7 @@ class TestOverviewEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/overview",
                     params={"organization_id": str(_ORG_ID)},
@@ -1135,8 +1248,8 @@ class TestTimeSeriesEndpoint:
     """Tests for GET /v1/dashboard/time-series."""
 
     def _setup(self, app: Any) -> tuple[Any, Any, AsyncMock]:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1163,9 +1276,7 @@ class TestTimeSeriesEndpoint:
     async def test_time_series_daily_returns_200(self, app: Any) -> None:
         app, _, _ = self._setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -1189,9 +1300,7 @@ class TestTimeSeriesEndpoint:
     async def test_time_series_weekly_returns_200(self, app: Any) -> None:
         app, _, _ = self._setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -1211,9 +1320,7 @@ class TestTimeSeriesEndpoint:
     async def test_time_series_monthly_returns_200(self, app: Any) -> None:
         app, _, _ = self._setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -1233,9 +1340,7 @@ class TestTimeSeriesEndpoint:
     async def test_time_series_empty_returns_200_not_404(self, app: Any) -> None:
         app, _, _ = self._setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -1254,9 +1359,7 @@ class TestTimeSeriesEndpoint:
     async def test_time_series_total_cost_is_string(self, app: Any) -> None:
         app, _, _ = self._setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -1277,8 +1380,8 @@ class TestProviderEndpoint:
 
     @pytest.mark.asyncio
     async def test_providers_returns_200(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1300,9 +1403,7 @@ class TestProviderEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/providers",
                     params={
@@ -1322,8 +1423,8 @@ class TestProviderEndpoint:
 
     @pytest.mark.asyncio
     async def test_providers_empty_returns_200_not_404(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1345,9 +1446,7 @@ class TestProviderEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/providers",
                     params={
@@ -1368,8 +1467,8 @@ class TestModelsEndpoint:
 
     @pytest.mark.asyncio
     async def test_models_returns_200(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1391,9 +1490,7 @@ class TestModelsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -1413,8 +1510,8 @@ class TestModelsEndpoint:
 
     @pytest.mark.asyncio
     async def test_models_respects_limit(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1436,9 +1533,7 @@ class TestModelsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -1454,8 +1549,8 @@ class TestModelsEndpoint:
 
     @pytest.mark.asyncio
     async def test_models_empty_returns_200_not_404(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1477,9 +1572,7 @@ class TestModelsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -1500,8 +1593,8 @@ class TestOrganizationEndpoint:
 
     @pytest.mark.asyncio
     async def test_organization_returns_200(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1524,9 +1617,7 @@ class TestOrganizationEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/organization",
                     params={"organization_id": str(_ORG_ID)},
@@ -1543,8 +1634,8 @@ class TestOrganizationEndpoint:
 
     @pytest.mark.asyncio
     async def test_organization_composite_response_structure(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1567,9 +1658,7 @@ class TestOrganizationEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/organization",
                     params={
@@ -1594,8 +1683,8 @@ class TestOrganizationEndpoint:
     @pytest.mark.asyncio
     async def test_organization_defaults_to_current_month(self, app: Any) -> None:
         """Start/end dates are optional — defaults to current month."""
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1618,9 +1707,7 @@ class TestOrganizationEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 # No start_date / end_date params
                 resp = await ac.get(
                     "/v1/dashboard/organization",
@@ -1636,8 +1723,8 @@ class TestProjectsEndpoint:
 
     @pytest.mark.asyncio
     async def test_projects_returns_200(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1659,9 +1746,7 @@ class TestProjectsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/projects",
                     params={
@@ -1681,8 +1766,8 @@ class TestProjectsEndpoint:
 
     @pytest.mark.asyncio
     async def test_projects_empty_returns_200_not_404(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1704,9 +1789,7 @@ class TestProjectsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/projects",
                     params={
@@ -1727,8 +1810,8 @@ class TestKPIsEndpoint:
 
     @pytest.mark.asyncio
     async def test_kpis_returns_200(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1750,9 +1833,7 @@ class TestKPIsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/kpis",
                     params={
@@ -1775,8 +1856,8 @@ class TestKPIsEndpoint:
 
     @pytest.mark.asyncio
     async def test_kpis_empty_data_returns_200_not_404(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1798,9 +1879,7 @@ class TestKPIsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/kpis",
                     params={
@@ -1818,8 +1897,8 @@ class TestKPIsEndpoint:
 
     @pytest.mark.asyncio
     async def test_kpis_string_fields_for_decimals(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1841,9 +1920,7 @@ class TestKPIsEndpoint:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/kpis",
                     params={
@@ -1873,8 +1950,8 @@ class TestDecimalSerializationInAPI:
 
     @pytest.mark.asyncio
     async def test_providers_total_cost_is_string(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1896,9 +1973,7 @@ class TestDecimalSerializationInAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/providers",
                     params={
@@ -1915,8 +1990,8 @@ class TestDecimalSerializationInAPI:
 
     @pytest.mark.asyncio
     async def test_models_total_cost_is_string(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1938,9 +2013,7 @@ class TestDecimalSerializationInAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -1957,8 +2030,8 @@ class TestDecimalSerializationInAPI:
 
     @pytest.mark.asyncio
     async def test_projects_total_cost_is_string(self, app: Any) -> None:
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -1980,9 +2053,7 @@ class TestDecimalSerializationInAPI:
         app.dependency_overrides[get_query_org_membership] = _mock_org_membership
         app.dependency_overrides[get_db] = mock_get_db
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/projects",
                     params={
@@ -2037,8 +2108,8 @@ def _authed_client_setup(app: Any) -> None:
 
     Caller MUST call app.dependency_overrides.clear() in a finally block.
     """
-    from app.auth.dependencies import get_current_user, get_query_org_membership
     from app.api.deps import get_db
+    from app.auth.dependencies import get_current_user, get_query_org_membership
     from app.models.user import User
 
     mock_user = MagicMock(spec=User)
@@ -2070,9 +2141,7 @@ class TestRH01GranularityValidation:
         """Unknown granularity 'hourly' must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2091,9 +2160,7 @@ class TestRH01GranularityValidation:
         """Arbitrary string granularity 'foo' must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2112,9 +2179,7 @@ class TestRH01GranularityValidation:
         """Case-sensitive: 'DAILY' must return 422 (only 'daily' is valid)."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2133,9 +2198,7 @@ class TestRH01GranularityValidation:
         """'daily' is a valid granularity and must return 200."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2155,9 +2218,7 @@ class TestRH01GranularityValidation:
         """'weekly' is a valid granularity and must return 200."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2177,9 +2238,7 @@ class TestRH01GranularityValidation:
         """'monthly' is a valid granularity and must return 200."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2203,9 +2262,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /providers must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/providers",
                     params={
@@ -2223,9 +2280,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /models must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/models",
                     params={
@@ -2243,9 +2298,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /kpis must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/kpis",
                     params={
@@ -2263,9 +2316,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /time-series must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/time-series",
                     params={
@@ -2283,9 +2334,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /projects must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/projects",
                     params={
@@ -2303,9 +2352,7 @@ class TestRH02DateRangeValidation:
         """start_date > end_date on /organization must return 422."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/organization",
                     params={
@@ -2323,9 +2370,7 @@ class TestRH02DateRangeValidation:
         """start_date == end_date is valid and must return 200."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/providers",
                     params={
@@ -2350,7 +2395,7 @@ class TestRH02DateRangeValidation:
                     status_code=422,
                     detail="start_date must be before or equal to end_date",
                 )
-            assert False, "Should have raised"
+            raise AssertionError("Should have raised")
         except HTTPException as exc:
             assert exc.status_code == 422
             assert "start_date" in exc.detail
@@ -2363,8 +2408,8 @@ class TestRH02CurrencyFiltering:
     @pytest.mark.asyncio
     async def test_provider_breakdown_filters_by_currency(self, app: Any) -> None:
         """Provider breakdown with currency=USD must exclude EUR records."""
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -2432,8 +2477,8 @@ class TestRH02CurrencyFiltering:
     @pytest.mark.asyncio
     async def test_model_breakdown_filters_by_currency(self, app: Any) -> None:
         """Model breakdown with currency=USD must exclude EUR records."""
-        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.api.deps import get_db
+        from app.auth.dependencies import get_current_user, get_query_org_membership
         from app.models.user import User
 
         mock_user = MagicMock(spec=User)
@@ -2525,9 +2570,7 @@ class TestRH03ResponseModelOrganization:
         top_models, project_breakdown, and daily_trend keys."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/organization",
                     params={"organization_id": str(_ORG_ID)},
@@ -2547,15 +2590,11 @@ class TestRH03ResponseModelOrganization:
             app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
-    async def test_organization_overview_block_monetary_fields_are_strings(
-        self, app: Any
-    ) -> None:
+    async def test_organization_overview_block_monetary_fields_are_strings(self, app: Any) -> None:
         """Overview monetary fields in /organization must be JSON strings."""
         _authed_client_setup(app)
         try:
-            async with AsyncClient(
-                transport=ASGITransport(app=app), base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
                 resp = await ac.get(
                     "/v1/dashboard/organization",
                     params={"organization_id": str(_ORG_ID)},

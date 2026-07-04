@@ -134,9 +134,7 @@ class TestNormalizeAsyncpgUrl:
     # ── scheme rewriting ──────────────────────────────────────────────────────
 
     def test_postgres_scheme_rewritten(self) -> None:
-        assert _normalize_asyncpg_url("postgres://u:p@host/db").startswith(
-            "postgresql+asyncpg://"
-        )
+        assert _normalize_asyncpg_url("postgres://u:p@host/db").startswith("postgresql+asyncpg://")
 
     def test_postgresql_scheme_rewritten(self) -> None:
         assert _normalize_asyncpg_url("postgresql://u:p@host/db").startswith(
@@ -182,9 +180,7 @@ class TestNormalizeAsyncpgUrl:
         assert "gssencmode" not in out
 
     def test_target_session_attrs_removed(self) -> None:
-        out = _normalize_asyncpg_url(
-            "postgres://u:p@host/db?target_session_attrs=read-write"
-        )
+        out = _normalize_asyncpg_url("postgres://u:p@host/db?target_session_attrs=read-write")
         assert "target_session_attrs" not in out
 
     def test_all_unsupported_params_removed_together(self) -> None:
@@ -205,9 +201,7 @@ class TestNormalizeAsyncpgUrl:
     # ── supported parameters preserved ───────────────────────────────────────
 
     def test_connect_timeout_preserved(self) -> None:
-        out = _normalize_asyncpg_url(
-            "postgres://u:p@host/db?sslmode=require&connect_timeout=10"
-        )
+        out = _normalize_asyncpg_url("postgres://u:p@host/db?sslmode=require&connect_timeout=10")
         assert "connect_timeout=10" in out
 
     def test_no_query_params_unchanged(self) -> None:
@@ -246,9 +240,7 @@ class TestDatabaseUrlNormalizationViaSettings:
         assert "sslmode" not in url
 
     def test_channel_binding_stripped_via_settings(self) -> None:
-        url = self._url(
-            "postgres://u:p@host/db?sslmode=require&channel_binding=require"
-        )
+        url = self._url("postgres://u:p@host/db?sslmode=require&channel_binding=require")
         assert "channel_binding" not in url
 
 

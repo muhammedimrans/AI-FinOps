@@ -181,16 +181,16 @@ class ConnectionManager:
             try:
                 info.queue.put_nowait(event)
             except asyncio.QueueFull:
-                for callback in self._on_drop:
-                    callback(info)
+                for drop_callback in self._on_drop:
+                    drop_callback(info)
                 log.warning(
                     "realtime_event_dropped_queue_full",
                     connection_id=connection_id,
                     organization_id=str(organization_id),
                 )
             else:
-                for callback in self._on_dispatch:
-                    callback(info, event)
+                for dispatch_callback in self._on_dispatch:
+                    dispatch_callback(info, event)
 
     def on_drop(self, callback: Callable[[ConnectionInfo], None]) -> None:
         """Registers a callback invoked whenever an event is dropped for a

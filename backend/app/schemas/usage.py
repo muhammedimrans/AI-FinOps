@@ -6,10 +6,9 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ValidationInfo, field_validator
 
 from app.models.usage_collection_run import CollectionRunStatus, CollectionTrigger
-
 
 # ── Request schemas ────────────────────────────────────────────────────────────
 
@@ -26,7 +25,7 @@ class CollectUsageRequest(BaseModel):
 
     @field_validator("end_date")
     @classmethod
-    def _end_after_start(cls, v: datetime, info: Any) -> datetime:
+    def _end_after_start(cls, v: datetime, info: ValidationInfo) -> datetime:
         start = info.data.get("start_date")
         if start and v <= start:
             raise ValueError("end_date must be after start_date")

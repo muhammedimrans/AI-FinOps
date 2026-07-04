@@ -18,9 +18,6 @@ mock httpx transport so real API calls are never made.
 from __future__ import annotations
 
 import json
-import os
-from datetime import UTC, datetime
-from unittest.mock import MagicMock
 
 import httpx
 import pytest
@@ -48,10 +45,7 @@ from app.providers.errors import (
 )
 from app.providers.info import ProviderInfo
 from app.providers.models import (
-    ConnectionStatus,
     HealthStatus,
-    ModelCapabilityFlag,
-    ModelMetadata,
 )
 from app.providers.retry import BackoffStrategy, RetryConfig
 
@@ -96,7 +90,7 @@ def _openai_config(*, key: str = _VALID_OPENAI_KEY) -> OpenAIConfig:
     return OpenAIConfig(
         provider_type="openai",
         display_name="OpenAI",
-        api_key_ref=SecretReference(secret_store=SecretStoreType.ENV, secret_key="TEST_OAI_KEY"),
+        api_key_ref=SecretReference(secret_store=SecretStoreType.ENV, lookup_key="TEST_OAI_KEY"),
     )
 
 
@@ -104,9 +98,7 @@ def _anthropic_config(*, key: str = _VALID_ANTHROPIC_KEY) -> AnthropicConfig:
     return AnthropicConfig(
         provider_type="anthropic",
         display_name="Anthropic",
-        api_key_ref=SecretReference(
-            secret_store=SecretStoreType.ENV, secret_key="TEST_ANT_KEY"
-        ),
+        api_key_ref=SecretReference(secret_store=SecretStoreType.ENV, lookup_key="TEST_ANT_KEY"),
     )
 
 
@@ -432,7 +424,9 @@ class TestExponentialRetryPolicy:
         assert not policy.should_retry(2, err)
 
     def test_exponential_delay_increases(self) -> None:
-        policy = ExponentialRetryPolicy(RetryConfig(initial_delay_seconds=1.0, backoff_multiplier=2.0))
+        policy = ExponentialRetryPolicy(
+            RetryConfig(initial_delay_seconds=1.0, backoff_multiplier=2.0)
+        )
         d1 = policy.get_delay(1)
         d2 = policy.get_delay(2)
         assert d2 > d1
@@ -472,25 +466,25 @@ class TestExponentialRetryPolicy:
 class TestSecretResolver:
     def test_resolves_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MY_API_KEY", "sk-test-value")
-        ref = SecretReference(secret_store=SecretStoreType.ENV, secret_key="MY_API_KEY")
+        ref = SecretReference(secret_store=SecretStoreType.ENV, lookup_key="MY_API_KEY")
         value = SecretResolver.resolve(ref, provider_type="openai")
         assert value == "sk-test-value"
 
     def test_raises_when_env_var_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("MISSING_KEY", raising=False)
-        ref = SecretReference(secret_store=SecretStoreType.ENV, secret_key="MISSING_KEY")
+        ref = SecretReference(secret_store=SecretStoreType.ENV, lookup_key="MISSING_KEY")
         with pytest.raises(AuthenticationError) as exc_info:
             SecretResolver.resolve(ref, provider_type="openai")
         assert "MISSING_KEY" in str(exc_info.value)
 
     def test_raises_when_env_var_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("EMPTY_KEY", "")
-        ref = SecretReference(secret_store=SecretStoreType.ENV, secret_key="EMPTY_KEY")
+        ref = SecretReference(secret_store=SecretStoreType.ENV, lookup_key="EMPTY_KEY")
         with pytest.raises(AuthenticationError):
             SecretResolver.resolve(ref, provider_type="openai")
 
     def test_unsupported_store_raises(self) -> None:
-        ref = SecretReference(secret_store=SecretStoreType.VAULT, secret_key="path/to/key")
+        ref = SecretReference(secret_store=SecretStoreType.VAULT, lookup_key="path/to/key")
         with pytest.raises(AuthenticationError) as exc_info:
             SecretResolver.resolve(ref, provider_type="openai")
         assert "not supported" in str(exc_info.value)
@@ -619,7 +613,7 @@ class TestOpenAIProvider:
             provider_type="openai",
             display_name="OpenAI",
             api_key_ref=SecretReference(
-                secret_store=SecretStoreType.ENV, secret_key="TEST_OPENAI_KEY"
+                secret_store=SecretStoreType.ENV, lookup_key="TEST_OPENAI_KEY"
             ),
         )
         return OpenAIProvider(config, http_transport=transport)
@@ -641,9 +635,7 @@ class TestOpenAIProvider:
             await provider.verify_auth()
 
     @pytest.mark.asyncio
-    async def test_verify_auth_401_raises_auth_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_verify_auth_401_raises_auth_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEST_OPENAI_KEY", _VALID_OPENAI_KEY)
         transport = _mock_transport([_make_response(401)])
         provider = self._make_provider(transport)
@@ -682,9 +674,7 @@ class TestOpenAIProvider:
         assert provider.is_healthy is False
 
     @pytest.mark.asyncio
-    async def test_list_models_enriches_known_models(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_list_models_enriches_known_models(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEST_OPENAI_KEY", _VALID_OPENAI_KEY)
         raw = {"data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}, {"id": "gpt-unknown-xyz"}]}
         transport = _mock_transport([_make_response(200, raw)])
@@ -745,8 +735,8 @@ class TestOpenAIProvider:
         assert info.health == HealthStatus.UNKNOWN
 
     def test_provider_type(self) -> None:
-        from app.providers.adapters.openai import OpenAIProvider
         from app.models.provider_connection import ProviderType
+        from app.providers.adapters.openai import OpenAIProvider
 
         config = OpenAIConfig(provider_type="openai", display_name="OpenAI")
         provider = OpenAIProvider(config)
@@ -789,7 +779,7 @@ class TestAnthropicProvider:
             provider_type="anthropic",
             display_name="Anthropic",
             api_key_ref=SecretReference(
-                secret_store=SecretStoreType.ENV, secret_key="TEST_ANT_KEY"
+                secret_store=SecretStoreType.ENV, lookup_key="TEST_ANT_KEY"
             ),
         )
         return AnthropicProvider(config, http_transport=transport)
@@ -830,9 +820,7 @@ class TestAnthropicProvider:
         assert provider.is_healthy is False
 
     @pytest.mark.asyncio
-    async def test_list_models_enriches_known_models(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_list_models_enriches_known_models(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("TEST_ANT_KEY", _VALID_ANTHROPIC_KEY)
         raw = {
             "data": [
@@ -885,8 +873,8 @@ class TestAnthropicProvider:
         assert info.api_version == "2024-01-01"
 
     def test_provider_type(self) -> None:
-        from app.providers.adapters.anthropic import AnthropicProvider
         from app.models.provider_connection import ProviderType
+        from app.providers.adapters.anthropic import AnthropicProvider
 
         config = AnthropicConfig(provider_type="anthropic", display_name="Anthropic")
         provider = AnthropicProvider(config)
@@ -1056,9 +1044,7 @@ class TestProviderHttpClientRetry:
             _make_response(200, {"data": []}),
         ]
         transport = _mock_transport(responses)
-        policy = ExponentialRetryPolicy(
-            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
-        )
+        policy = ExponentialRetryPolicy(RetryConfig(max_attempts=3, initial_delay_seconds=0.0))
         async with ProviderHttpClient(
             base_url="https://api.openai.com",
             auth=BearerTokenAuth("sk-test"),
@@ -1071,13 +1057,10 @@ class TestProviderHttpClientRetry:
 
     @pytest.mark.asyncio
     async def test_exhausts_retry_budget_on_repeated_503(self) -> None:
-        from app.providers.errors import InternalProviderError
 
         responses = [_make_response(503)] * 4
         transport = _mock_transport(responses)
-        policy = ExponentialRetryPolicy(
-            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
-        )
+        policy = ExponentialRetryPolicy(RetryConfig(max_attempts=3, initial_delay_seconds=0.0))
         async with ProviderHttpClient(
             base_url="https://api.openai.com",
             auth=BearerTokenAuth("sk-test"),
@@ -1092,9 +1075,7 @@ class TestProviderHttpClientRetry:
     async def test_no_retry_on_401(self) -> None:
         responses = [_make_response(401), _make_response(200, {"data": []})]
         transport = _mock_transport(responses)
-        policy = ExponentialRetryPolicy(
-            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
-        )
+        policy = ExponentialRetryPolicy(RetryConfig(max_attempts=3, initial_delay_seconds=0.0))
         async with ProviderHttpClient(
             base_url="https://api.openai.com",
             auth=BearerTokenAuth("sk-bad"),
@@ -1109,9 +1090,7 @@ class TestProviderHttpClientRetry:
     async def test_no_retry_on_404(self) -> None:
         responses = [_make_response(404), _make_response(200, {"data": []})]
         transport = _mock_transport(responses)
-        policy = ExponentialRetryPolicy(
-            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
-        )
+        policy = ExponentialRetryPolicy(RetryConfig(max_attempts=3, initial_delay_seconds=0.0))
         async with ProviderHttpClient(
             base_url="https://api.openai.com",
             auth=BearerTokenAuth("sk-test"),
@@ -1129,9 +1108,7 @@ class TestProviderHttpClientRetry:
             _make_response(200, {"data": []}),
         ]
         transport = _mock_transport(responses)
-        policy = ExponentialRetryPolicy(
-            RetryConfig(max_attempts=3, initial_delay_seconds=0.0)
-        )
+        policy = ExponentialRetryPolicy(RetryConfig(max_attempts=3, initial_delay_seconds=0.0))
         async with ProviderHttpClient(
             base_url="https://api.openai.com",
             auth=BearerTokenAuth("sk-test"),
@@ -1168,11 +1145,10 @@ class TestFactoryEnforcement:
         assert isinstance(adapter, AnthropicProvider)
 
     def test_factory_raises_on_type_mismatch(self) -> None:
+        from app.providers.adapters.anthropic import AnthropicProvider
         from app.providers.errors import ProviderConfigurationError
         from app.providers.factory import ProviderFactory
         from app.providers.registry import ProviderRegistry
-
-        from app.providers.adapters.anthropic import AnthropicProvider
 
         registry = ProviderRegistry()
         registry.register("openai", AnthropicProvider)

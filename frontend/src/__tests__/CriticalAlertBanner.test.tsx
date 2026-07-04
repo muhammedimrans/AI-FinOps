@@ -48,15 +48,11 @@ describe("CriticalAlertBanner", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     useNotificationStore.setState({ readIds: {}, dismissedIds: {} });
-    mockedApi.getProjects.mockResolvedValue({ projects: [] });
+    mockedApi.getProjects.mockResolvedValue({ projects: [], currency: "USD" });
     mockedApi.getTimeSeries.mockResolvedValue({
       granularity: "daily",
-      start_date: "2026-06-01",
-      end_date: "2026-06-30",
-      points: [],
-      total_cost: "0",
-      total_tokens: 0,
-      total_requests: 0,
+      currency: "USD",
+      data: [],
     });
     useRealtimeStore.setState({
       recentActivity: [],

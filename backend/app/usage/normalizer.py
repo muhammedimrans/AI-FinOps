@@ -88,7 +88,9 @@ class OpenAIUsageNormalizer:
             provider_request_id=request_id,
             provider="openai",
             model=model,
-            timestamp=datetime.fromtimestamp(start_time, tz=UTC) if start_time else datetime.now(UTC),
+            timestamp=(
+                datetime.fromtimestamp(start_time, tz=UTC) if start_time else datetime.now(UTC)
+            ),
             prompt_tokens=input_t,
             completion_tokens=output_t,
             total_tokens=total_t,

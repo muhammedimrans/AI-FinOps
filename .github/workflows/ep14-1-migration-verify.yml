@@ -1,0 +1,87 @@
+name: EP-14.1 — Migration Verification (temporary)
+
+# Temporary, one-off workflow for the EP-14.1 production migration recovery
+# investigation. Runs the read-only verify_migrations.py tool
+# (backend/app/dbtools/) against a Neon branch — NEVER production — and
+# uploads the generated HTML report as an artifact.
+#
+# Safety, by construction:
+#   - Manual trigger only (workflow_dispatch) — never runs on push/PR, so it
+#     can't fire against a database unexpectedly.
+#   - The only database command executed is `python -m scripts.verify_migrations`,
+#     which (see backend/docs/dbtools/04-safety.md) issues SELECT/SET-only
+#     queries, opens the connection in Postgres's own session-level READ ONLY
+#     mode, and has no --stamp/--apply flag — there is no code path in this
+#     job that can run `alembic stamp` or `alembic upgrade`.
+#   - DATABASE_URL comes from a GitHub Secret and is never echoed, written to
+#     a file, or included in the report (the tool masks it to host/db name
+#     only before it ever reaches stdout or the HTML output).
+#   - Delete this workflow file once the investigation is complete — it is
+#     not meant to be a permanent part of CI.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_target:
+        description: >-
+          Type "neon-branch" to confirm DATABASE_URL points at a Neon
+          branch, not production. The run is aborted otherwise.
+        required: true
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  verify-migrations:
+    name: Verify migrations (read-only)
+    runs-on: ubuntu-latest
+    # No environment: block here — this must never inherit a
+    # production-scoped environment's secrets/approval gate.
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Guard — require explicit non-production confirmation
+        if: ${{ github.event.inputs.confirm_target != 'neon-branch' }}
+        run: |
+          echo "::error::confirm_target must be exactly 'neon-branch'. Aborting without touching any database."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -e .
+
+      - name: Run migration verification tool (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m scripts.verify_migrations --output migration_recovery_report.html
+
+      - name: Publish recommendation to job summary
+        if: always()
+        run: |
+          {
+            echo "## EP-14.1 Migration Verification"
+            echo
+            echo 'Full report is attached as the migration-recovery-report artifact.'
+            echo 'This job only ran read-only introspection - no "alembic stamp"'
+            echo 'or "alembic upgrade" was executed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-recovery-report
+          path: backend/migration_recovery_report.html
+          retention-days: 14

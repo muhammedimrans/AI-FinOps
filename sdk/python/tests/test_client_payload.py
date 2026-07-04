@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import httpx
 import pytest
@@ -67,7 +67,7 @@ def test_track_includes_optional_fields_when_provided() -> None:
         region="us-east-1",
         project_id="proj_1",
         request_id="my-custom-id",
-        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc),
         metadata={"foo": "bar"},
     )
     client.close()

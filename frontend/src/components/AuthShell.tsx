@@ -1,20 +1,20 @@
 import type { ReactNode } from "react";
 import { motion } from "framer-motion";
 import AuroraBackground from "./AuroraBackground";
-import ParticleField from "./ParticleField";
 import ThemeSwitcher from "./ThemeSwitcher";
 import { CostorahMark } from "./CostorahLogo";
 
 /**
  * Centered single-panel layout for auxiliary auth pages (password reset,
  * email verification) — same ambient background language as Login without
- * the marketing split-screen.
+ * the marketing split-screen. Aurora alone is the ambient motion source; it
+ * previously ran alongside a particle drift field too, which read as
+ * overwhelming ("dizzy") on what's meant to be a quiet, functional page.
  */
 export default function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen w-full flex items-center justify-center relative bg-app-bg overflow-hidden p-4">
       <AuroraBackground />
-      <ParticleField count={20} className="absolute inset-0 z-0" />
       <div className="absolute top-4 right-4 z-20">
         <ThemeSwitcher />
       </div>

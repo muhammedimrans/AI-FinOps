@@ -91,7 +91,7 @@ def test_sync_middleware_captures_request_context(monkeypatch: pytest.MonkeyPatc
         return response
 
     middleware = CostorahMiddleware(get_response)
-    assert middleware._is_coroutine is False
+    assert middleware._is_async_middleware is False
 
     request = RequestFactory().get("/ping", HTTP_X_REQUEST_ID="custom-req-1")
     request.user = _FakeUser(42, is_authenticated=True)
@@ -160,7 +160,7 @@ def test_async_middleware_captures_request_context(monkeypatch: pytest.MonkeyPat
         return {}
 
     middleware = CostorahMiddleware(get_response)
-    assert middleware._is_coroutine is True
+    assert middleware._is_async_middleware is True
 
     request = RequestFactory().get("/ping", HTTP_X_REQUEST_ID="async-req-1")
     response = asyncio.run(middleware(request))

@@ -8,7 +8,6 @@ import { useOrgStore } from "../stores/org";
 import { cn } from "../utils";
 import CostorahLogo, { CostorahMark } from "../components/CostorahLogo";
 import AuroraBackground from "../components/AuroraBackground";
-import ParticleField from "../components/ParticleField";
 import ThemeSwitcher from "../components/ThemeSwitcher";
 
 export default function Login() {
@@ -76,9 +75,12 @@ export default function Login() {
 
   return (
     <div className="min-h-screen w-full flex relative bg-app-bg overflow-hidden">
-      {/* Full-bleed ambient background shared by both panels */}
+      {/* Full-bleed ambient background shared by both panels — Aurora alone
+          is the single ambient motion source; it previously ran alongside a
+          30-particle drift field plus the left panel's pulsing network graph
+          and floating cards, which together read as visually overwhelming
+          ("dizzy") rather than ambient. */}
       <AuroraBackground />
-      <ParticleField count={30} className="absolute inset-0 z-0" />
       <div className="absolute top-4 right-4 z-20">
         <ThemeSwitcher />
       </div>
@@ -379,8 +381,9 @@ function NetworkBackdrop() {
           cy={n.y}
           r="2.5"
           fill="rgb(var(--color-brand))"
-          animate={{ opacity: [0.4, 1, 0.4] }}
-          transition={{ duration: 3, delay: i * 0.3, repeat: Infinity, ease: "easeInOut" }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 0.7 }}
+          transition={{ duration: 0.6, delay: 0.8 + i * 0.1, ease: "easeOut" }}
         />
       ))}
     </svg>

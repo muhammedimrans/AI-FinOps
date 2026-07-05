@@ -129,8 +129,12 @@ class CostorahMiddleware:
 
     def __init__(self, get_response: GetResponse) -> None:
         self.get_response = get_response
-        self._is_coroutine = iscoroutinefunction(get_response)
-        if self._is_coroutine:
+        # Own dispatch flag — kept separate from `_is_coroutine` below.
+        # `markcoroutinefunction(self)` sets `self._is_coroutine` to
+        # asgiref's sentinel marker object (not a bool), so reusing that
+        # attribute name here would get silently overwritten by it.
+        self._is_async_middleware = iscoroutinefunction(get_response)
+        if self._is_async_middleware:
             markcoroutinefunction(self)
 
         installed_version = importlib.metadata.version("django")
@@ -162,7 +166,7 @@ class CostorahMiddleware:
         return request_id, context
 
     def __call__(self, request: HttpRequest) -> Any:
-        if self._is_coroutine:
+        if self._is_async_middleware:
             return self.__acall__(request)
         return self.__sync_call__(request)
 

@@ -5,7 +5,8 @@ vocabulary this project's migrations use (verified against every
 migration in migrations/versions/ at the time this was written):
 `CREATE TABLE`, `CREATE INDEX`/`CREATE UNIQUE INDEX`, `CREATE TYPE ... AS
 ENUM`, `ALTER TYPE ... ADD VALUE`, `ALTER TABLE ... ADD COLUMN`,
-`ALTER TABLE ... DROP COLUMN`, `ALTER TABLE ... ADD CONSTRAINT`,
+`ALTER TABLE ... DROP COLUMN [IF EXISTS]`, `ALTER TABLE ... ADD
+CONSTRAINT`, `ALTER TABLE ... DROP CONSTRAINT [IF EXISTS]`,
 `ALTER TABLE ... ALTER COLUMN ... SET NOT NULL`, `DROP INDEX`. A
 statement shape outside this list is skipped (logged, never guessed at)
 rather than mis-parsed — see `parse_ddl()`'s `unrecognized` return value.
@@ -37,9 +38,14 @@ _DROP_INDEX_RE = re.compile(r"^DROP INDEX\s+(\w+)", re.IGNORECASE)
 _ALTER_ADD_COLUMN_RE = re.compile(
     r"^ALTER TABLE\s+(\w+)\s+ADD COLUMN\s+(\w+)\s+(.*)$", re.IGNORECASE | re.DOTALL
 )
-_ALTER_DROP_COLUMN_RE = re.compile(r"^ALTER TABLE\s+(\w+)\s+DROP COLUMN\s+(\w+)", re.IGNORECASE)
+_ALTER_DROP_COLUMN_RE = re.compile(
+    r"^ALTER TABLE\s+(\w+)\s+DROP COLUMN\s+(?:IF EXISTS\s+)?(\w+)", re.IGNORECASE
+)
 _ALTER_ADD_CONSTRAINT_RE = re.compile(
     r"^ALTER TABLE\s+(\w+)\s+ADD CONSTRAINT\s+(\w+)\s+(.*)$", re.IGNORECASE | re.DOTALL
+)
+_ALTER_DROP_CONSTRAINT_RE = re.compile(
+    r"^ALTER TABLE\s+(\w+)\s+DROP CONSTRAINT\s+(?:IF EXISTS\s+)?(\w+)", re.IGNORECASE
 )
 _ALTER_SET_NOT_NULL_RE = re.compile(
     r"^ALTER TABLE\s+(\w+)\s+ALTER COLUMN\s+(\w+)\s+SET NOT NULL", re.IGNORECASE
@@ -198,6 +204,15 @@ def parse_ddl(sql: str) -> tuple[SchemaSnapshot, list[str]]:
             table_name, constraint_name = m.group(1), m.group(2)
             t = tables.setdefault(table_name, TableSchema(name=table_name))
             tables[table_name] = replace(t, constraints=t.constraints | {constraint_name})
+            continue
+
+        if m := _ALTER_DROP_CONSTRAINT_RE.match(stmt):
+            table_name, constraint_name = m.group(1), m.group(2)
+            existing_t = tables.get(table_name)
+            if existing_t and constraint_name in existing_t.constraints:
+                tables[table_name] = replace(
+                    existing_t, constraints=existing_t.constraints - {constraint_name}
+                )
             continue
 
         if m := _ALTER_SET_NOT_NULL_RE.match(stmt):

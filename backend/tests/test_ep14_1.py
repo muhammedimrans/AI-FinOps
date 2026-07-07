@@ -149,6 +149,35 @@ class TestDdlParserSyntheticStatements:
         assert unrecognized == []
         assert "fk_widgets_owner" in snap.tables["widgets"].constraints
 
+    def test_alter_table_drop_column_if_exists(self) -> None:
+        sql = (
+            "ALTER TABLE widgets ADD COLUMN color VARCHAR(32);\n"
+            "ALTER TABLE widgets DROP COLUMN IF EXISTS color;"
+        )
+        snap, unrecognized = parse_ddl(sql)
+        assert unrecognized == []
+        assert "color" not in snap.tables["widgets"].columns
+
+    def test_alter_table_drop_constraint(self) -> None:
+        sql = (
+            "ALTER TABLE widgets ADD CONSTRAINT fk_widgets_owner "
+            "FOREIGN KEY(owner_id) REFERENCES users (id);\n"
+            "ALTER TABLE widgets DROP CONSTRAINT fk_widgets_owner;"
+        )
+        snap, unrecognized = parse_ddl(sql)
+        assert unrecognized == []
+        assert "fk_widgets_owner" not in snap.tables["widgets"].constraints
+
+    def test_alter_table_drop_constraint_if_exists(self) -> None:
+        sql = (
+            "ALTER TABLE widgets ADD CONSTRAINT fk_widgets_owner "
+            "FOREIGN KEY(owner_id) REFERENCES users (id);\n"
+            "ALTER TABLE widgets DROP CONSTRAINT IF EXISTS fk_widgets_owner;"
+        )
+        snap, unrecognized = parse_ddl(sql)
+        assert unrecognized == []
+        assert "fk_widgets_owner" not in snap.tables["widgets"].constraints
+
     def test_alter_column_set_not_null(self) -> None:
         sql = (
             "ALTER TABLE widgets ADD COLUMN status VARCHAR(16);\n"

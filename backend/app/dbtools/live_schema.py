@@ -61,12 +61,6 @@ def _inspect_tables(conn: Connection) -> dict[str, TableSchema]:
             for col in inspector.get_columns(table_name, schema="public")
         }
 
-        index_names = {
-            idx["name"]
-            for idx in inspector.get_indexes(table_name, schema="public")
-            if idx["name"] is not None
-        }
-
         constraint_names: set[str] = set()
         pk = inspector.get_pk_constraint(table_name, schema="public")
         pk_name = pk.get("name")
@@ -80,6 +74,17 @@ def _inspect_tables(conn: Connection) -> dict[str, TableSchema]:
             fk_name = fk.get("name")
             if fk_name:
                 constraint_names.add(fk_name)
+
+        # Postgres auto-creates a backing index for every named UNIQUE
+        # constraint; get_indexes() returns it too, so it must be excluded
+        # here or it double-counts as both an index and a constraint —
+        # ddl_parser.py's expected-schema side never classifies a named
+        # UNIQUE constraint as an index, only as a constraint.
+        index_names = {
+            idx["name"]
+            for idx in inspector.get_indexes(table_name, schema="public")
+            if idx["name"] is not None and idx["name"] not in constraint_names
+        }
 
         tables[table_name] = TableSchema(
             name=table_name,

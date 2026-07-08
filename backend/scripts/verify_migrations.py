@@ -18,6 +18,7 @@ Usage:
   cd backend
   python -m scripts.verify_migrations
   python -m scripts.verify_migrations --output /tmp/my_report.html
+  python -m scripts.verify_migrations --print-diffs
 """
 
 from __future__ import annotations
@@ -38,6 +39,51 @@ from app.dbtools.recommend import build_recommendation
 from app.dbtools.report import render_report
 
 
+def _print_diffs(scans: list) -> None:  # type: ignore[type-arg]
+    """Plain-text dump of every revision's SchemaDiff — one section per
+    revision, every field of TableDiff/EnumDiff printed by name so a
+    mismatch is never invisible because it wasn't rendered. Read-only:
+    this only prints data already computed by scan_revisions()."""
+    print("\n" + "=" * 70)
+    print("PER-REVISION DIAGNOSTIC DUMP")
+    print("=" * 70)
+    for s in scans:
+        print(f"\n--- {s.info.revision}  ({s.info.doc}) ---")
+        if s.error is not None:
+            print(f"  UNPARSEABLE: {s.error}")
+            continue
+        diff = s.diff
+        assert diff is not None
+        print(f"  total_mismatches: {diff.total_mismatches}")
+        print(f"  missing_tables: {list(diff.missing_tables)}")
+        print(f"  extra_tables: {list(diff.extra_tables)}")
+        print(f"  missing_enums: {list(diff.missing_enums)}")
+        print(f"  extra_enums: {list(diff.extra_enums)}")
+        for ed in diff.enum_diffs:
+            if ed.missing_values or ed.extra_values:
+                print(
+                    f"  enum '{ed.name}': missing_values={list(ed.missing_values)} "
+                    f"extra_values={list(ed.extra_values)}"
+                )
+        for td in diff.table_diffs:
+            if td.is_clean:
+                continue
+            print(f"  table '{td.table}':")
+            if td.missing_columns:
+                print(f"    missing_columns: {list(td.missing_columns)}")
+            if td.extra_columns:
+                print(f"    extra_columns: {list(td.extra_columns)}")
+            if td.missing_indexes:
+                print(f"    missing_indexes: {list(td.missing_indexes)}")
+            if td.extra_indexes:
+                print(f"    extra_indexes: {list(td.extra_indexes)}")
+            if td.missing_constraints:
+                print(f"    missing_constraints: {list(td.missing_constraints)}")
+            if td.extra_constraints:
+                print(f"    extra_constraints: {list(td.extra_constraints)}")
+    print("\n" + "=" * 70)
+
+
 def _mask_database_label(database_url: str) -> str:
     """Host + database name only — never the credentials. This is the
     only representation of the connection target that ever reaches the
@@ -50,7 +96,7 @@ def _mask_database_label(database_url: str) -> str:
     return urlunsplit(("", masked_netloc, f"/{db}", "", ""))[2:]
 
 
-async def _run(output_path: Path) -> int:
+async def _run(output_path: Path, *, print_diffs: bool) -> int:
     settings = get_settings()
     database_label = _mask_database_label(settings.database_url)
 
@@ -69,6 +115,9 @@ async def _run(output_path: Path) -> int:
 
     print("Scanning every revision in migrations/versions/ ...")
     recommendation, scans = build_recommendation(live)
+
+    if print_diffs:
+        _print_diffs(scans)
 
     html_report = render_report(
         database_label=database_label,
@@ -109,8 +158,17 @@ def main() -> int:
         default=Path("migration_recovery_report.html"),
         help="Path to write the HTML report (default: ./migration_recovery_report.html)",
     )
+    parser.add_argument(
+        "--print-diffs",
+        action="store_true",
+        help=(
+            "Print a plain-text per-revision diagnostic dump (every "
+            "missing/extra table, column, index, constraint, and enum "
+            "value) to stdout in addition to the HTML report."
+        ),
+    )
     args = parser.parse_args()
-    return asyncio.run(_run(args.output))
+    return asyncio.run(_run(args.output, print_diffs=args.print_diffs))
 
 
 if __name__ == "__main__":

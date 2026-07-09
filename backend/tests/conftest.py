@@ -246,8 +246,18 @@ def make_user(
     status: UserStatus = UserStatus.ACTIVE,
     email_verified: bool = False,
     password_hash: str | None = None,
+    avatar_url: str | None = None,
+    bio: str | None = None,
+    timezone: str | None = None,
+    preferences: dict[str, Any] | None = None,
 ) -> User:
-    """Return a transient User instance with a generated UUIDv7 id."""
+    """Return a transient User instance with a generated UUIDv7 id.
+
+    EP-22.2: sets ``created_at``/``preferences`` directly, since these are
+    plain Python objects that never pass through a session flush — the
+    model's column-level ``default=``/``server_default=`` only apply on
+    INSERT, not to a bare unpersisted instance.
+    """
     obj = User()
     obj.id = uuid7()
     obj.email = email
@@ -256,6 +266,12 @@ def make_user(
     obj.status = status
     obj.email_verified = email_verified
     obj.password_hash = password_hash
+    obj.avatar_url = avatar_url
+    obj.bio = bio
+    obj.timezone = timezone
+    obj.preferences = preferences if preferences is not None else {}
+    obj.created_at = datetime.now(UTC)
+    obj.updated_at = obj.created_at
     return obj
 
 
@@ -264,6 +280,8 @@ def make_org(
     name: str = "Acme Corp",
     slug: str = "acme",
     status: OrganizationStatus = OrganizationStatus.ACTIVE,
+    description: str | None = None,
+    is_personal: bool = False,
 ) -> Organization:
     """Return a transient Organization instance with a generated UUIDv7 id."""
     obj = Organization()
@@ -271,6 +289,10 @@ def make_org(
     obj.name = name
     obj.slug = slug
     obj.status = status
+    obj.description = description
+    obj.is_personal = is_personal
+    obj.created_at = datetime.now(UTC)
+    obj.updated_at = obj.created_at
     return obj
 
 

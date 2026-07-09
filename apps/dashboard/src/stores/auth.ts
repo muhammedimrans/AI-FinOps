@@ -13,6 +13,14 @@ export interface AuthUser {
   // persisted before this field existed) — ProtectedRoute treats that the
   // same as false and lets the wizard run once to populate it for real.
   onboarding_completed?: boolean;
+  // EP-22.2 Settings — optional/absent for a session persisted before these
+  // fields existed, same "unknown, not missing" treatment as
+  // onboarding_completed above; self-heals on the next /me refresh.
+  avatar_url?: string | null;
+  bio?: string | null;
+  timezone?: string | null;
+  created_at?: string;
+  preferences?: Record<string, unknown>;
 }
 
 interface AuthState {

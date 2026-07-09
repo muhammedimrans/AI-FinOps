@@ -374,6 +374,8 @@ class TestAuthSchemas:
         assert resp.token_type == "bearer"
 
     def test_user_public_from_dict(self) -> None:
+        from datetime import UTC, datetime
+
         up = UserPublic(
             id="usr_abc",
             email="x@x.com",
@@ -382,6 +384,11 @@ class TestAuthSchemas:
             status="active",
             email_verified=True,
             onboarding_completed=False,
+            avatar_url=None,
+            bio=None,
+            timezone=None,
+            created_at=datetime.now(UTC),
+            preferences={},
         )
         assert up.email_verified is True
 

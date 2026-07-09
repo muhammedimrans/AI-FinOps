@@ -1,35 +1,42 @@
-import { useRef, useState, type ChangeEvent } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Globe,
   Bell,
-  Palette,
-  RefreshCw,
-  Save,
-  CheckCircle,
-  User,
-  Upload,
-  Trash2,
-  Shield,
   Building2,
-  CreditCard,
-  Monitor,
+  CheckCircle,
+  KeyRound,
+  Loader2,
+  Palette,
+  Save,
+  Shield,
+  Trash2,
+  Triangle,
+  User,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
 import { THEMES, useThemeStore } from "../stores/theme";
 import { useAuthStore } from "../stores/auth";
-import { useProfileStore } from "../stores/profile";
 import { useOrgStore } from "../stores/org";
-import Avatar from "../components/Avatar";
-import OrgLogo from "../components/OrgLogo";
+import { ApiKeysManager } from "./ApiKeys";
 import PageHeader from "../components/PageHeader";
-import { cn } from "../utils";
+import Avatar from "../components/Avatar";
+import ConfirmDialog from "../components/ConfirmDialog";
+import { cn, formatDateTime } from "../utils";
 import { toast } from "../stores/toast";
+import {
+  ApiError,
+  changePassword,
+  deleteAccount,
+  deleteOrganization,
+  getOrganizations,
+  updateOrganization,
+  updatePreferences,
+  updateProfile,
+} from "../services/api";
 import type { Currency } from "../types/api";
-
-const MAX_AVATAR_BYTES = 2 * 1024 * 1024; // 2MB
 
 const TIMEZONES = [
   "UTC",
@@ -47,77 +54,61 @@ const TIMEZONES = [
   "Australia/Sydney",
 ];
 
-const LANGUAGES = [
-  { code: "en", label: "English" },
-  { code: "es", label: "Español" },
-  { code: "fr", label: "Français" },
-  { code: "de", label: "Deutsch" },
-  { code: "pt", label: "Português" },
-  { code: "ja", label: "日本語" },
+const DATE_FORMATS = [
+  { value: "MM/DD/YYYY", label: "MM/DD/YYYY (US)" },
+  { value: "DD/MM/YYYY", label: "DD/MM/YYYY (EU)" },
+  { value: "YYYY-MM-DD", label: "YYYY-MM-DD (ISO)" },
 ];
 
 const profileSchema = z.object({
-  displayName: z.string().min(1, "Display name is required").max(80),
-  username: z.string().max(40).regex(/^[a-zA-Z0-9_.-]*$/, "Only letters, numbers, . _ - allowed"),
-  email: z.string().email("Must be a valid email address"),
-  bio: z.string().max(280, "Keep it under 280 characters"),
+  displayName: z.string().min(1, "Display name is required").max(255),
+  username: z
+    .string()
+    .max(50)
+    .regex(/^[a-zA-Z0-9_.-]*$/, "Only letters, numbers, . _ - allowed"),
+  avatarUrl: z.string().max(2048),
+  bio: z.string().max(2000, "Keep it under 2000 characters"),
 });
-
 type ProfileForm = z.infer<typeof profileSchema>;
 
-const apiSchema = z.object({
-  apiBaseUrl: z.string().url("Must be a valid URL"),
-  timeout: z.number().min(1000).max(30000),
+const workspaceSchema = z.object({
+  name: z.string().min(1, "Workspace name is required").max(255),
+  description: z.string().max(10000),
 });
-
-type ApiForm = z.infer<typeof apiSchema>;
+type WorkspaceForm = z.infer<typeof workspaceSchema>;
 
 const passwordSchema = z
   .object({
     currentPassword: z.string().min(1, "Current password is required"),
-    newPassword: z.string().min(8, "Must be at least 8 characters"),
+    newPassword: z.string().min(8, "Must be at least 8 characters").max(128),
     confirmPassword: z.string(),
   })
   .refine((d) => d.newPassword === d.confirmPassword, {
     message: "Passwords don't match",
     path: ["confirmPassword"],
   });
-
 type PasswordForm = z.infer<typeof passwordSchema>;
 
 const SECTIONS = [
-  { id: "profile",       label: "Profile",        icon: User },
-  { id: "appearance",    label: "Appearance",     icon: Palette },
-  { id: "notifications", label: "Notifications",  icon: Bell },
-  { id: "security",      label: "Security",       icon: Shield },
-  { id: "organization",  label: "Organization",   icon: Building2 },
-  { id: "data",          label: "Data",           icon: RefreshCw },
-  { id: "billing",       label: "Billing",        icon: CreditCard },
-  { id: "api",           label: "Developer API",  icon: Globe },
-];
+  { id: "profile", label: "Profile", icon: User },
+  { id: "workspace", label: "Workspace", icon: Building2 },
+  { id: "password", label: "Password", icon: Shield },
+  { id: "preferences", label: "Preferences", icon: Palette },
+  { id: "api-keys", label: "API Keys", icon: KeyRound },
+  { id: "danger", label: "Danger Zone", icon: Triangle },
+] as const;
 
-interface Session {
-  id: string;
-  device: string;
-  location: string;
-  lastActive: string;
-  current: boolean;
-  icon: React.ElementType;
-}
-
-// Only the session we actually know about — the one in use. Cross-device
-// session listing needs a backend endpoint (sessions table already exists).
-const INITIAL_SESSIONS: Session[] = [
-  { id: "s1", device: "This device", location: "Current session", lastActive: "Active now", current: true, icon: Monitor },
-];
-
-/** Small badge marking features that are not yet backed by a real API. */
-export function PreviewBadge() {
-  return (
-    <span className="badge bg-warning-dim text-warning text-[10px] uppercase tracking-wide">
-      Preview
-    </span>
-  );
+function apiErrorMessage(err: unknown, fallback: string): { title: string; description: string } {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return { title: "Incorrect password", description: err.message };
+    if (err.status === 409) return { title: "Not allowed", description: err.message };
+    if (err.status === 400) return { title: "Not allowed", description: err.message };
+    if (err.status === 403) {
+      return { title: "Not allowed", description: "You don't have permission to do that." };
+    }
+    if (err.status === 422) return { title: "Invalid request", description: err.message };
+  }
+  return { title: "Something went wrong", description: fallback };
 }
 
 function SectionCard({
@@ -126,28 +117,41 @@ function SectionCard({
   icon: Icon,
   actions,
   children,
-  preview = false,
+  danger = false,
 }: {
   title: string;
   description?: string;
   icon: React.ElementType;
   actions?: React.ReactNode;
   children: React.ReactNode;
-  preview?: boolean;
+  danger?: boolean;
 }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="glass-card rounded-card-lg border border-border-subtle p-5 relative overflow-hidden"
+      className={cn(
+        "glass-card rounded-card-lg border p-5 relative overflow-hidden",
+        danger ? "border-danger/30" : "border-border-subtle",
+      )}
     >
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/40 to-transparent" aria-hidden="true" />
+      <div
+        className={cn(
+          "absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent to-transparent",
+          danger ? "via-danger/50" : "via-brand/40",
+        )}
+        aria-hidden="true"
+      />
       <div className="flex items-start justify-between gap-4 mb-5">
         <div>
-          <h3 className="text-sm font-semibold text-tx-primary flex items-center gap-2">
-            <Icon size={14} className="text-tx-muted" />
+          <h3
+            className={cn(
+              "text-sm font-semibold flex items-center gap-2",
+              danger ? "text-danger" : "text-tx-primary",
+            )}
+          >
+            <Icon size={14} className={danger ? "text-danger" : "text-tx-muted"} />
             {title}
-            {preview && <PreviewBadge />}
           </h3>
           {description && <p className="text-xs text-tx-muted mt-1">{description}</p>}
         </div>
@@ -208,15 +212,17 @@ function Toggle({
   );
 }
 
-function TextField({
-  label,
-  error,
-  ...rest
-}: { label: string; error?: string | undefined } & React.InputHTMLAttributes<HTMLInputElement>) {
+const TextField = forwardRef<
+  HTMLInputElement,
+  { label: string; error?: string | undefined } & React.InputHTMLAttributes<HTMLInputElement>
+>(function TextField({ label, error, id, ...rest }, ref) {
+  const fieldId = id ?? `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div>
-      <label className="text-xs text-tx-muted block mb-1.5">{label}</label>
+      <label htmlFor={fieldId} className="text-xs text-tx-muted block mb-1.5">{label}</label>
       <input
+        ref={ref}
+        id={fieldId}
         {...rest}
         className={cn(
           "w-full bg-app-bg border rounded-lg px-3 py-2 text-sm text-tx-primary",
@@ -227,151 +233,140 @@ function TextField({
       {error && <p className="text-danger text-xs mt-1">{error}</p>}
     </div>
   );
+});
+
+/** Read a preference key with a typed fallback — the preferences bag is a free-form JSON blob. */
+function pref<T>(preferences: Record<string, unknown> | undefined, key: string, fallback: T): T {
+  const v = preferences?.[key];
+  return v === undefined ? fallback : (v as T);
 }
 
 export default function Settings() {
+  const queryClient = useQueryClient();
   const { currency, setCurrency } = useUIStore();
   const { theme, setTheme } = useThemeStore();
-  const { user, updateUser } = useAuthStore();
-  const { avatarUrl, timezone, language, bio, setAvatar, setTimezone, setLanguage, setBio } = useProfileStore();
-  const [active, setActive] = useState("profile");
-  const [saved, setSaved] = useState(false);
-  const [refreshInterval, setRefreshInterval] = useState(300);
-  const [notifs, setNotifs] = useState({ budget: true, anomaly: true, weekly: false, marketing: false, security: true });
-  const [compactNumbers, setCompactNumbers] = useState(true);
+  const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
+  const { user, updateUser, clearAuth } = useAuthStore();
+  const { organizationId, organizationName, setOrganization, clearOrganization } = useOrgStore();
+  const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
+
+  const preferences = user?.preferences ?? {};
+
+  // ── Profile ────────────────────────────────────────────────────────────────
+
   const [profileSaved, setProfileSaved] = useState(false);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-
-  // Security tab — local-only state; no backend endpoint exists for these yet.
-  const [passwordSaved, setPasswordSaved] = useState(false);
-  const [sessions, setSessions] = useState<Session[]>(INITIAL_SESSIONS);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-
-  // Organization tab — local-only preferences.
-  const { organizationId, organizationName, organizationLogos, setOrganizationLogo } = useOrgStore();
-  const [orgName, setOrgName] = useState(organizationName || "Acme Corp");
-  const [budgetAlerts, setBudgetAlerts] = useState(true);
-  const [orgSaved, setOrgSaved] = useState(false);
-  const orgLogoInputRef = useRef<HTMLInputElement>(null);
-  const orgLogoUrl = organizationId ? organizationLogos[organizationId] : undefined;
-
-  const displayName = user?.display_name ?? "";
-
   const {
     register: registerProfile,
     handleSubmit: handleProfileSubmit,
-    setError: setProfileError,
+    reset: resetProfileForm,
     formState: { errors: profileErrors },
   } = useForm<ProfileForm>({
     defaultValues: {
-      displayName,
+      displayName: user?.display_name ?? "",
       username: user?.username ?? "",
-      email: user?.email ?? "",
-      bio,
+      avatarUrl: user?.avatar_url ?? "",
+      bio: user?.bio ?? "",
     },
   });
 
-  function onAvatarSelected(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Invalid file", "Please choose an image file.");
-      return;
-    }
-    if (file.size > MAX_AVATAR_BYTES) {
-      toast.error("Image too large", "Please choose an image under 2MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAvatar(reader.result as string);
-      toast.success("Profile photo updated");
-    };
-    reader.onerror = () => toast.error("Couldn't read that image", "Please try a different file.");
-    reader.readAsDataURL(file);
-  }
+  useEffect(() => {
+    resetProfileForm({
+      displayName: user?.display_name ?? "",
+      username: user?.username ?? "",
+      avatarUrl: user?.avatar_url ?? "",
+      bio: user?.bio ?? "",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
-  function removeAvatar() {
-    setAvatar(null);
-    toast.info("Profile photo removed");
-  }
-
-  function onOrgLogoSelected(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !organizationId) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Invalid file", "Please choose an image file.");
-      return;
-    }
-    if (file.size > MAX_AVATAR_BYTES) {
-      toast.error("Image too large", "Please choose an image under 2MB.");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setOrganizationLogo(organizationId, reader.result as string);
-      toast.success("Organization logo updated");
-    };
-    reader.onerror = () => toast.error("Couldn't read that image", "Please try a different file.");
-    reader.readAsDataURL(file);
-  }
-
-  function removeOrgLogo() {
-    if (!organizationId) return;
-    setOrganizationLogo(organizationId, null);
-    toast.info("Organization logo removed");
-  }
+  const profileMutation = useMutation({
+    mutationFn: (data: ProfileForm) =>
+      updateProfile({
+        display_name: data.displayName,
+        username: data.username || null,
+        avatar_url: data.avatarUrl || null,
+        bio: data.bio || null,
+      }),
+    onSuccess: (updated) => {
+      updateUser({
+        display_name: updated.display_name,
+        username: updated.username,
+        avatar_url: updated.avatar_url,
+        bio: updated.bio,
+        timezone: updated.timezone,
+      });
+      setProfileSaved(true);
+      toast.success("Profile updated");
+      setTimeout(() => setProfileSaved(false), 2500);
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not save your profile. Please try again.");
+      toast.error(title, description);
+    },
+  });
 
   function onSaveProfile(data: ProfileForm) {
     const result = profileSchema.safeParse(data);
     if (!result.success) {
-      for (const issue of result.error.issues) {
-        const field = issue.path[0];
-        if (field === "displayName" || field === "username" || field === "email" || field === "bio") {
-          setProfileError(field, { message: issue.message });
-        }
-      }
-      toast.error("Couldn't save profile", "Fix the highlighted fields and try again.");
+      toast.error("Couldn't save profile", result.error.issues[0]?.message ?? "Fix the highlighted fields.");
       return;
     }
-    updateUser({
-      display_name: result.data.displayName,
-      username: result.data.username || null,
-      email: result.data.email,
-    });
-    setBio(result.data.bio);
-    setProfileSaved(true);
-    toast.success("Profile updated");
-    setTimeout(() => setProfileSaved(false), 2500);
+    profileMutation.mutate(result.data);
   }
 
-  const { register, handleSubmit, setError, formState: { errors } } = useForm<ApiForm>({
-    defaultValues: {
-      apiBaseUrl: (import.meta.env["VITE_API_BASE_URL"] as string | undefined) ?? "http://localhost:8000",
-      timeout: 10000,
+  // ── Workspace ──────────────────────────────────────────────────────────────
+
+  const orgsQuery = useQuery({
+    queryKey: ["organizations"],
+    queryFn: getOrganizations,
+  });
+  const currentOrg = orgsQuery.data?.organizations.find((o) => o.id === organizationId);
+
+  const [workspaceSaved, setWorkspaceSaved] = useState(false);
+  const {
+    register: registerWorkspace,
+    handleSubmit: handleWorkspaceSubmit,
+    reset: resetWorkspaceForm,
+  } = useForm<WorkspaceForm>({
+    defaultValues: { name: currentOrg?.name ?? "", description: currentOrg?.description ?? "" },
+  });
+
+  useEffect(() => {
+    if (currentOrg) {
+      resetWorkspaceForm({ name: currentOrg.name, description: currentOrg.description ?? "" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrg?.id]);
+
+  const workspaceMutation = useMutation({
+    mutationFn: (data: WorkspaceForm) =>
+      updateOrganization(organizationId!, { name: data.name, description: data.description }),
+    onSuccess: (updated) => {
+      setOrganization(updated.id, updated.name);
+      void orgsQuery.refetch();
+      setWorkspaceSaved(true);
+      toast.success("Workspace updated");
+      setTimeout(() => setWorkspaceSaved(false), 2500);
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not save workspace settings. Please try again.");
+      toast.error(title, description);
     },
   });
 
-  function onSave(data: ApiForm) {
-    const result = apiSchema.safeParse(data);
+  function onSaveWorkspace(data: WorkspaceForm) {
+    const result = workspaceSchema.safeParse(data);
     if (!result.success) {
-      for (const issue of result.error.issues) {
-        const field = issue.path[0];
-        if (field === "apiBaseUrl" || field === "timeout") {
-          setError(field, { message: issue.message });
-        }
-      }
-      toast.error("Couldn't save settings", "Fix the highlighted fields and try again.");
+      toast.error("Couldn't save workspace", result.error.issues[0]?.message ?? "Fix the highlighted fields.");
       return;
     }
-    console.info("Settings saved", result.data);
-    setSaved(true);
-    toast.success("API settings saved");
-    setTimeout(() => setSaved(false), 2500);
+    if (!organizationId) return;
+    workspaceMutation.mutate(result.data);
   }
 
+  // ── Password ───────────────────────────────────────────────────────────────
+
+  const [passwordSaved, setPasswordSaved] = useState(false);
   const {
     register: registerPassword,
     handleSubmit: handlePasswordSubmit,
@@ -381,36 +376,125 @@ export default function Settings() {
     defaultValues: { currentPassword: "", newPassword: "", confirmPassword: "" },
   });
 
+  const passwordMutation = useMutation({
+    mutationFn: (data: PasswordForm) => changePassword(data.currentPassword, data.newPassword),
+    onSuccess: () => {
+      setPasswordSaved(true);
+      resetPassword();
+      toast.success("Password updated", "You're still signed in here — every other session was signed out.");
+      setTimeout(() => setPasswordSaved(false), 2500);
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not update your password. Please try again.");
+      toast.error(title, description);
+    },
+  });
+
   function onSavePassword(data: PasswordForm) {
     const result = passwordSchema.safeParse(data);
     if (!result.success) {
       toast.error("Couldn't update password", result.error.issues[0]?.message ?? "Check the fields and try again.");
       return;
     }
-    // No backend endpoint for password changes yet — this is intentionally local-only.
-    setPasswordSaved(true);
-    resetPassword();
-    toast.success("Password updated", "This preview doesn't yet persist to the backend.");
-    setTimeout(() => setPasswordSaved(false), 2500);
+    passwordMutation.mutate(result.data);
   }
 
-  function revokeSession(id: string) {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
-    toast.success("Session revoked");
+  // ── Preferences ────────────────────────────────────────────────────────────
+
+  const preferencesMutation = useMutation({
+    mutationFn: (patch: Record<string, unknown>) => updatePreferences(patch),
+    onSuccess: (updated) => {
+      updateUser({ preferences: updated.preferences });
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not save this preference. Please try again.");
+      toast.error(title, description);
+    },
+  });
+
+  function savePreference(key: string, value: unknown) {
+    preferencesMutation.mutate({ [key]: value });
   }
 
-  function onSaveOrganization() {
-    if (organizationId && orgName.trim()) {
-      useOrgStore.getState().setOrganization(organizationId, orgName.trim());
-    }
-    setOrgSaved(true);
-    toast.success("Organization preferences saved");
-    setTimeout(() => setOrgSaved(false), 2500);
+  function onChangeTimezone(tz: string) {
+    savePreference("timezone", tz);
+    toast.success("Timezone saved");
   }
+
+  function onChangeDateFormat(fmt: string) {
+    savePreference("date_format", fmt);
+    toast.success("Date format saved");
+  }
+
+  function onChangeCurrency(c: Currency) {
+    setCurrency(c);
+    savePreference("currency", c);
+  }
+
+  function onChangeTheme(t: (typeof THEMES)[number]["id"]) {
+    setTheme(t);
+    savePreference("theme", t);
+  }
+
+  function onToggleSidebar(collapsed: boolean) {
+    setSidebarCollapsed(collapsed);
+    savePreference("sidebar_collapsed", collapsed);
+  }
+
+  const NOTIFICATION_DEFAULTS: Record<string, boolean> = {
+    budget: true,
+    anomaly: true,
+    weekly: false,
+    security: true,
+  };
+  const notificationPrefs = pref<Record<string, boolean>>(
+    preferences,
+    "notifications",
+    NOTIFICATION_DEFAULTS,
+  );
+
+  function onToggleNotification(key: string, value: boolean) {
+    savePreference("notifications", { ...notificationPrefs, [key]: value });
+  }
+
+  // ── Danger Zone ────────────────────────────────────────────────────────────
+
+  const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
+  const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
+
+  const deleteWorkspaceMutation = useMutation({
+    mutationFn: () => deleteOrganization(organizationId!),
+    onSuccess: () => {
+      toast.success("Workspace deleted");
+      clearOrganization();
+      setDeleteWorkspaceOpen(false);
+      void queryClient.invalidateQueries({ queryKey: ["organizations"] });
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not delete this workspace. Please try again.");
+      toast.error(title, description);
+      setDeleteWorkspaceOpen(false);
+    },
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: () => deleteAccount(deleteAccountPassword),
+    onSuccess: () => {
+      toast.success("Account deleted");
+      clearAuth();
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not delete your account. Please try again.");
+      toast.error(title, description);
+    },
+  });
+
+  const displayName = user?.display_name ?? "";
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl">
-      <PageHeader title="Settings" description="Configure your profile, workspace, and account preferences." />
+      <PageHeader title="Settings" description="Manage your profile, workspace, and account preferences." />
 
       <div className="flex flex-col lg:flex-row gap-6 mt-6">
         {/* Tab list */}
@@ -423,7 +507,9 @@ export default function Settings() {
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-shrink-0",
                   active === s.id
-                    ? "bg-brand-subtle text-brand"
+                    ? s.id === "danger"
+                      ? "bg-danger-dim text-danger"
+                      : "bg-brand-subtle text-brand"
                     : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
                 )}
               >
@@ -441,36 +527,9 @@ export default function Settings() {
               <SectionCard title="Profile" icon={User}>
                 <div className="flex items-center gap-4">
                   <Avatar name={displayName || "Account"} size={64} />
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => avatarInputRef.current?.click()}
-                        className="btn-outline h-8 text-xs px-3"
-                      >
-                        <Upload size={13} />
-                        {avatarUrl ? "Replace photo" : "Upload photo"}
-                      </button>
-                      {avatarUrl && (
-                        <button
-                          type="button"
-                          onClick={removeAvatar}
-                          aria-label="Remove profile photo"
-                          className="btn-ghost h-8 w-8 p-0 justify-center text-danger hover:bg-danger-dim"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-xs text-tx-muted">JPG, PNG or GIF. Max 2MB.</p>
-                    <input
-                      ref={avatarInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={onAvatarSelected}
-                      className="sr-only"
-                      aria-label="Upload profile photo"
-                    />
+                  <div>
+                    <p className="text-sm font-medium text-tx-primary">{displayName}</p>
+                    <p className="text-xs text-tx-muted">{user?.email}</p>
                   </div>
                 </div>
 
@@ -488,40 +547,41 @@ export default function Settings() {
                 </div>
 
                 <TextField
-                  label="Email address"
-                  type="email"
-                  {...registerProfile("email")}
-                  error={profileErrors.email?.message}
+                  label="Avatar URL"
+                  placeholder="https://example.com/avatar.png"
+                  {...registerProfile("avatarUrl")}
+                  error={profileErrors.avatarUrl?.message}
                 />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="timezone" className="text-xs text-tx-muted block mb-1.5">Timezone</label>
-                    <select
-                      id="timezone"
-                      value={timezone}
-                      onChange={(e) => setTimezone(e.target.value)}
-                      className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
-                    >
-                      {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map((tz) => (
-                        <option key={tz} value={tz}>{tz}</option>
-                      ))}
-                    </select>
+                    <label className="text-xs text-tx-muted block mb-1.5">Email address</label>
+                    <input
+                      readOnly
+                      value={user?.email ?? ""}
+                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed"
+                    />
                   </div>
                   <div>
-                    <label htmlFor="language" className="text-xs text-tx-muted block mb-1.5">Language</label>
-                    <select
-                      id="language"
-                      value={language}
-                      onChange={(e) => setLanguage(e.target.value)}
-                      className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
-                    >
-                      {LANGUAGES.map((l) => (
-                        <option key={l.code} value={l.code}>{l.label}</option>
-                      ))}
-                    </select>
+                    <label className="text-xs text-tx-muted block mb-1.5">Account status</label>
+                    <input
+                      readOnly
+                      value={user?.status ?? ""}
+                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed capitalize"
+                    />
                   </div>
                 </div>
+
+                {user?.created_at && (
+                  <div>
+                    <label className="text-xs text-tx-muted block mb-1.5">Member since</label>
+                    <input
+                      readOnly
+                      value={formatDateTime(user.created_at)}
+                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label htmlFor="bio" className="text-xs text-tx-muted block mb-1.5">Bio (optional)</label>
@@ -543,301 +603,310 @@ export default function Settings() {
 
                 <button
                   type="submit"
+                  disabled={profileMutation.isPending}
                   className={cn("btn-primary w-fit", profileSaved && "bg-success hover:bg-success")}
                 >
-                  {profileSaved ? <CheckCircle size={14} /> : <Save size={14} />}
-                  {profileSaved ? "Saved!" : "Save Profile"}
+                  {profileMutation.isPending ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : profileSaved ? (
+                    <CheckCircle size={14} />
+                  ) : (
+                    <Save size={14} />
+                  )}
+                  {profileSaved ? "Saved!" : "Save Changes"}
                 </button>
               </SectionCard>
             </form>
           )}
 
-          {active === "appearance" && (
-            <SectionCard title="Appearance" icon={Palette}>
-              <SettingRow label="Theme" description="Neon Cyber, Professional Light, or Professional Dark">
-                <div className="flex gap-1 bg-app-bg rounded-lg p-0.5 border border-border-subtle">
-                  {THEMES.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => setTheme(t.id)}
-                      aria-pressed={theme === t.id}
-                      className={cn(
-                        "px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap",
-                        theme === t.id ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
-                      )}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </SettingRow>
-              <SettingRow label="Currency" description="Default currency for cost display">
-                <select
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value as Currency)}
-                  className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
-                >
-                  {["USD", "EUR", "GBP"].map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              </SettingRow>
-              <SettingRow label="Compact numbers" description="Show M/B/K abbreviations">
-                <Toggle value={compactNumbers} onChange={setCompactNumbers} label="Compact numbers" />
-              </SettingRow>
-            </SectionCard>
-          )}
-
-          {active === "notifications" && (
-            <SectionCard title="Notification Preferences" icon={Bell}>
-              {[
-                { key: "budget" as const,    label: "Budget alerts",     desc: "Alert when projects exceed 80% budget" },
-                { key: "anomaly" as const,   label: "Anomaly detection", desc: "Notify on unusual cost spikes" },
-                { key: "weekly" as const,    label: "Weekly digest",     desc: "Weekly cost summary email" },
-                { key: "security" as const,  label: "Security events",   desc: "Sign-ins and permission changes" },
-                { key: "marketing" as const, label: "Product updates",   desc: "New features and announcements" },
-              ].map((n) => (
-                <SettingRow key={n.key} label={n.label} description={n.desc}>
-                  <Toggle
-                    value={notifs[n.key]}
-                    onChange={(v) => setNotifs((prev) => ({ ...prev, [n.key]: v }))}
-                    label={n.label}
-                  />
-                </SettingRow>
-              ))}
-            </SectionCard>
-          )}
-
-          {active === "security" && (
-            <>
-              <form onSubmit={(e) => { void handlePasswordSubmit(onSavePassword)(e); }}>
-                <SectionCard title="Password" icon={Shield}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <TextField
-                      label="Current password"
-                      type="password"
-                      autoComplete="current-password"
-                      {...registerPassword("currentPassword")}
-                      error={passwordErrors.currentPassword?.message}
-                    />
-                    <div />
-                    <TextField
-                      label="New password"
-                      type="password"
-                      autoComplete="new-password"
-                      {...registerPassword("newPassword")}
-                      error={passwordErrors.newPassword?.message}
-                    />
-                    <TextField
-                      label="Confirm new password"
-                      type="password"
-                      autoComplete="new-password"
-                      {...registerPassword("confirmPassword")}
-                      error={passwordErrors.confirmPassword?.message}
-                    />
+          {active === "workspace" && (
+            <form onSubmit={(e) => { void handleWorkspaceSubmit(onSaveWorkspace)(e); }}>
+              <SectionCard title="Workspace" icon={Building2}>
+                {orgsQuery.isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-9 skeleton rounded-lg" />)}
                   </div>
-                  <button
-                    type="submit"
-                    className={cn("btn-primary w-fit", passwordSaved && "bg-success hover:bg-success")}
-                  >
-                    {passwordSaved ? <CheckCircle size={14} /> : <Save size={14} />}
-                    {passwordSaved ? "Updated!" : "Update password"}
-                  </button>
-                </SectionCard>
-              </form>
-
-              <SectionCard title="Two-factor authentication" description="Add an extra layer of security to your account" icon={Shield}>
-                <div className="flex items-center gap-3 rounded-xl border border-dashed border-border p-4">
-                  <div className="w-10 h-10 rounded-lg bg-brand-subtle flex items-center justify-center flex-shrink-0">
-                    <Shield size={18} className="text-brand" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-tx-primary">
-                      {twoFactorEnabled ? "2FA is enabled" : "2FA is not enabled"}
-                    </p>
-                    <p className="text-xs text-tx-muted">Enable an authenticator app for stronger security</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setTwoFactorEnabled((v) => !v);
-                      toast.success(twoFactorEnabled ? "2FA disabled" : "2FA enabled");
-                    }}
-                    className={twoFactorEnabled ? "btn-outline h-9 text-xs px-4" : "btn-primary h-9 text-xs px-4"}
-                  >
-                    {twoFactorEnabled ? "Disable" : "Enable"}
-                  </button>
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Active Sessions" description="Devices currently signed in to your account" icon={Monitor}>
-                <ul className="divide-y divide-border-subtle -mt-1">
-                  {sessions.map((s) => (
-                    <li key={s.id} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
-                      <s.icon size={16} className="text-tx-muted flex-shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-tx-primary">{s.device}</p>
-                        <p className="text-xs text-tx-muted">{s.location} · {s.lastActive}</p>
+                ) : !currentOrg ? (
+                  <p className="text-xs text-tx-muted">Select a workspace to manage its settings.</p>
+                ) : (
+                  <>
+                    <TextField label="Workspace name" {...registerWorkspace("name")} />
+                    <div>
+                      <label htmlFor="ws-description" className="text-xs text-tx-muted block mb-1.5">
+                        Description (optional)
+                      </label>
+                      <textarea
+                        id="ws-description"
+                        rows={3}
+                        {...registerWorkspace("description")}
+                        placeholder="What is this workspace for?"
+                        className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary resize-none placeholder:text-tx-muted focus:outline-none focus:border-brand transition-colors"
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs text-tx-muted block mb-1.5">Slug</label>
+                        <input
+                          readOnly
+                          value={currentOrg.slug}
+                          className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed font-mono"
+                        />
                       </div>
-                      {s.current ? (
-                        <span className="badge bg-success-dim text-success text-[10px]">Current</span>
-                      ) : (
-                        <button
-                          onClick={() => revokeSession(s.id)}
-                          className="btn-outline h-7 text-xs px-2.5 text-danger hover:bg-danger-dim hover:border-danger/40"
-                        >
-                          Revoke
-                        </button>
+                      <div>
+                        <label className="text-xs text-tx-muted block mb-1.5">Organization ID</label>
+                        <input
+                          readOnly
+                          value={currentOrg.id}
+                          className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed font-mono truncate"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {currentOrg.is_personal && (
+                        <span className="badge bg-brand-subtle text-brand text-[10px] uppercase tracking-wide">
+                          Personal workspace
+                        </span>
                       )}
-                    </li>
-                  ))}
-                </ul>
+                      {currentOrg.created_at && (
+                        <span className="text-xs text-tx-muted">
+                          Created {formatDateTime(currentOrg.created_at)}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={workspaceMutation.isPending}
+                      className={cn("btn-primary w-fit", workspaceSaved && "bg-success hover:bg-success")}
+                    >
+                      {workspaceMutation.isPending ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : workspaceSaved ? (
+                        <CheckCircle size={14} />
+                      ) : (
+                        <Save size={14} />
+                      )}
+                      {workspaceSaved ? "Saved!" : "Save Changes"}
+                    </button>
+                  </>
+                )}
               </SectionCard>
-            </>
+            </form>
           )}
 
-          {active === "organization" && (
-            <SectionCard title="Organization Preferences" icon={Building2}>
-              <div className="flex items-center gap-4">
-                <OrgLogo size={64} />
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => orgLogoInputRef.current?.click()}
-                      disabled={!organizationId}
-                      className="btn-outline h-8 text-xs px-3 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <Upload size={13} />
-                      {orgLogoUrl ? "Replace logo" : "Upload logo"}
-                    </button>
-                    {orgLogoUrl && (
-                      <button
-                        type="button"
-                        onClick={removeOrgLogo}
-                        aria-label="Remove organization logo"
-                        className="btn-ghost h-8 w-8 p-0 justify-center text-danger hover:bg-danger-dim"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-xs text-tx-muted">
-                    {organizationId ? "PNG, JPG or GIF. Max 2MB." : "Select an organization to set a logo."}
-                  </p>
-                  <input
-                    ref={orgLogoInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={onOrgLogoSelected}
-                    className="sr-only"
-                    aria-label="Upload organization logo"
+          {active === "password" && (
+            <form onSubmit={(e) => { void handlePasswordSubmit(onSavePassword)(e); }}>
+              <SectionCard title="Password" icon={Shield} description="Changing your password signs out every other session.">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <TextField
+                    label="Current password"
+                    type="password"
+                    autoComplete="current-password"
+                    {...registerPassword("currentPassword")}
+                    error={passwordErrors.currentPassword?.message}
+                  />
+                  <div />
+                  <TextField
+                    label="New password"
+                    type="password"
+                    autoComplete="new-password"
+                    {...registerPassword("newPassword")}
+                    error={passwordErrors.newPassword?.message}
+                  />
+                  <TextField
+                    label="Confirm new password"
+                    type="password"
+                    autoComplete="new-password"
+                    {...registerPassword("confirmPassword")}
+                    error={passwordErrors.confirmPassword?.message}
                   />
                 </div>
-              </div>
-
-              <TextField label="Organization name" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-              <SettingRow label="Budget alerts" description="Notify admins when org-wide spend approaches budget">
-                <Toggle value={budgetAlerts} onChange={setBudgetAlerts} label="Budget alerts" />
-              </SettingRow>
-              <button
-                onClick={onSaveOrganization}
-                className={cn("btn-primary w-fit", orgSaved && "bg-success hover:bg-success")}
-              >
-                {orgSaved ? <CheckCircle size={14} /> : <Save size={14} />}
-                {orgSaved ? "Saved!" : "Save preferences"}
-              </button>
-            </SectionCard>
-          )}
-
-          {active === "data" && (
-            <SectionCard title="Data Settings" icon={RefreshCw}>
-              <SettingRow label="Auto-refresh interval" description="How often to refresh dashboard data">
-                <select
-                  value={refreshInterval}
-                  onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                  className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
-                >
-                  <option value={60}>1 minute</option>
-                  <option value={300}>5 minutes</option>
-                  <option value={900}>15 minutes</option>
-                  <option value={1800}>30 minutes</option>
-                  <option value={0}>Manual only</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="Cache duration" description="Keep fetched data for">
-                <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand">
-                  <option>5 minutes</option>
-                  <option>15 minutes</option>
-                  <option>1 hour</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="Historical data range" description="Maximum date range for analytics">
-                <select className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand">
-                  <option>90 days</option>
-                  <option>180 days</option>
-                  <option>1 year</option>
-                </select>
-              </SettingRow>
-            </SectionCard>
-          )}
-
-          {active === "billing" && (
-            <>
-              <SectionCard title="Current Plan" icon={CreditCard} preview>
-                <div className="flex flex-col gap-4 rounded-xl bg-gradient-brand p-5 text-app-bg md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-widest opacity-80">Current plan</p>
-                    <p className="mt-1 font-display text-2xl font-bold">Enterprise</p>
-                    <p className="mt-1 text-sm opacity-90">Unlimited projects · Priority support</p>
-                  </div>
-                  <button className="h-10 rounded-lg bg-app-bg/20 px-4 text-sm font-semibold backdrop-blur hover:bg-app-bg/30 flex-shrink-0">
-                    Manage subscription
-                  </button>
-                </div>
-              </SectionCard>
-              <SectionCard title="Payment Method" icon={CreditCard} preview>
-                <div className="flex items-center gap-4 rounded-xl border border-border-subtle bg-app-bg p-4">
-                  <div className="grid h-10 w-14 place-items-center rounded-md bg-tx-primary text-xs font-bold text-app-bg flex-shrink-0">
-                    VISA
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-tx-primary">•••• •••• •••• 4242</p>
-                    <p className="text-xs text-tx-muted">Expires 08/28</p>
-                  </div>
-                  <button className="btn-outline h-8 text-xs px-3 flex-shrink-0">Update</button>
-                </div>
-                <p className="text-xs text-tx-muted">Billing is a preview with sample data — no payment provider is connected yet.</p>
-              </SectionCard>
-            </>
-          )}
-
-          {active === "api" && (
-            <form onSubmit={(e) => { void handleSubmit(onSave)(e); }}>
-              <SectionCard title="Developer API Configuration" icon={Globe}>
-                <TextField
-                  label="Backend URL"
-                  {...register("apiBaseUrl")}
-                  error={errors.apiBaseUrl?.message}
-                  placeholder="http://localhost:8000"
-                />
-                <TextField
-                  label="Request Timeout (ms)"
-                  type="number"
-                  {...register("timeout", { valueAsNumber: true })}
-                  error={errors.timeout?.message}
-                />
                 <button
                   type="submit"
-                  className={cn("btn-primary w-fit", saved && "bg-success hover:bg-success")}
+                  disabled={passwordMutation.isPending}
+                  className={cn("btn-primary w-fit", passwordSaved && "bg-success hover:bg-success")}
                 >
-                  {saved ? <CheckCircle size={14} /> : <Save size={14} />}
-                  {saved ? "Saved!" : "Save API Settings"}
+                  {passwordMutation.isPending ? (
+                    <Loader2 size={14} className="animate-spin" />
+                  ) : passwordSaved ? (
+                    <CheckCircle size={14} />
+                  ) : (
+                    <Save size={14} />
+                  )}
+                  {passwordSaved ? "Updated!" : "Update password"}
                 </button>
               </SectionCard>
             </form>
+          )}
+
+          {active === "preferences" && (
+            <>
+              <SectionCard title="Appearance" icon={Palette}>
+                <SettingRow label="Theme" description="Neon Cyber, Professional Light, or Professional Dark">
+                  <div className="flex gap-1 bg-app-bg rounded-lg p-0.5 border border-border-subtle">
+                    {THEMES.map((t) => (
+                      <button
+                        key={t.id}
+                        onClick={() => onChangeTheme(t.id)}
+                        aria-pressed={theme === t.id}
+                        className={cn(
+                          "px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap",
+                          theme === t.id ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
+                        )}
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                </SettingRow>
+                <SettingRow label="Currency" description="Default currency for cost display">
+                  <select
+                    value={currency}
+                    onChange={(e) => onChangeCurrency(e.target.value as Currency)}
+                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                  >
+                    {["USD", "EUR", "GBP"].map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </SettingRow>
+                <SettingRow label="Collapse sidebar" description="Start with the sidebar collapsed">
+                  <Toggle value={sidebarCollapsed} onChange={onToggleSidebar} label="Collapse sidebar" />
+                </SettingRow>
+              </SectionCard>
+
+              <SectionCard title="Regional" icon={Palette}>
+                <SettingRow label="Timezone" description="Used to display dates and times">
+                  <select
+                    value={pref(preferences, "timezone", "UTC")}
+                    onChange={(e) => onChangeTimezone(e.target.value)}
+                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                  >
+                    {(TIMEZONES.includes(pref(preferences, "timezone", "UTC"))
+                      ? TIMEZONES
+                      : [pref(preferences, "timezone", "UTC"), ...TIMEZONES]
+                    ).map((tz) => (
+                      <option key={tz} value={tz}>{tz}</option>
+                    ))}
+                  </select>
+                </SettingRow>
+                <SettingRow label="Date format" description="How dates are displayed across the dashboard">
+                  <select
+                    value={pref(preferences, "date_format", "MM/DD/YYYY")}
+                    onChange={(e) => onChangeDateFormat(e.target.value)}
+                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                  >
+                    {DATE_FORMATS.map((f) => (
+                      <option key={f.value} value={f.value}>{f.label}</option>
+                    ))}
+                  </select>
+                </SettingRow>
+              </SectionCard>
+
+              <SectionCard title="Notification Preferences" icon={Bell}>
+                {[
+                  { key: "budget", label: "Budget alerts", desc: "Alert when projects exceed 80% budget" },
+                  { key: "anomaly", label: "Anomaly detection", desc: "Notify on unusual cost spikes" },
+                  { key: "weekly", label: "Weekly digest", desc: "Weekly cost summary email" },
+                  { key: "security", label: "Security events", desc: "Sign-ins and permission changes" },
+                ].map((n) => (
+                  <SettingRow key={n.key} label={n.label} description={n.desc}>
+                    <Toggle
+                      value={notificationPrefs[n.key] ?? false}
+                      onChange={(v) => onToggleNotification(n.key, v)}
+                      label={n.label}
+                    />
+                  </SettingRow>
+                ))}
+              </SectionCard>
+            </>
+          )}
+
+          {active === "api-keys" && (
+            <SectionCard title="API Keys" icon={KeyRound} description="Programmatic access to your organization's data.">
+              <ApiKeysManager compact />
+            </SectionCard>
+          )}
+
+          {active === "danger" && (
+            <>
+              <SectionCard
+                title="Delete Workspace"
+                icon={Triangle}
+                danger
+                description="Permanently delete this workspace and everything in it. This cannot be undone."
+              >
+                {currentOrg?.is_personal ? (
+                  <p className="text-xs text-tx-muted">
+                    Your personal workspace can't be deleted — it's required by your account.
+                  </p>
+                ) : (
+                  <button
+                    onClick={() => setDeleteWorkspaceOpen(true)}
+                    disabled={!organizationId}
+                    className="h-9 text-xs px-3.5 rounded-lg font-semibold flex items-center gap-1.5 bg-danger text-white hover:bg-danger-light disabled:opacity-50 w-fit"
+                  >
+                    <Trash2 size={13} />
+                    Delete workspace
+                  </button>
+                )}
+              </SectionCard>
+
+              <SectionCard
+                title="Delete Account"
+                icon={Triangle}
+                danger
+                description="Permanently delete your account and any workspace you solely own. This cannot be undone."
+              >
+                <button
+                  onClick={() => setDeleteAccountOpen(true)}
+                  className="h-9 text-xs px-3.5 rounded-lg font-semibold flex items-center gap-1.5 bg-danger text-white hover:bg-danger-light w-fit"
+                >
+                  <Trash2 size={13} />
+                  Delete account
+                </button>
+              </SectionCard>
+            </>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={deleteWorkspaceOpen}
+        title={`Delete "${organizationName ?? "this workspace"}"?`}
+        description="This permanently deletes the workspace and all its data — projects, connections, API keys, and members. This cannot be undone."
+        confirmLabel="Delete workspace"
+        loading={deleteWorkspaceMutation.isPending}
+        onConfirm={() => deleteWorkspaceMutation.mutate()}
+        onCancel={() => setDeleteWorkspaceOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={deleteAccountOpen}
+        title="Delete your account?"
+        description="This permanently deletes your account and any workspace you solely own. Type your password to confirm — this cannot be undone."
+        confirmLabel={deleteAccountMutation.isPending ? "Deleting..." : "Delete account"}
+        loading={deleteAccountMutation.isPending}
+        onConfirm={() => {
+          if (!deleteAccountPassword) {
+            toast.error("Password required", "Enter your password to confirm account deletion.");
+            return;
+          }
+          deleteAccountMutation.mutate();
+        }}
+        onCancel={() => {
+          setDeleteAccountOpen(false);
+          setDeleteAccountPassword("");
+        }}
+      >
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Your password"
+          value={deleteAccountPassword}
+          onChange={(e) => setDeleteAccountPassword(e.target.value)}
+          className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary placeholder:text-tx-muted focus:outline-none focus:border-danger mt-3"
+        />
+      </ConfirmDialog>
     </div>
   );
 }

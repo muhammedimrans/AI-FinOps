@@ -20,6 +20,18 @@ class CreateApiKeyRequest(BaseModel):
     expiration: ExpirationOption = "never"
 
 
+class UpdateApiKeyRequest(BaseModel):
+    """Rename/redescribe an existing API key (EP-22.2 Settings — API Keys section).
+
+    Only ``name``/``description`` are editable — permissions, expiration,
+    and the key material itself are immutable after creation (rotating
+    scope or expiry means issuing a new key).
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = Field(default=None, max_length=2000)
+
+
 class ApiKeyResponse(BaseModel):
     """One API key, safe to return from GET/LIST — never the raw key or its hash."""
 

@@ -15,6 +15,12 @@ class OrgMembershipItem(BaseModel):
     name: str
     slug: str
     role: str  # MembershipRole value: owner | admin | member | viewer
+    # EP-22.2 Settings — Workspace section fields. Optional defaults keep
+    # every pre-existing construction of this schema (list_my_organizations)
+    # source-compatible without needing to be touched.
+    description: str | None = None
+    is_personal: bool = False
+    created_at: datetime | None = None
 
 
 class OrganizationsResponse(BaseModel):
@@ -24,14 +30,17 @@ class OrganizationsResponse(BaseModel):
 
 
 class UpdateOrganizationRequest(BaseModel):
-    """Rename an organization/workspace (EP-21.3 onboarding Step 2).
+    """Update a workspace's editable fields (EP-21.3 onboarding Step 2, extended EP-22.2).
 
-    Only ``name`` is editable here — the slug is derived once at creation
-    time (``AuthService.register`` / ``app.auth.slug.unique_slug``) and
-    stays stable so existing links/references never break silently.
+    ``name`` and ``description`` are independently optional — only fields
+    present in the request are applied (``exclude_unset`` in the endpoint).
+    The slug is never editable here — it is derived once at creation time
+    (``AuthService.register`` / ``app.auth.slug.unique_slug``) and stays
+    stable so existing links/references never break silently.
     """
 
-    name: str = Field(min_length=1, max_length=255)
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=10000)
 
 
 # ── Member management (EP-13) ───────────────────────────────────────────────────

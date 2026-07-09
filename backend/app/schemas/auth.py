@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -49,6 +50,48 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class UpdateProfileRequest(BaseModel):
+    """Partial profile update (EP-22.2 Settings — Profile section).
+
+    Every field is optional; only the fields the caller actually supplied
+    are applied (``exclude_unset`` in the endpoint) — omitting a field
+    leaves it unchanged, it is never implicitly cleared. Email is
+    intentionally not editable here (changing the account's login email is
+    a distinct, higher-stakes flow not in this EP's scope).
+    """
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    username: str | None = Field(default=None, max_length=50)
+    avatar_url: str | None = Field(default=None, max_length=2048)
+    bio: str | None = Field(default=None, max_length=2000)
+    timezone: str | None = Field(default=None, max_length=64)
+
+
+class UpdatePreferencesRequest(BaseModel):
+    """Shallow-merge patch applied to User.preferences (EP-22.2 Settings — Preferences section).
+
+    Free-form: the frontend owns the key/value vocabulary (theme, timezone,
+    currency, date_format, sidebar_collapsed, notifications, ...). Keys
+    present here overwrite the corresponding stored key; keys not present
+    are left untouched.
+    """
+
+    preferences: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Current + new password for an authenticated in-session password change."""
+
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class DeleteAccountRequest(BaseModel):
+    """Password confirmation required to permanently delete the account."""
+
+    password: str = Field(min_length=1)
+
+
 # ── Response schemas ──────────────────────────────────────────────────────────
 
 
@@ -66,6 +109,14 @@ class UserPublic(BaseModel):
     # User.onboarding_completed_at (NULL = not yet) — see that column's
     # docstring for the backfill behavior on pre-existing users.
     onboarding_completed: bool
+    # EP-22.2 Settings — profile + account-metadata fields the Profile
+    # section displays/edits, and the preferences bag the Preferences
+    # section reads/writes.
+    avatar_url: str | None
+    bio: str | None
+    timezone: str | None
+    created_at: datetime
+    preferences: dict[str, Any]
 
     model_config = {"from_attributes": True}
 

@@ -2,13 +2,15 @@
 
 Endpoints:
   GET    /v1/organizations                — orgs the current user belongs to
-  PATCH  /v1/organizations/{org_id}       — rename an organization/workspace
+  PATCH  /v1/organizations/{org_id}       — update name/description of a workspace
+  DELETE /v1/organizations/{org_id}       — delete a workspace (EP-22.2, not personal)
   GET    /v1/organizations/{org_id}/members                 — list members
   POST   /v1/organizations/{org_id}/members                 — add/invite a member
   PATCH  /v1/organizations/{org_id}/members/{membership_id} — change a member's role
   DELETE /v1/organizations/{org_id}/members/{membership_id} — remove a member
   GET    /v1/organizations/{org_id}/api-keys                — list API keys
   POST   /v1/organizations/{org_id}/api-keys                — create an API key
+  PATCH  /v1/organizations/{org_id}/api-keys/{key_id}        — rename an API key (EP-22.2)
   DELETE /v1/organizations/{org_id}/api-keys/{key_id}        — revoke an API key
 
 Authorization
@@ -63,6 +65,7 @@ from app.schemas.organization_api_keys import (
     ApiKeyResponse,
     ApiKeysListResponse,
     CreateApiKeyRequest,
+    UpdateApiKeyRequest,
 )
 from app.schemas.organizations import (
     InviteMemberRequest,
@@ -171,6 +174,9 @@ async def list_my_organizations(
                 name=m.organization.name,
                 slug=m.organization.slug,
                 role=m.role.value,
+                description=m.organization.description,
+                is_personal=m.organization.is_personal,
+                created_at=m.organization.created_at,
             )
             for m in memberships
         ]
@@ -180,10 +186,12 @@ async def list_my_organizations(
 @router.patch(
     "/{org_id}",
     response_model=OrgMembershipItem,
-    summary="Rename an organization/workspace",
+    summary="Update a workspace's name and/or description",
     description=(
-        "EP-21.3 onboarding Step 2 — renames the workspace's display name. "
-        "The slug is not editable here and never changes as a side effect."
+        "EP-21.3 onboarding Step 2, extended EP-22.2 Settings — updates the "
+        "workspace's display name and/or description. Only fields present "
+        "in the request are applied. The slug is not editable here and "
+        "never changes as a side effect."
     ),
 )
 async def update_organization(
@@ -197,13 +205,44 @@ async def update_organization(
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-    updated = await repo.update(org, name=body.name)
+    changes = body.model_dump(exclude_unset=True)
+    updated = await repo.update(org, **changes) if changes else org
     return OrgMembershipItem(
         id=str(updated.id),
         name=updated.name,
         slug=updated.slug,
         role=caller.role.value,
+        description=updated.description,
+        is_personal=updated.is_personal,
+        created_at=updated.created_at,
     )
+
+
+@router.delete(
+    "/{org_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a workspace",
+    description=(
+        "EP-22.2 Settings — Danger Zone. Requires ORG_DELETE (OWNER only). "
+        "Refuses to delete the caller's personal workspace, which every "
+        "account requires — see AuthService.register."
+    ),
+)
+async def delete_organization(
+    org_id: uuid.UUID,
+    db: DbDep,
+    _caller: Annotated[Membership, RequirePermission(Permission.ORG_DELETE)],
+) -> None:
+    repo = OrganizationRepository(db)
+    org = await repo.get(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if org.is_personal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your personal workspace cannot be deleted.",
+        )
+    await repo.soft_delete(org)
 
 
 @router.get(
@@ -470,6 +509,33 @@ async def create_api_key(
         created_at=record.created_at,
         expires_at=record.expires_at,
     )
+
+
+@router.patch(
+    "/{org_id}/api-keys/{key_id}",
+    response_model=ApiKeyResponse,
+    summary="Rename an API key",
+    description=(
+        "EP-22.2 Settings — API Keys section. Updates name/description "
+        "only; only fields present in the request are applied. Permissions, "
+        "expiration, and the key material are immutable after creation."
+    ),
+)
+async def update_api_key(
+    org_id: uuid.UUID,
+    key_id: uuid.UUID,
+    body: UpdateApiKeyRequest,
+    db: DbDep,
+    _caller: Annotated[Membership, RequirePermission(Permission.API_KEY_WRITE)],
+) -> ApiKeyResponse:
+    repo = OrganizationApiKeyRepository(db)
+    target = await repo.get(key_id)
+    if target is None or target.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    updated = await repo.update(target, **changes) if changes else target
+    return _to_api_key_response(updated)
 
 
 @router.delete(

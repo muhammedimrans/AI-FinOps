@@ -237,18 +237,57 @@ export async function completeOnboarding(): Promise<BackendUserPublic> {
   return post<BackendUserPublic>("/v1/auth/onboarding/complete", {});
 }
 
+// ── Settings — Profile / Preferences / Password / Account (EP-22.2) ──────────
+
+export interface UpdateProfileBody {
+  display_name?: string;
+  username?: string | null;
+  avatar_url?: string | null;
+  bio?: string | null;
+  timezone?: string;
+}
+
+export async function updateProfile(body: UpdateProfileBody): Promise<BackendUserPublic> {
+  return patch<BackendUserPublic>("/v1/auth/me", body);
+}
+
+export async function updatePreferences(
+  preferences: Record<string, unknown>,
+): Promise<BackendUserPublic> {
+  return patch<BackendUserPublic>("/v1/auth/me/preferences", { preferences });
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/change-password", {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  return request<void>("DELETE", "/v1/auth/me", { body: { password } });
+}
+
 // ── Organizations endpoint (EP-12.1) ──────────────────────────────────────────
 
 export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
   return get<BackendOrganizationsResponse>("/v1/organizations");
 }
 
-/** EP-21.3 onboarding Step 2 — rename an organization/workspace. */
+/** EP-21.3 onboarding Step 2, extended EP-22.2 Settings — Workspace section. */
 export async function updateOrganization(
   organizationId: string,
-  name: string,
+  body: { name?: string; description?: string },
 ): Promise<BackendOrgMembershipItem> {
-  return patch<BackendOrgMembershipItem>(`/v1/organizations/${organizationId}`, { name });
+  return patch<BackendOrgMembershipItem>(`/v1/organizations/${organizationId}`, body);
+}
+
+/** EP-22.2 Settings — Danger Zone. Refuses (400) for the personal workspace. */
+export async function deleteOrganization(organizationId: string): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}`);
 }
 
 // ── Member management (EP-13) ─────────────────────────────────────────────────
@@ -365,6 +404,15 @@ export async function createApiKey(
 
 export async function revokeApiKey(organizationId: string, keyId: string): Promise<void> {
   return del<void>(`/v1/organizations/${organizationId}/api-keys/${keyId}`);
+}
+
+/** EP-22.2 Settings — API Keys section. Renames/redescribes an existing key. */
+export async function updateApiKey(
+  organizationId: string,
+  keyId: string,
+  body: { name?: string; description?: string },
+): Promise<ApiKey> {
+  return patch<ApiKey>(`/v1/organizations/${organizationId}/api-keys/${keyId}`, body);
 }
 
 // ── Projects CRUD (EP-23) ──────────────────────────────────────────────────────

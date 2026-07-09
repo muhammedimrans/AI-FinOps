@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Check, Copy, KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
@@ -12,6 +12,7 @@ import {
   listApiKeys,
   createApiKey,
   revokeApiKey,
+  updateApiKey,
   listPermissions,
   ApiError,
   type ApiKey,
@@ -39,7 +40,14 @@ function apiErrorMessage(err: unknown, fallback: string): { title: string; descr
   return { title: "Something went wrong", description: fallback };
 }
 
-export default function ApiKeys() {
+/**
+ * Everything below the page header for API key management — extracted so
+ * both the standalone /api-keys page and the Settings "API Keys" section
+ * (EP-22.2) render the exact same list/create/rename/revoke UI instead of
+ * two independent implementations. Mirrors the AddConnectionForm extraction
+ * pattern from EP-21.3 (features/Connections.tsx).
+ */
+export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
   const organizationId = useOrgStore((s) => s.organizationId);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -50,6 +58,8 @@ export default function ApiKeys() {
   const [createdKey, setCreatedKey] = useState<ApiKeyCreatedResponse | null>(null);
   const [copied, setCopied] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ApiKey | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ApiKey | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   const keysQuery = useQuery({
     queryKey: ["api-keys", organizationId],
@@ -103,6 +113,20 @@ export default function ApiKeys() {
     },
   });
 
+  const rename = useMutation({
+    mutationFn: (vars: { keyId: string; newName: string }) =>
+      updateApiKey(organizationId!, vars.keyId, { name: vars.newName }),
+    onSuccess: () => {
+      toast.success("API key renamed");
+      setRenameTarget(null);
+      void keysQuery.refetch();
+    },
+    onError: (err: unknown) => {
+      const { title, description: desc } = apiErrorMessage(err, "Could not rename this key. Please try again.");
+      toast.error(title, desc);
+    },
+  });
+
   function togglePermission(scope: string) {
     setSelectedPermissions((prev) =>
       prev.includes(scope) ? prev.filter((p) => p !== scope) : [...prev, scope],
@@ -117,22 +141,46 @@ export default function ApiKeys() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  async function copyPrefix(prefix: string) {
+    await navigator.clipboard?.writeText(prefix);
+    toast.success("Prefix copied to clipboard");
+  }
+
+  function openRename(key: ApiKey) {
+    setRenameTarget(key);
+    setRenameValue(key.name);
+  }
+
   const keys = keysQuery.data?.keys ?? [];
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
-      <PageHeader
-        title="API Keys"
-        description="Issue and revoke programmatic API keys for connecting external applications."
-        actions={
-          <button onClick={() => setCreateOpen(true)} className="btn-primary h-9 text-xs px-4">
-            <Plus size={13} />
-            Create API Key
-          </button>
-        }
-      />
+    <div className={compact ? "space-y-4" : "space-y-4 sm:space-y-6"}>
+      {!compact && (
+        <PageHeader
+          title="API Keys"
+          description="Issue and revoke programmatic API keys for connecting external applications."
+          actions={
+            <button onClick={() => setCreateOpen(true)} className="btn-primary h-9 text-xs px-4">
+              <Plus size={13} />
+              Create API Key
+            </button>
+          }
+        />
+      )}
 
-      <Section title="Keys" description={`${keys.length} active key${keys.length === 1 ? "" : "s"}`} icon={KeyRound}>
+      <Section
+        title="Keys"
+        description={`${keys.length} active key${keys.length === 1 ? "" : "s"}`}
+        icon={KeyRound}
+        actions={
+          compact ? (
+            <button onClick={() => setCreateOpen(true)} className="btn-outline h-8 text-xs px-3">
+              <Plus size={13} />
+              Create
+            </button>
+          ) : undefined
+        }
+      >
         {keysQuery.isLoading ? (
           <div className="p-5 pt-0 space-y-2">
             {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-14 skeleton rounded-lg" />)}
@@ -162,11 +210,11 @@ export default function ApiKeys() {
                 <tr className="border-b border-border-subtle text-left text-xs text-tx-muted">
                   <th className="px-5 py-3 font-medium">Name</th>
                   <th className="px-5 py-3 font-medium">Prefix</th>
-                  <th className="px-5 py-3 font-medium">Permissions</th>
+                  {!compact && <th className="px-5 py-3 font-medium">Permissions</th>}
                   <th className="px-5 py-3 font-medium">Created</th>
-                  <th className="px-5 py-3 font-medium">Expires</th>
+                  {!compact && <th className="px-5 py-3 font-medium">Expires</th>}
                   <th className="px-5 py-3 font-medium">Last Used</th>
-                  <th className="px-5 py-3 font-medium text-right">Delete</th>
+                  <th className="px-5 py-3 font-medium text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -183,34 +231,56 @@ export default function ApiKeys() {
                       {k.description && <p className="text-xs text-tx-muted truncate">{k.description}</p>}
                     </td>
                     <td className="px-5 py-3">
-                      <code className="rounded-md bg-app-muted px-2 py-1 text-xs font-mono text-tx-secondary whitespace-nowrap">
-                        {k.prefix}
-                      </code>
+                      <div className="flex items-center gap-1.5">
+                        <code className="rounded-md bg-app-muted px-2 py-1 text-xs font-mono text-tx-secondary whitespace-nowrap">
+                          {k.prefix}
+                        </code>
+                        <button
+                          onClick={() => void copyPrefix(k.prefix)}
+                          aria-label={`Copy prefix for ${k.name}`}
+                          className="btn-ghost h-6 w-6 !p-0 inline-flex items-center justify-center text-tx-muted hover:text-tx-primary"
+                        >
+                          <Copy size={12} />
+                        </button>
+                      </div>
                     </td>
-                    <td className="px-5 py-3">
-                      {k.permissions.length === 0 ? (
-                        <span className="text-xs text-tx-muted">None</span>
-                      ) : (
-                        <span className="text-xs text-tx-secondary">
-                          {k.permissions.length} scope{k.permissions.length === 1 ? "" : "s"}
-                        </span>
-                      )}
-                    </td>
+                    {!compact && (
+                      <td className="px-5 py-3">
+                        {k.permissions.length === 0 ? (
+                          <span className="text-xs text-tx-muted">None</span>
+                        ) : (
+                          <span className="text-xs text-tx-secondary">
+                            {k.permissions.length} scope{k.permissions.length === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-5 py-3 text-xs text-tx-muted whitespace-nowrap">{formatDateTime(k.created_at)}</td>
-                    <td className="px-5 py-3 text-xs text-tx-muted whitespace-nowrap">
-                      {k.expires_at ? formatDateTime(k.expires_at) : "Never"}
-                    </td>
+                    {!compact && (
+                      <td className="px-5 py-3 text-xs text-tx-muted whitespace-nowrap">
+                        {k.expires_at ? formatDateTime(k.expires_at) : "Never"}
+                      </td>
+                    )}
                     <td className="px-5 py-3 text-xs text-tx-muted whitespace-nowrap">
                       {k.last_used_at ? formatDateTime(k.last_used_at) : "Never used"}
                     </td>
-                    <td className="px-5 py-3 text-right">
-                      <button
-                        onClick={() => setDeleteTarget(k)}
-                        className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-danger inline-flex items-center justify-center"
-                        aria-label={`Delete ${k.name}`}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openRename(k)}
+                          className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-tx-primary inline-flex items-center justify-center"
+                          aria-label={`Rename ${k.name}`}
+                        >
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => setDeleteTarget(k)}
+                          className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-danger inline-flex items-center justify-center"
+                          aria-label={`Delete ${k.name}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </motion.tr>
                 ))}
@@ -365,6 +435,49 @@ export default function ApiKeys() {
         </div>
       </Dialog>
 
+      <Dialog
+        open={!!renameTarget}
+        title="Rename API Key"
+        onClose={() => (rename.isPending ? undefined : setRenameTarget(null))}
+        maxWidthClassName="max-w-sm"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!renameTarget || !renameValue.trim()) return;
+            rename.mutate({ keyId: renameTarget.id, newName: renameValue.trim() });
+          }}
+        >
+          <h2 className="text-sm font-semibold text-tx-primary mb-4">Rename API Key</h2>
+          <label htmlFor="key-rename" className="text-xs text-tx-muted block mb-1.5">Name</label>
+          <input
+            id="key-rename"
+            required
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            className="w-full bg-app-bg border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+          />
+          <div className="flex items-center justify-end gap-2 mt-6">
+            <button
+              type="button"
+              onClick={() => setRenameTarget(null)}
+              disabled={rename.isPending}
+              className="btn-outline h-9 text-xs px-3.5"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={rename.isPending || !renameValue.trim()}
+              className="btn-primary h-9 text-xs px-3.5"
+            >
+              {rename.isPending && <Loader2 size={13} className="animate-spin" />}
+              Save
+            </button>
+          </div>
+        </form>
+      </Dialog>
+
       <ConfirmDialog
         open={!!deleteTarget}
         title="Delete API Key?"
@@ -374,6 +487,14 @@ export default function ApiKeys() {
         onConfirm={() => deleteTarget && revoke.mutate(deleteTarget.id)}
         onCancel={() => setDeleteTarget(null)}
       />
+    </div>
+  );
+}
+
+export default function ApiKeys() {
+  return (
+    <div className="p-4 sm:p-6">
+      <ApiKeysManager />
     </div>
   );
 }

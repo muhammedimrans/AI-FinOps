@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "../utils";
@@ -13,6 +13,9 @@ interface ConfirmDialogProps {
   loading?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional extra content (e.g. a password-confirmation input) rendered
+   * between the description and the action buttons. */
+  children?: ReactNode;
 }
 
 /** Generic destructive-action confirmation modal — reused wherever a delete/remove needs a guard. */
@@ -26,6 +29,7 @@ export default function ConfirmDialog({
   loading = false,
   onConfirm,
   onCancel,
+  children,
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
 
@@ -85,7 +89,8 @@ export default function ConfirmDialog({
                 )}
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2">
+            {children}
+            <div className="flex items-center justify-end gap-2 mt-4">
               <button
                 onClick={onCancel}
                 disabled={loading}

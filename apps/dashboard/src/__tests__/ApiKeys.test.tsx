@@ -14,6 +14,7 @@ vi.mock("../services/api", async (importOriginal) => {
     listApiKeys: vi.fn(),
     createApiKey: vi.fn(),
     revokeApiKey: vi.fn(),
+    updateApiKey: vi.fn(),
     listPermissions: vi.fn(),
   };
 });
@@ -133,6 +134,27 @@ describe("ApiKeys page", () => {
 
     await waitFor(() => {
       expect(mockedApi.revokeApiKey).toHaveBeenCalledWith("org_1", "key_1");
+    });
+  });
+
+  it("renames a key (EP-22.2)", async () => {
+    const user = userEvent.setup();
+    mockedApi.listApiKeys.mockResolvedValue({ keys: [SAMPLE_KEY], total: 1 });
+    mockedApi.updateApiKey.mockResolvedValue({ ...SAMPLE_KEY, name: "Renamed key" });
+
+    renderPage();
+    await screen.findByText("Prod ingestion");
+
+    await user.click(screen.getByRole("button", { name: /rename prod ingestion/i }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Rename API Key" });
+    const nameInput = within(dialog).getByLabelText("Name");
+    await user.clear(nameInput);
+    await user.type(nameInput, "Renamed key");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockedApi.updateApiKey).toHaveBeenCalledWith("org_1", "key_1", { name: "Renamed key" });
     });
   });
 

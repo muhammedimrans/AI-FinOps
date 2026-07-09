@@ -18,10 +18,11 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, DateTime, Index, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -103,6 +104,17 @@ class User(BaseModel):
     # people who already know the product.
     onboarding_completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
+    )
+
+    # ── Preferences (EP-22.2) ─────────────────────────────────────────────────
+    # Minimal JSON storage for UI preferences (theme, timezone, currency, date
+    # format, sidebar-collapsed, notification toggles) — deliberately not a
+    # dedicated table (see CLAUDE.md §16). Distinct from
+    # app.models.alert.AlertPreference, which is scoped to alert-delivery
+    # rules only. Free-form: the frontend owns the key/value shape, the
+    # backend only stores and merges it.
+    preferences: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────

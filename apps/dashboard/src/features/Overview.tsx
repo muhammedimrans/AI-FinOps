@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart,
   Area,
@@ -14,7 +16,7 @@ import {
   Bar,
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
-import { DollarSign, Activity, Layers, Zap, Download, Radio } from "lucide-react";
+import { DollarSign, Activity, Layers, Zap, Download, Radio, PlugZap, FolderPlus } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import LiveActivityFeed from "../components/LiveActivityFeed";
@@ -24,6 +26,8 @@ import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import { useOverview, useTimeSeries, useProviders, useModels } from "../hooks/useDashboard";
 import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
+import { listProviderConnections, listProjectsCrud } from "../services/api";
+import { useOrgStore } from "../stores/org";
 import {
   formatCost,
   formatDate,
@@ -37,6 +41,60 @@ import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import type { Granularity } from "../types/api";
+
+// EP-21.3 — replaces blank analytics with an actionable prompt for a
+// brand-new organization that has neither a provider connection nor a
+// project yet, reusing the same queries (and query keys — see
+// features/Connections.tsx / Projects.tsx) the Connections and Projects
+// pages already use, so this never drifts out of sync with their counts.
+export function GettingStartedBanner() {
+  const organizationId = useOrgStore((s) => s.organizationId);
+
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
+  const projects = useQuery({
+    queryKey: ["projects-crud", organizationId],
+    queryFn: () => listProjectsCrud(organizationId!),
+    enabled: !!organizationId,
+  });
+
+  if (connections.isLoading || projects.isLoading) return null;
+  const hasConnections = (connections.data?.total ?? 0) > 0;
+  const hasProjects = (projects.data?.total ?? 0) > 0;
+  if (hasConnections && hasProjects) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card rounded-card-lg border border-border-subtle p-5 sm:p-6"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-tx-primary mb-1">Get set up to see real numbers here</h3>
+          <p className="text-xs text-tx-muted leading-relaxed">
+            Costs and usage appear as soon as a provider is connected and data starts flowing in.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
+          {!hasConnections && (
+            <Link to="/connections" className="btn-primary h-9 px-4 text-xs inline-flex items-center gap-1.5">
+              <PlugZap size={14} /> Connect your first provider
+            </Link>
+          )}
+          {!hasProjects && (
+            <Link to="/projects" className="btn-outline h-9 px-4 text-xs inline-flex items-center gap-1.5">
+              <FolderPlus size={14} /> Create your first project
+            </Link>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
 
 interface TooltipPayloadEntry {
   dataKey?: string | number;
@@ -211,6 +269,8 @@ export default function Overview() {
       />
 
       <CriticalAlertBanner />
+
+      <GettingStartedBanner />
 
       {/* Live-update strip — appears once a usage.created event has landed
           since the socket connected; the KPI numbers below refresh via the

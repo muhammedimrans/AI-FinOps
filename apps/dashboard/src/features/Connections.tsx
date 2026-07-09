@@ -38,7 +38,7 @@ import {
   type TestConnectionResponse,
   type ProviderConnectionRecord,
 } from "../services/api";
-import { PROVIDER_COLORS } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, connectableLabel } from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
 import { useOrgStore } from "../stores/org";
@@ -270,24 +270,6 @@ function ProductionProviderCard({ providerId, index }: { providerId: string; ind
   );
 }
 
-// EP-22 — the 7 providers the product spec calls "supported": persisted,
-// customer-managed connection *records* (name, type, active/inactive,
-// health). Values match backend ProviderType exactly (some differ from
-// PROVIDER_CATALOG's ids — e.g. "azure_openai" not "azure", "grok" not "xai").
-const CONNECTABLE_PROVIDERS: { value: string; label: string; color: string }[] = [
-  { value: "openai", label: "OpenAI", color: PROVIDER_COLORS["openai"] ?? "#888" },
-  { value: "anthropic", label: "Anthropic", color: PROVIDER_COLORS["anthropic"] ?? "#888" },
-  { value: "google", label: "Google Gemini", color: PROVIDER_COLORS["google"] ?? "#888" },
-  { value: "openrouter", label: "OpenRouter", color: PROVIDER_COLORS["openrouter"] ?? "#888" },
-  { value: "azure_openai", label: "Azure OpenAI", color: PROVIDER_COLORS["azure"] ?? "#888" },
-  { value: "grok", label: "Grok (xAI)", color: PROVIDER_COLORS["xai"] ?? "#888" },
-  { value: "ollama", label: "Ollama", color: PROVIDER_COLORS["ollama"] ?? "#888" },
-];
-
-function connectableLabel(providerType: string): string {
-  return CONNECTABLE_PROVIDERS.find((p) => p.value === providerType)?.label ?? providerType;
-}
-
 const HEALTH_BADGE: Record<string, { className: string; label: string }> = {
   healthy: { className: "bg-success-dim text-success", label: "Healthy" },
   critical: { className: "bg-danger-dim text-danger", label: "Critical" },
@@ -364,7 +346,7 @@ function ApiKeyInput({
   );
 }
 
-function AddConnectionForm({
+export function AddConnectionForm({
   organizationId,
   onDone,
 }: {

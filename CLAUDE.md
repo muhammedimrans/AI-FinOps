@@ -26,53 +26,49 @@ Costorah uses a multi-subdomain architecture, not a single-origin or path-prefix
 
 Costorah is an AI-cost-observability platform: customers connect their AI provider accounts (OpenAI, Anthropic, etc.) or integrate an SDK, and Costorah ingests usage/cost data and surfaces it through dashboards, analytics, and budget alerts.
 
-The product today is **two separate frontends** that need to become one seamless experience:
-- A **marketing website** (public, unauthenticated) — currently a separate repo (`costorah-ai-guide-main`, Lovable-built).
-- An **authenticated dashboard application** (this repo's `frontend/`) — the product itself.
+The product is now **one monorepo, two frontends, moving toward one seamless experience** (ADR-006, §0):
+- `apps/website` — public marketing site (`costorah.com`), migrated from the standalone `costorah-ai-guide-main` Lovable repo.
+- `apps/dashboard` — authenticated product (`app.costorah.com`), moved from this repo's former `frontend/`.
 
-They share a backend (`backend/`, FastAPI) but nothing else yet: different frameworks, different design token systems, different auth models, different repos.
+Both now live in one pnpm workspace alongside `backend/` (FastAPI) and `packages/*`. The physical merge (EP-21 milestones 1–3, below) is done and verified; the remaining EP-21 work is backend auth (registration + cookie session) and wiring the website's forms to it — see §9.
 
 ---
 
 ## 2. Repository Structure
 
-### Current
+### Current (as of EP-21 milestone 3 — implemented, not aspirational)
 ```
-AI-FinOps/                  (pnpm workspace: frontend + packages/*)
-├── frontend/                @ai-finops/frontend — Vite SPA dashboard
-├── backend/                 FastAPI monolith
+AI-FinOps/                  (pnpm workspace: apps/* + packages/*)
+├── apps/
+│   ├── dashboard/            @costorah/dashboard — Vite SPA, moved from frontend/ (git-tracked rename, history preserved)
+│   └── website/               @costorah/website — TanStack Start SSR, imported from costorah-ai-guide-main
+│                               (flat import, not git-subtree: the Lovable export had no .git/ at all — no history existed to preserve)
+├── backend/                   FastAPI monolith, unchanged
 ├── packages/
-│   ├── shared-types/        @ai-finops/shared-types
-│   ├── shared-config/       @ai-finops/shared-config
-│   ├── api-contracts/       @ai-finops/api-contracts
-│   ├── event-schema/        @ai-finops/event-schema
-│   ├── error-codes/         @ai-finops/error-codes
-│   └── ui-components/       empty stub — seed for shared-ui
-├── sdk/                      @costorah/sdk (Python + JS) — external-facing, different npm scope than the rest
+│   ├── shared-ui/              @costorah/shared-ui — seeded: cn() is now defined once here, re-exported
+│   │                           from both apps' existing "@/lib/utils" / "@/utils" entry points.
+│   │                           shadcn/ui primitive adoption + design-token unification still open (EP-26).
+│   ├── shared-types/, shared-config/, api-contracts/, event-schema/, error-codes/
+│   │                           all renamed @ai-finops/* -> @costorah/* (done)
+├── sdk/                       @costorah/sdk (Python + JS) — same scope as everything else now
 ├── provider-adapters/, monitoring-agent/, docs/, deployment/, ...
 ```
 
-### Target (see `costorah_website_dashboard_merge_plan.md` for the full migration plan)
-```
-AI-FinOps/
-├── apps/
-│   ├── website/              ← migrated from costorah-ai-guide-main via git subtree (history preserved)
-│   └── dashboard/             ← renamed from frontend/
-├── backend/                   unchanged location
-├── packages/
-│   ├── shared-ui/              ← fills the ui-components stub; shadcn/ui-based, shared by both apps
-│   ├── shared-types/, shared-config/, api-contracts/, event-schema/, error-codes/  ← existing, extended
-│   └── shared-utils/           ← new: cn(), formatting, PROVIDER_COLORS
-├── sdk/, provider-adapters/, monitoring-agent/, docs/, deployment/
-```
+**Package naming**: done. Every internal workspace package (including the dashboard and website themselves) is `@costorah/*`, matching the SDK. No more `@ai-finops/*` scope anywhere in the repo.
 
-**Package naming**: all internal workspace packages move to the `@costorah/*` scope (matching the already-public `@costorah/sdk`), retiring the `@ai-finops/*` scope in the same PR that does the directory restructure (EP-25).
+**A note for anyone restructuring directories in this repo further**: the root `.gitignore`'s Python-section `lib/` pattern (line 13) silently matches *any* path ending in `lib/`, including `apps/*/src/lib/`. Each app under `apps/` needs its own `!apps/<name>/src/lib/` negation — this was already true for `apps/dashboard` but was missing for `apps/website` until EP-21 milestone 3 caught it (a fresh clone was silently missing 4 required source files). Verify with `git ls-files apps/<name> | wc -l` against `find apps/<name> -type f | wc -l` (excluding `node_modules`/build output) after any directory move.
+
+### Not yet done (see §9 for the honest remaining list)
+- `packages/shared-utils` (formatting helpers, `PROVIDER_COLORS`) — not created yet.
+- shadcn/ui adoption in `apps/dashboard` in place of its hand-rolled primitives — not started; `packages/shared-ui` currently only exports `cn()`.
+- Turborepo — not introduced; still plain `pnpm --recursive`/`--filter`.
+- Website CI (`apps/website` has no lint/build/test job in `.github/workflows/ci.yml` yet — only the dashboard's jobs were updated to the new path).
 
 ---
 
 ## 3. Website Architecture
 
-Source (pre-migration): `costorah-ai-guide-main`, uploaded as a Lovable export.
+Location: `apps/website/` (imported from the standalone `costorah-ai-guide-main` Lovable export — see §2 and §8 milestone 2).
 
 - **Framework**: TanStack Start — SSR, file-based routing (`src/routes/*.tsx`), root shell `__root.tsx`. Not a static site; requires a running SSR server (Nitro, Cloudflare-targeted by its build config).
 - **Styling**: Tailwind v4, CSS-first config (no `tailwind.config.*` — tokens live in `src/styles.css` via `@theme inline`). OKLCH color space, dark-only palette (no light mode built). Brand color `#14D9D3` → `#7AF7E8` (teal → mint).
@@ -84,7 +80,7 @@ Source (pre-migration): `costorah-ai-guide-main`, uploaded as a Lovable export.
 
 ## 4. Dashboard Architecture
 
-Source: `frontend/` (target: `apps/dashboard/`).
+Location: `apps/dashboard/` (moved from this repo's former `frontend/` — see §2 and §8 milestone 1).
 
 - **Framework**: Vite SPA, React 18.3, React Router v6 (`BrowserRouter`, classic `<Routes>`), served at root `/` with no base path.
 - **Styling**: Tailwind v3.4 (TS config file). No shadcn/ui or Radix — every primitive (`Dialog`, `Popover`, `Avatar`, `ConfirmDialog`, `MetricCard`, `ToastContainer`) is hand-rolled, using Framer Motion for animation.
@@ -146,18 +142,33 @@ Move **browser session** auth (not the API-key path) to an **httpOnly, `SameSite
 
 ## 8. Migration Roadmap
 
-Dependency-ordered. Extends the EP-21+ roadmap from the prior product-completeness audit.
+Dependency-ordered. Extends the roadmap from the prior product-completeness audit. Status reflects reality as of the last commit to this file, not aspiration — see §9 for exact verification evidence per item.
 
-1. **EP-21 — Registration + personal workspace auto-provisioning.** `POST /v1/auth/register` + org auto-creation on signup. Nothing downstream matters until a new customer can get in.
-2. **EP-22 — Cookie-based session + domain topology.** Session-cookie issuance scoped to `.costorah.com`; establishes `costorah.com` / `app.costorah.com`.
-3. **EP-23 — Provider Connections (real, persisted).** Full CRUD API + UI for the already-modeled `ProviderConnection` entity.
-4. **EP-24 — Projects CRUD.** Same treatment for `Project`.
-5. **EP-25 — Monorepo restructure.** `frontend/` → `apps/dashboard`; website merged into `apps/website` via `git subtree` (history preserved, not a flat copy); `packages/ui-components` → `packages/shared-ui`; package scope unified to `@costorah/*`; Turborepo introduced.
-6. **EP-26 — Design system unification.** Token reconciliation per the table in §5; dashboard migrated onto shared shadcn/ui primitives; fonts self-hosted; `PROVIDER_COLORS` centralized.
-7. **EP-27 — Onboarding wizard completion.** Wire `OnboardingModal` through the real Connect-Provider (EP-23) flow and usage-ingestion activation.
-8. **EP-28 — Transactional email.** One implementation; fixes verification, password reset, and member invites at once.
-9. **EP-29 — Website content completion.** Real copy for the 9 existing stub pages, plus net-new pages your spec calls for that don't exist in the source repo at all: **Enterprise, Integrations, Roadmap, Careers, Status**.
-10. **EP-30 — Unified CI/CD.** Extend GitHub Actions to build/test/typecheck both apps + shared packages via Turborepo; separate deploy jobs (Cloudflare SSR for website, static hosting for dashboard) from one pipeline.
-11. **EP-31 — Billing.** Still fully absent (no Stripe/subscription code anywhere per the prior audit) — correctly last, since there's no self-serve product to charge for until EP-21–24 land.
+1. **EP-21 — Website + dashboard repository unification.** *(this initiative — in progress)*
+   - ✅ **Milestone 1 — `apps/dashboard` restructure.** `frontend/` → `apps/dashboard` (git-tracked rename, history preserved), `@ai-finops/*` → `@costorah/*` scope across every package, `pnpm-workspace.yaml`/`docker-compose.yml`/CI/CODEOWNERS updated, broken `tsconfig` `extends` paths from the directory-depth change fixed. Verified: build/lint/typecheck/test (124 tests) all pass.
+   - ✅ **Milestone 2 — `apps/website` import.** Imported as a flat single commit (source had no `.git/` — no history to preserve). Lovable-hosting-specific files removed (`bun.lock`, `bunfig.toml`, `.lovable/`, `AGENTS.md`); package renamed `@costorah/website`; 162 pre-existing prettier violations auto-fixed. Verified: builds unmodified inside the monorepo (Cloudflare-target Nitro SSR, all 13 routes).
+   - ✅ **Milestone 3 — `packages/shared-ui` seeded.** `cn()` deduplicated (was byte-identical in both apps) into one implementation, re-exported from both apps' existing import paths. Caught and fixed a real bug in the process: the root `.gitignore` was silently excluding all of `apps/website/src/lib/` (4 files) from milestone 2's commit — a fresh clone would have been broken. Verified via an actual fresh `git clone` + install + build of all three packages, not just re-running in the existing working tree.
+   - ⬜ **Milestone 4 — `POST /v1/auth/register` + session-cookie issuance.** Not started. This is the concrete blocker for "one account system, real login on both domains" — see §9.
+   - ⬜ **Milestone 5 — Wire `apps/website`'s `/login`, `/signup` to the real backend; remove `apps/dashboard`'s now-redundant `Login.tsx`/etc.** Not started.
+   - ⬜ **Milestone 6 — shadcn/ui adoption in `apps/dashboard`, full component de-duplication.** Not started — `packages/shared-ui` currently exports only `cn()`. This is the largest remaining piece of "no duplicate components remain" and should be sized as its own multi-PR effort, not a single milestone.
+   - ⬜ **Milestone 7 — Website CI wiring, Turborepo, `packages/shared-utils`.** Not started.
+2. **EP-22 — Provider Connections (real, persisted).** Full CRUD API + UI for the already-modeled `ProviderConnection` entity. Not started.
+3. **EP-23 — Projects CRUD.** Same treatment for `Project`. Not started.
+4. **EP-24 — Onboarding wizard completion.** Wire `OnboardingModal` through the real Connect-Provider (EP-22) flow and usage-ingestion activation. Not started.
+5. **EP-25 — Transactional email.** One implementation; fixes verification, password reset, and member invites at once. Not started.
+6. **EP-26 — Website content completion.** Real copy for the 9 existing stub pages, plus net-new pages the product spec calls for that don't exist in the source repo at all: **Enterprise, Integrations, Roadmap, Careers, Status**. Not started.
+7. **EP-27 — Billing.** Still fully absent (no Stripe/subscription code anywhere per the prior audit) — correctly last, since there's no self-serve product to charge for until EP-21–24 land. Not started.
 
-Full rationale, the component/token reconciliation tables, and the "what this plan deliberately does not recommend" section live in `costorah_website_dashboard_merge_plan.md` (delivered alongside this document).
+Full rationale, the component/token reconciliation tables, and the "what this plan deliberately does not recommend" section live in `docs/costorah_website_dashboard_merge_plan.md`.
+
+## 9. EP-21 — Honest Status Against the Stated Success Criteria
+
+The success criteria for this initiative were: `costorah.com` fully functional, `app.costorah.com` fully functional, one shared design system, one shared authentication system, both documented in `CLAUDE.md`, no duplicate components, all tests pass.
+
+**What is actually true right now:**
+- Both apps build, lint, and (for the dashboard) test green, independently, from a verified fresh clone, in one pnpm workspace. This is real and re-verifiable at any time (`pnpm --filter @costorah/dashboard build/test`, `pnpm --filter @costorah/website build`).
+- There is not yet a second, competing account system anywhere — the website has no auth code at all (its `/login`/`/signup` are still the static forms from the Lovable export). This satisfies "don't build two systems" by not having built a second one yet, not by having unified them — that unification is milestone 4/5 above, unstarted.
+- "No duplicate components remain" is **not true yet**. One concrete duplication (`cn()`) is eliminated. The much larger one — `apps/website`'s 38 unused shadcn/ui primitives vs. `apps/dashboard`'s ~14 hand-rolled equivalents (`Dialog`, `Popover`, `Avatar`, `ConfirmDialog`, `ToastContainer`, etc.) — has not been touched. Claiming this criterion met would be false.
+- `app.costorah.com` / `costorah.com` as live, deployed domains: not part of this repo's scope to stand up (DNS/hosting/Cloudflare account access), and not attempted — the architecture (§0) and each app's independent build are what this repo controls.
+
+This section exists so a future reader (or a future EP) doesn't have to reverse-engineer "how much of EP-21 is actually done" from commit messages — update it every time a milestone in §8 changes state.

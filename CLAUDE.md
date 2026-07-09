@@ -886,3 +886,104 @@ Added one new optional prop, `emptyContent?: ReactNode`. When `empty` is true an
 ### Next milestone recommendation
 
 Unchanged from §16 — this EP was purely a frontend guidance/empty-state pass and doesn't move either of the two standing highest-value backend items: (1) wiring `ProviderConnection.encrypted_api_key` into actual usage collection (the thing that would make state 3 → state 4 happen for real accounts, not just demo/test data), and (2) transactional email. Once (1) lands, this EP's state machine is what will make that transition visibly obvious to a user for the first time — the "Everything is ready. Waiting for your applications to send AI requests." message becomes literally true rather than aspirational.
+
+---
+
+## 18. EP-24 — Authorization & Permission Consistency Audit
+
+**Status: complete.** A full audit of every authorization surface (backend routers/dependencies/RBAC, frontend action buttons, database ownership columns) triggered by one reported inconsistency: a MEMBER could create a Project but not delete it. The audit found **exactly one** genuine bug — that one — fixed it, and confirmed every other resource's permission set is already internally consistent. No new tables, no new permissions, no new API surface — this EP is a one-line grant plus its regression tests and documentation.
+
+### Root cause
+
+`app/auth/rbac.py`'s `_MEMBER_PERMS` granted `Permission.PROJECT_WRITE` but not `Permission.PROJECT_DELETE`. This was never a deliberate security decision — `app/api/v1/projects.py`'s own module docstring already claimed *"granted to every role down to VIEWER for read and MEMBER+ for write/delete"*, directly contradicted by the permission grant it sat above. The code disagreed with its own documentation, which is the strongest available signal that this was an oversight (most likely: PROJECT_DELETE was added to the `Permission` enum and to `_ADMIN_PERMS`/`_OWNER_PERMS` in EP-13, but the corresponding `_MEMBER_PERMS` entry was never added when EP-23's Projects CRUD API actually started using it).
+
+The frontend was never the problem: `apps/dashboard/src/features/Projects.tsx`'s `ProjectCrudRow` already renders an unconditional Delete button (`aria-label="Delete project"`) for every project — the button existed and would have looked functional to a MEMBER, silently 403'ing on click before this fix. This is the general failure mode a backend-only permission gap produces: since **no page in `apps/dashboard` performs any client-side role-based UI gating** (confirmed by an app-wide audit below), every action button is always rendered for every authenticated member of the org, and the backend's `RequirePermission` dependency is the only enforcement point. That's an intentional, consistent architecture (see "Frontend audit" below) — it just means a backend permission gap always manifests as a broken *action*, never a missing *button*.
+
+### Audit method
+
+1. Read `app/auth/rbac.py` (the single source of truth for role → permission grants) and enumerated every `Permission` value.
+2. For each resource with both a WRITE-shaped and a DELETE-shaped permission (`PROJECT_*`, `PROVIDER_*`), checked whether every role holding the WRITE permission also holds the DELETE permission.
+3. For resources with only one mutating permission (`API_KEY_WRITE` covers create/rename/revoke; `NOTIFICATION_WRITE` covers acknowledge/resolve/dismiss/reopen/preferences), confirmed there is no create/delete split to audit — a single permission gating the whole mutation surface can't itself be inconsistent.
+4. Cross-checked every backend router (`app/api/v1/*.py`) against `app/auth/rbac.py` to confirm the `RequirePermission(Permission.X)` annotation on each endpoint matches the permission the resource's docstring/design intends (this is what caught the Projects docstring/grant mismatch).
+5. Audited `apps/dashboard/src/features/*.tsx` for every action button (Create/Edit/Rename/Delete/Test/Activate/Rotate/Copy) named in the task, confirming each has a corresponding rendered control and a corresponding backend endpoint — no missing buttons, no orphaned buttons calling endpoints that don't exist.
+6. Audited the database layer: confirmed every mutable resource (`Organization`, `Project`, `ProviderConnection`, `OrganizationApiKey`) is scoped by `organization_id` (multi-tenant boundary) and gated exclusively by `Membership.role` via `RequirePermission` — never by a `created_by`/ownership column. `Project` has no `created_by` column at all; `OrganizationApiKey.created_by` exists but is audit metadata only (nullable, `ON DELETE SET NULL`), never read by any authorization check (`grep`-confirmed no `created_by`/`deleted_by` comparison anywhere in `app/auth/`). This is a deliberate, consistent design choice already documented implicitly across EP-13/EP-14/EP-22/EP-23: Costorah's authorization model is **role-based within an organization, not per-creator ownership** — any MEMBER can already edit/rename a project or connection someone else on the team created, so extending that same role (not creator identity) to delete is the consistent choice, not a new concept.
+
+### Complete permission matrix (post-fix)
+
+| Resource | Action | Permission | VIEWER | MEMBER | ADMIN | OWNER |
+|---|---|---|:---:|:---:|:---:|:---:|
+| Organization (Workspace) | Read | `ORG_READ` | ✅ | ✅ | ✅ | ✅ |
+| Organization (Workspace) | Rename / description | `ORG_WRITE` | ❌ | ❌ | ✅ | ✅ |
+| Organization (Workspace) | Invite / change role / remove member | `ORG_MANAGE_MEMBERS` | ❌ | ❌ | ✅ | ✅ |
+| Organization (Workspace) | Delete | `ORG_DELETE` | ❌ | ❌ | ❌ | ✅ |
+| Project | Read / list | `PROJECT_READ` | ✅ | ✅ | ✅ | ✅ |
+| Project | Create / rename / update | `PROJECT_WRITE` | ❌ | ✅ | ✅ | ✅ |
+| Project | **Delete** | `PROJECT_DELETE` | ❌ | **✅ (fixed — was ❌)** | ✅ | ✅ |
+| Provider Connection | Read / list | `PROVIDER_READ` | ✅ | ✅ | ✅ | ✅ |
+| Provider Connection | Create / rename / activate / deactivate / rotate key / test | `PROVIDER_WRITE` | ❌ | ❌ | ✅ | ✅ |
+| Provider Connection | Delete | `PROVIDER_DELETE` | ❌ | ❌ | ✅ | ✅ |
+| API Key | Read / list | `API_KEY_READ` | ✅ | ✅ | ✅ | ✅ |
+| API Key | Create / rename / revoke / copy (client-only, no perm) | `API_KEY_WRITE` | ❌ | ❌ | ✅ | ✅ |
+| Usage | Read (dashboard) | `USAGE_READ` | ✅ | ✅ | ✅ | ✅ |
+| Usage | Write (ingestion, M2M only — not a dashboard action) | `USAGE_WRITE` | ❌ | ❌ | ✅ | ✅ |
+| Billing | Read / write (not yet implemented — EP-27) | `BILLING_READ`/`BILLING_WRITE` | ❌ | ❌ | ✅ (read) / ✅ | ✅ |
+| Alerts / Notifications | Read | `NOTIFICATION_READ` | ✅ | ✅ | ✅ | ✅ |
+| Alerts / Notifications | Acknowledge / resolve / dismiss / reopen / preferences | `NOTIFICATION_WRITE` | ❌ | ✅ | ✅ | ✅ |
+| Profile (self) | Edit / change password / delete account | *(none — `CurrentUser` identity, not role)* | ✅ | ✅ | ✅ | ✅ |
+| Preferences (self) | Read / update | *(none — `CurrentUser` identity, not role)* | ✅ | ✅ | ✅ | ✅ |
+| Budgets | *(no separate resource — `Project.budget` is a field, edited via `PROJECT_WRITE`)* | — | — | — | — | — |
+
+Bold row is the one cell this EP changed. Every other cell was already correct and is now covered by a regression test (`tests/test_ep24_authz_audit.py`).
+
+### Backend endpoints audited
+
+Every `RequirePermission(...)`/`RequireMembershipOrApiKeyPermission(...)` annotation in `app/api/v1/organizations.py`, `app/api/v1/projects.py`, `app/api/v1/provider_connections.py`, `app/api/v1/auth.py`, `app/api/v1/alerts.py`, and `app/api/v1/rbac.py` was read and cross-checked against `app/auth/rbac.py`'s grants. Only `projects.py`'s `DELETE /{project_id}` endpoint's declared permission (`PROJECT_DELETE`) disagreed with what its own docstring said MEMBER should be able to do — every other endpoint's permission annotation already matched its resource's intended role boundary.
+
+### Frontend actions audited
+
+| Page | Actions checked | Result |
+|---|---|---|
+| `features/Projects.tsx` | Create, Rename, Delete | All three buttons present and unconditional (no client-side role gating anywhere in the app — see below) |
+| `features/Connections.tsx` | Create, Rename, Delete, Activate/Deactivate, Rotate key, Test connection | All six present |
+| `features/ApiKeys.tsx` (`ApiKeysManager`, shared with Settings' API Keys tab — EP-22.2) | Create, Rename, Copy prefix, Revoke | All four present |
+| `features/Settings.tsx` | Workspace rename/description/delete, Profile edit, Password change, Account delete, Preferences read/update | All present (EP-22.2) |
+
+**No missing buttons, no orphaned buttons.** Confirmed via `grep` across `apps/dashboard/src` that no component reads a membership role to conditionally hide/disable an action — every page shows every action to every authenticated org member and lets the backend's 403 (surfaced via the app's existing `apiErrorMessage`/`toast.error("Not allowed", ...)` pattern, used consistently since EP-14) be the enforcement signal. This is architecturally consistent and was not changed by this EP — flagged only as a known limitation below (a nicer UX would grey out actions a VIEWER/MEMBER can't perform, rather than let them fail), not a correctness bug: the backend is always the actual authority, so no button here can grant an action the backend would refuse.
+
+### Database ownership audit
+
+- `Project`, `ProviderConnection`, `OrganizationApiKey`, `Membership` are all scoped by `organization_id` (`ForeignKey("organizations.id", ondelete="CASCADE")`) — the multi-tenant boundary every `RequirePermission`-gated endpoint enforces via `_get_current_membership`/`ensure_org_membership` before any permission check runs.
+- No resource's authorization depends on a `created_by`/owner column. `Project` has none. `OrganizationApiKey.created_by` exists (nullable FK, `ON DELETE SET NULL`) but is audit-trail metadata only — confirmed by reading every call site that touches it (`app/api/v1/organizations.py`'s `create_api_key`) and confirming no `RequirePermission`/service-layer check ever compares it to the caller's id.
+- `deleted_by` (the `BaseModel` soft-delete mixin column) is populated inconsistently across routers — `AuthService.delete_account`/`OrganizationApiKeyRepository.delete` pass it explicitly, while `app/api/v1/organizations.py`'s org-delete, `app/api/v1/projects.py`'s project-delete, and `app/api/v1/provider_connections.py`'s connection-delete call `repo.soft_delete(x)` with no `deleted_by` argument. This is an audit-trail completeness gap, not an authorization gap (`deleted_by` is never read by any permission check), and is noted under "Known limitations" rather than fixed here to keep this EP scoped to the permission-consistency rule it was asked to enforce.
+
+### Fixes applied
+
+- **`app/auth/rbac.py`** — added `Permission.PROJECT_DELETE` to `_MEMBER_PERMS`. One line, reusing the existing `Permission` enum and `RequirePermission` dependency exactly as they already work for every other endpoint — no new permission, no hardcoded role check, no duplicated authorization logic anywhere.
+- **`app/auth/rbac.py`** (documentation) — added an explicit comment block above `_OWNER_PERMS` recording the audit's consistency invariant and its one deliberate exception (`ORG_DELETE` stays OWNER-only despite ADMIN holding `ORG_WRITE`, because deleting a workspace cascades to every project/connection/key/member it owns — categorically more destructive than any other delete in the table, and mirrors the existing "only an OWNER may grant the OWNER role" precedent already in `app/api/v1/organizations.py`). This turns a previously-implicit design decision into a documented one, satisfying the task's "unless there is a documented security reason" clause going forward.
+- **`tests/test_ep23_projects.py`** — removed the now-stale docstring on `test_admin_can_delete` that asserted "only ADMIN/OWNER can [delete]" (no longer true), added `test_member_can_delete` as the direct regression test for the fix.
+- No frontend code changed — the Delete button already existed; it simply started working once the backend permission was granted.
+
+### Testing
+
+- **`backend/tests/test_ep24_authz_audit.py`** (new, 12 tests):
+  - `TestPermissionConsistencyInvariant` — a parametrized, table-driven test asserting **for every role**, WRITE implies DELETE for both audited WRITE/DELETE pairs (`PROJECT_*`, `PROVIDER_*`). This is the audit's rule encoded as an executable guardrail — any future resource that adds a `_SOMETHING_WRITE`/`_SOMETHING_DELETE` pair to `_WRITE_DELETE_PAIRS` gets this consistency check for free, and any regression (like the one this EP fixed) fails the suite immediately instead of waiting for another manual bug report.
+  - `TestProjectDeleteGrantedToMember` — pins the concrete fix (MEMBER has both `PROJECT_WRITE` and `PROJECT_DELETE`; VIEWER still has neither).
+  - `TestProviderConnectionsRemainConsistent` — confirms Provider Connections were already consistent (MEMBER has neither WRITE nor DELETE, a matched pair) and locks that in, so a future change can't silently create the Projects-style gap there.
+  - `TestApiKeyWriteCoversRenameAndDelete` — confirms the single-permission-covers-everything design for API keys is intact.
+  - `TestOrganizationDeleteDocumentedException` — pins the one deliberate exception (`ORG_DELETE` OWNER-only) so it can't silently widen or narrow without a corresponding update to the comment in `rbac.py`.
+  - `TestRolePermissionsMonotonic` — sanity check that `ROLE_PERMISSIONS` still forms a strict hierarchy (OWNER ⊇ ADMIN ⊇ MEMBER ⊇ VIEWER) after the fix.
+- **`backend/tests/test_ep23_projects.py`** — added `test_member_can_delete` (MEMBER deletes a project successfully, 204, `soft_delete` called once); removed the stale docstring on `test_admin_can_delete`. `test_viewer_cannot_delete` (pre-existing) is unchanged and still passes.
+- Full backend suite: **1560 passed** (1545 + 12 new EP-24 tests + 3 net-new in `test_ep23_projects.py`'s delete class), ruff/black/mypy clean.
+- **Frontend**: no code changed, so no new tests were required by this EP's own "Testing: Backend — only if new endpoint is added" precedent (extended here to "no frontend change → no new frontend test"); the existing `Projects.test.tsx`/`ManageProjectsSection.test.tsx` suite (EP-22/EP-23) was re-run as a regression check and passed unchanged, confirming the Delete button's existing behavior (calls `deleteProject`, shows a confirm dialog, invalidates the query on success) is untouched by this EP.
+
+### Known limitations
+
+- **No client-side permission-aware UI anywhere in `apps/dashboard`.** Every action button is always rendered for every authenticated org member regardless of role; a VIEWER sees the same Delete/Rename/Create buttons a MEMBER does and only discovers they can't act via the 403 toast. This is a UX polish opportunity, not a security gap (the backend is the sole authority), but a role-aware `useCurrentMembership()`/`useHasPermission(Permission.X)` hook — reading the `role` field `GET /v1/organizations` already returns per org — would let the frontend greyed out or hide actions a role definitely cannot perform, closing the loop the way the RBAC introspection endpoints (`GET /v1/rbac/roles`, `/permissions`, EP-13) were originally built to support. Not built here to keep this EP scoped to the permission-consistency rule it was asked to audit and fix, not a new frontend capability.
+- **`deleted_by` is populated inconsistently across delete endpoints** (see "Database ownership audit" above) — an audit-trail completeness gap, never an authorization gap, left unfixed to keep this EP scoped.
+- **The "future resources" review is a documented convention, not an enforced one.** `_WRITE_DELETE_PAIRS` in `test_ep24_authz_audit.py` must be manually extended whenever a new resource gains a WRITE/DELETE permission pair — there's no automatic discovery of new `Permission` enum members that would need pairing. A stronger version of this guardrail (deriving `_WRITE_DELETE_PAIRS` automatically from every `*_WRITE`/`*_DELETE` naming convention in the `Permission` enum) was considered and deliberately not built, to avoid the parametrized test silently changing behavior/scope every time an unrelated permission is added to the enum for a reason that has nothing to do with create/delete symmetry (e.g. `BILLING_WRITE`, which has no corresponding `BILLING_DELETE` concept at all).
+
+### Remaining authorization improvements
+
+1. **Frontend permission-awareness** (see "Known limitations") — the single highest-value follow-up: a shared `useHasPermission()` hook so buttons reflect what a role can actually do, rather than relying entirely on 403-after-click.
+2. **`deleted_by` consistency** — thread `current_user.id` through every `soft_delete()` call site that doesn't already pass it, for complete audit trails.
+3. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this audit and remains true: wiring `ProviderConnection.encrypted_api_key` into real usage collection, and transactional email (§17).

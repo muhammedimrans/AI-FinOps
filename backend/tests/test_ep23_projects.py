@@ -253,8 +253,42 @@ class TestUpdateProjectEndpoint:
 class TestDeleteProjectEndpoint:
     @pytest.mark.asyncio
     async def test_admin_can_delete(self, app: Any) -> None:
-        """MEMBER has PROJECT_WRITE but not PROJECT_DELETE — only ADMIN/OWNER can."""
         org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                existing = _timestamped(make_project(org_id=_ORG_ID))
+                with (
+                    patch(
+                        "app.api.v1.projects.ProjectRepository.get",
+                        new=AsyncMock(return_value=existing),
+                    ),
+                    patch(
+                        "app.api.v1.projects.ProjectRepository.soft_delete",
+                        new=AsyncMock(return_value=existing),
+                    ) as soft_delete,
+                ):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app), base_url="http://test"
+                    ) as ac:
+                        resp = await ac.delete(
+                            f"/v1/organizations/{_ORG_ID}/projects/{existing.id}"
+                        )
+            assert resp.status_code == 204
+            soft_delete.assert_awaited_once()
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_member_can_delete(self, app: Any) -> None:
+        """EP-24 authorization audit fix: a MEMBER who can create a project
+        (PROJECT_WRITE) must also be able to delete one — a role holding
+        create/write but not delete on the same resource is exactly the
+        inconsistency this audit closed. Regression test for that fix."""
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.MEMBER)
         try:
             with patch.multiple(
                 "app.auth.dependencies",

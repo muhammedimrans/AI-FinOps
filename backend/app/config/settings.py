@@ -123,6 +123,7 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "https://op.0protocol.net",
         "https://costorah.com",
+        "https://www.costorah.com",
         "https://app.costorah.com",
     ]
 

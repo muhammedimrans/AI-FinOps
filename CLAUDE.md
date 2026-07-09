@@ -91,8 +91,8 @@ Location: `apps/website/` (imported from the standalone `costorah-ai-guide-main`
 - **Components**: shadcn/ui (Radix-based) fully installed (38 primitives in `src/components/ui/`) but **currently unused** — pages use raw Tailwind instead. Custom shell components: `SiteLayout`, `SiteNav`, `SiteFooter`, `PageHeader`, `StubPage`, inline-SVG `LogoMark`.
 - **Fonts**: Inter (body), Space Grotesk (display), JetBrains Mono (code) — all via Google Fonts `<link>` tags. Same families as the dashboard, different loading mechanism (link tags vs. CSS `@import`).
 - **Routes**: 13 total. Only 4 have real content — `/` (landing page), `/contact`, `/login`, `/signup`. The other 9 (`about`, `blog`, `developers`, `docs`, `features`, `pricing`, `security`, `privacy`, `terms`) are `StubPage` placeholders with no unique copy.
-- **Backend integration**: none. `/login`, `/signup`, `/contact` are static forms — `onSubmit` only calls `preventDefault()`. No fetch calls, no auth library, despite `react-hook-form`/`zod` being installed.
-- **Deployment**: no committed config (no Dockerfile/vercel.json/wrangler.toml); currently built and hosted entirely by Lovable's pipeline. Nitro's build defaults to a Cloudflare target.
+- **Backend integration**: real, as of EP-21.2 (§6) — `/signup` and `/login` call `POST /v1/auth/register` / `/login` via `src/lib/api.ts`. `/contact` is still a static form (`preventDefault()` only, no endpoint exists to submit to).
+- **Deployment**: see §10 — deployed to Cloudflare via Nitro's `cloudflare-module` preset (a Cloudflare **Worker** with static assets, built with `wrangler deploy`/Workers Builds), not a plain static site and not Cloudflare Pages' static-only mode. No Dockerfile/vercel.json; `wrangler.json` is generated at build time into `.output/server/`, not committed (build artifact).
 
 ## 4. Dashboard Architecture
 
@@ -132,6 +132,7 @@ The two apps currently run **two different token systems**. Unification plan (fu
 - **Cross-origin handoff to the dashboard**: `apps/dashboard` is still Zustand bearer-token auth, not cookie-aware — see below. Rather than rearchitecting it, the website redirects to `app.costorah.com` with the token pair and user/workspace JSON base64-encoded in the URL **fragment** (`buildDashboardHandoffUrl()` in `apps/website/src/lib/api.ts`; e.g. `/onboarding#session=...`). Fragments are never sent to any server by the browser, so this carries no more exposure than the existing bearer-token-in-JS model — it's the same technique OAuth's implicit flow used for that exact property. `apps/dashboard/src/lib/consumeSessionHandoff.ts` runs once before first render (wired into `main.tsx`), feeds the payload into the dashboard's existing `setLogin()`/`setOrganization()` calls unchanged, then strips the fragment via `history.replaceState`. This bridge is temporary and self-documents its own removal condition in its file header.
 - **Browser session (dashboard)**: still bearer JWT via Zustand, exactly as before (`ProtectedRoute`'s `/v1/auth/refresh`-on-reload flow, `localStorage` refresh token only if "remember me"), now populated either by its own `/login` form or by the handoff above. Untouched and not required to migrate — the dashboard could adopt the cookie later (`credentials: "include"`) as a cleanup, not a blocker; doing so would also let the fragment-handoff bridge be deleted.
 - **Cookie domain**: `settings.session_cookie_domain` (env `SESSION_COOKIE_DOMAIN`), `None` by default (host-only cookie — correct for local dev, since cookies aren't port-scoped). Set to `.costorah.com` in production so the cookie is valid on both `costorah.com` and `app.costorah.com`.
+- **CORS**: `settings.api_cors_origins` (`app/config/settings.py`) allow-lists `https://costorah.com`, `https://www.costorah.com`, `https://app.costorah.com` (plus `localhost` dev ports and a pre-existing unrelated `op.0protocol.net` seed-data origin — see §10). `www.costorah.com` was missing until the §10 audit; a `fetch()` blocked by CORS throws a generic (non-`ApiError`) exception in `apps/website/src/lib/api.ts`, which the signup/login forms surface as "Could not reach the server." — indistinguishable in the UI from an actual network failure, so a missing allow-listed origin is easy to misdiagnose as a connectivity problem. `allow_credentials=True` is required (and set) alongside this list, since the website's fetches use `credentials: "include"`.
 - **M2M / SDK**: unchanged — separate mechanism, Organization API Keys (`Authorization: Bearer costorah_live_...`), validated by `CurrentApiKey`/`RequireApiKeyPermission`. Not part of the browser-session cookie work; API keys and browser sessions remain distinct concerns.
 
 ### Remaining for full seamless handoff
@@ -191,3 +192,80 @@ The success criteria for this initiative were: `costorah.com` fully functional, 
 - `app.costorah.com` / `costorah.com` as live, deployed domains: not part of this repo's scope to stand up (DNS/hosting/Cloudflare account access), and not attempted — the architecture (§0) and each app's independent build are what this repo controls.
 
 This section exists so a future reader (or a future EP) doesn't have to reverse-engineer "how much of EP-21 is actually done" from commit messages — update it every time a milestone in §8 changes state.
+
+---
+
+## 10. Website Production Deployment Audit (Cloudflare)
+
+Triggered by three reported production symptoms: (1) nav links to `/features`, `/pricing`, `/security`, `/developers`, `/docs`, `/blog`, `/about` 404 on the live site; (2) `/signup` and `/login` fail with "Could not reach the server."; (3) suspected CORS gap. Audited by directly exercising the built artifacts (dev SSR, and the actual Nitro worker bundle under `wrangler dev`), not by inspecting the live site — this session has no access to the Cloudflare account, and the agent proxy explicitly denies (403, policy) outbound requests to the production Render host, so the live backend's real CORS headers could not be captured directly either. Findings below are grounded in what the repo's own build output does, cross-checked against Nitro/Cloudflare's documented behavior.
+
+### Files changed
+- `backend/app/config/settings.py` — added `"https://www.costorah.com"` to `api_cors_origins`.
+
+That is the only source change this audit required. Every other finding below is a **deployment-configuration** issue, not a code defect — see each root cause for why no other file needed to change.
+
+### Root cause 1 — Nav 404s: not a code bug
+
+Every one of TanStack Router's checks came back clean:
+- All 13 route files exist under `apps/website/src/routes/` (`features.tsx`, `pricing.tsx`, `security.tsx`, `developers.tsx`, `docs.tsx`, `blog.tsx`, `about.tsx`, plus `privacy`, `terms`, `contact`, `login`, `signup`, `index`), each a correctly-formed `createFileRoute("/path")(...)`.
+- The committed, generated `src/routeTree.gen.ts` registers all 13 routes and matches `src/routes/` exactly — not stale.
+- `SiteNav.tsx`'s `links` array `to` values match every route path exactly (`/features`, `/pricing`, `/security`, `/developers`, `/docs`, `/blog`, `/about`).
+- No lazy-loading, import, or `tsconfig` issue — `apps/website/tsconfig.json` resolves cleanly (verified via `pnpm typecheck`, clean).
+
+Direct verification, not just static inspection: `npx vite dev` (SSR dev mode) returned `200` for all 13 routes; separately, `pnpm build` then `npx wrangler dev` against the **actual built Cloudflare Worker artifact** (`.output/server/`) also returned `200` for all 13 routes and a correct `404` for a genuinely nonexistent path. The application code is not the source of the reported 404s.
+
+The build's own `nitro.json` records `"preset": "cloudflare-module"` — Nitro builds this app as a **Cloudflare Worker with static assets** (deployed via `wrangler deploy` / Cloudflare's git-connected "Workers Builds"), producing `.output/server/index.mjs` + a generated `wrangler.json` (`main: "index.mjs"`, `assets.directory: "../public"`). It does **not** produce a `_worker.js` file, which is the specific artifact a **Cloudflare Pages** project (Pages "Advanced Mode") looks for to run server-side code. If the live site is set up as a Cloudflare **Pages** project with its build output directory pointed at `apps/website/.output/public`, Cloudflare finds no `_worker.js` there (only `_headers`, `assets/`, `favicon.ico` — no HTML at all, since nothing is prerendered), falls back to pure static-asset serving, and returns Cloudflare's own 404 for every route that isn't a literal file — which matches the reported symptom exactly. This is a **deployment-target mismatch** (Pages vs. Workers), not an application bug. See the deployment checklist below for the exact fix.
+
+### Root cause 2 — Registration "Could not reach the server."
+
+Audited `apps/website/src/lib/api.ts`:
+- **URL called**: `${BASE_URL}/v1/auth/register` (and `/v1/auth/login`), `POST`, `credentials: "include"`.
+- **`BASE_URL` source**: `import.meta.env["VITE_API_BASE_URL"] ?? "http://localhost:8000"` — a Vite-inlined env var, not hardcoded.
+- **Expected env var**: `VITE_API_BASE_URL` (and `VITE_DASHBOARD_URL` for the post-auth redirect).
+
+Verified across environments:
+- **Local development**: `.env.development` (committed) sets `VITE_API_BASE_URL=http://localhost:8000` — correct, matches the local backend.
+- **Production source-of-truth**: `.env.production` (committed) already sets `VITE_API_BASE_URL=https://ai-finops-bqf3.onrender.com` and `VITE_DASHBOARD_URL=https://app.costorah.com`. `pnpm build` (Vite's default mode is `production`, which loads this file) was run and the **actual compiled output** — both the SSR server bundle (`.output/server/_ssr/authSchemas-*.mjs`) and the client browser bundle (`.output/public/assets/authSchemas-*.js`) — was inspected directly: both have `https://ai-finops-bqf3.onrender.com` baked in as the resolved value, not `localhost`. The `?? "http://localhost:8000"` fallback is present in the bundle as dead code (Vite/esbuild inline the whole `import.meta.env` object; the fallback is unreachable once the key is defined) but is never actually selected.
+- **Cloudflare deployment**: cannot be inspected directly (no dashboard access from this session). Per `.env.production`'s own header comment, a `VITE_API_BASE_URL` set in Cloudflare's project environment variables would override the committed file at build time — if that variable is unset, blank, or was never migrated from an earlier Lovable-hosted config, the build would silently fall back to whatever is committed (currently correct) or, in a misconfigured project, to something stale. This could not be confirmed or ruled out from this session; see the Cloudflare variables table below.
+
+Given the committed config resolves correctly and was proven correct in the actual compiled artifact, the more likely explanation for a **live** "Could not reach the server." failure — assuming Cloudflare's env vars aren't overriding this — is CORS: a browser `fetch()` blocked by CORS throws a generic, non-`ApiError` exception, which `signup.tsx`/`login.tsx`'s catch-all branch renders as exactly this message (see `apps/website/src/routes/signup.tsx`'s final `else` branch). That points directly at root cause 3.
+
+### Root cause 3 — CORS gap (fixed)
+
+`backend/app/main.py` wires `CORSMiddleware` from `settings.api_cors_origins` with `allow_credentials=True` (required, since the website's fetches use `credentials: "include"`). Before this audit, `app/config/settings.py`'s `api_cors_origins` allow-listed `https://costorah.com` and `https://app.costorah.com` but **not `https://www.costorah.com`**. Any traffic actually served from the `www` subdomain (a common apex/`www` split) would have every `/v1/auth/register`/`login` request blocked by the browser's CORS check before it ever reaches the backend — surfacing in the UI as "Could not reach the server.", indistinguishable from a real outage.
+
+**Fix applied**: added `"https://www.costorah.com"` to `api_cors_origins`. `https://costorah.com` and `https://app.costorah.com` were already present and required no change. (A pre-existing, unrelated `https://op.0protocol.net` entry is also in this list — it's this repo's demo/seed-data domain from `app/db/seed.py`'s `admin@0protocol.net` fixture user, unrelated to Costorah's own domains; left untouched as out of scope for this audit.)
+
+### Cloudflare environment variables (apps/website build)
+
+| Variable | Purpose | Example value |
+|---|---|---|
+| `VITE_API_BASE_URL` | Backend API origin the website's `fetch()` calls target (`src/lib/api.ts`). Baked into the build at compile time — not read at runtime. | `https://ai-finops-bqf3.onrender.com` |
+| `VITE_DASHBOARD_URL` | Origin the browser is redirected to after a successful register/login, carrying the session handoff fragment (`buildDashboardHandoffUrl()`, §6). | `https://app.costorah.com` |
+
+No other `import.meta.env.VITE_*` variables exist in `apps/website/src` (verified by exhaustive grep). Both variables already have correct committed defaults in `.env.production`; Cloudflare project variables only need to be set explicitly if they must differ from those committed defaults, or to make the production values visible/auditable in the Cloudflare dashboard independent of the repo.
+
+### End-to-end trace: `costorah.com` → Register → Backend → User → Personal Workspace → Redirect → Dashboard
+
+| Step | Status | Notes |
+|---|---|---|
+| `costorah.com` loads, nav renders | Code verified working (dev SSR + built Worker artifact, all 13 routes 200) | Live-site 404s traced to deployment target (Pages vs. Workers), not code — see root cause 1 |
+| User clicks Register, submits form | Code verified working | `signup.tsx` client validation (zod) confirmed via existing tests |
+| Browser calls `POST https://ai-finops-bqf3.onrender.com/v1/auth/register` | **Blocked by CORS if origin is `www.costorah.com`** (fixed this audit) or if Cloudflare's `VITE_API_BASE_URL` diverges from the correct committed value (unverifiable from this session) | Both failure modes render identically as "Could not reach the server." |
+| Backend creates `User` + personal `Organization` (`is_personal=True`) + `OWNER` `Membership`, issues session cookie | Verified correct in EP-21.2 (§6, §7) via direct curl round-trip against a local backend | Not re-verified against the live Render deployment (no access) |
+| Redirect to `app.costorah.com/onboarding#session=...` | Code verified working (`buildDashboardHandoffUrl`, dashboard `consumeSessionHandoff.ts`, both covered by tests) | Requires `VITE_DASHBOARD_URL` to be correctly set at build time (see table above) |
+| Dashboard consumes the handoff, lands on `/onboarding`, completes wizard, reaches `/dashboard` | Verified via dashboard unit tests and build | Not re-verified as one continuous live browser session (same caveat as §9) |
+
+**Every failure point identified in this trace is a deployment-configuration issue** (Cloudflare project type/build settings, and — now fixed — a missing CORS origin), not an application code defect. No route, component, or API-client code needed repair.
+
+### Deployment checklist
+
+1. **Cloudflare project type**: confirm the site is deployed as a **Cloudflare Worker (with static assets)** — via `wrangler deploy` or Cloudflare's git-connected "Workers Builds" — not as a "Cloudflare Pages" project in static/Advanced-Mode. Nitro's `cloudflare-module` preset (this repo's build output) targets Workers, not Pages' `_worker.js` convention.
+2. **Build command**: `pnpm install --frozen-lockfile && pnpm --filter @costorah/website... build` (the `...` selector is required — see §2's Monorepo Build Rule — so `packages/shared-ui` builds before `apps/website`).
+3. **Deploy artifact**: `apps/website/.output/server/` (contains `index.mjs` + generated `wrangler.json`); deploy with `npx wrangler deploy` from that directory, or point Workers Builds at it.
+4. **Environment variables** (Cloudflare project settings): set `VITE_API_BASE_URL` and `VITE_DASHBOARD_URL` per the table above, or confirm the committed `.env.production` defaults are correct and intentionally left unoverridden.
+5. **Backend CORS** (Render): confirm `api_cors_origins` (now including `https://www.costorah.com`) is deployed — this is a code change, ships automatically on the backend's next deploy from `main`.
+6. **Backend session cookie domain** (Render): confirm `SESSION_COOKIE_DOMAIN=.costorah.com` is set in Render's environment (§6) — without it, the cookie defaults to host-only and won't be valid across `costorah.com` → `app.costorah.com`.
+7. **Post-deploy smoke test**: load `https://costorah.com/features` (and the other 6 previously-404ing routes) directly — confirms the Worker (not static-only) is serving; submit `/signup` — confirms CORS + `VITE_API_BASE_URL` are both correct end-to-end.
+
+This audit could not directly confirm items 1 and 4 against the live Cloudflare project (no dashboard access from this session) — they're the two items most likely still open. Re-run the smoke test in item 7 after applying them.

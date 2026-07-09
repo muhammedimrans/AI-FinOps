@@ -203,6 +203,23 @@ class AuthService:
         """Revoke the session, invalidating the associated refresh token."""
         await self._session_repo.revoke(session_id)
 
+    # ── Onboarding (EP-21.3) ─────────────────────────────────────────────────
+
+    async def complete_onboarding(self, *, user: User) -> User:
+        """
+        Mark the first-time onboarding wizard as completed for this user.
+
+        Idempotent: calling this more than once simply refreshes the
+        timestamp rather than erroring, since the frontend's "Finish" step
+        is the only caller and there is no scenario where re-completing is
+        invalid. ``user`` is the session-bound instance from CurrentUser, so
+        this mutates it directly and flushes — same pattern as
+        ``verify_email``/``reset_password`` above.
+        """
+        user.onboarding_completed_at = datetime.now(UTC)
+        await self._session.flush()
+        return user
+
     # ── Refresh ───────────────────────────────────────────────────────────────
 
     async def refresh(self, *, refresh_token: str) -> TokenPair:

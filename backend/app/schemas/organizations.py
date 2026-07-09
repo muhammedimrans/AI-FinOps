@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class OrgMembershipItem(BaseModel):
@@ -21,6 +21,17 @@ class OrganizationsResponse(BaseModel):
     """List of organizations the authenticated user is a member of."""
 
     organizations: list[OrgMembershipItem]
+
+
+class UpdateOrganizationRequest(BaseModel):
+    """Rename an organization/workspace (EP-21.3 onboarding Step 2).
+
+    Only ``name`` is editable here — the slug is derived once at creation
+    time (``AuthService.register`` / ``app.auth.slug.unique_slug``) and
+    stays stable so existing links/references never break silently.
+    """
+
+    name: str = Field(min_length=1, max_length=255)
 
 
 # ── Member management (EP-13) ───────────────────────────────────────────────────

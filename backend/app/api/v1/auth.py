@@ -6,6 +6,7 @@ Endpoints:
   POST /v1/auth/logout               — revoke the current session
   POST /v1/auth/refresh              — rotate refresh token, issue new access token
   GET  /v1/auth/me                   — the authenticated caller's profile
+  POST /v1/auth/onboarding/complete  — mark the first-time onboarding wizard done (EP-21.3)
   POST /v1/auth/verify-email         — consume an email verification token
   POST /v1/auth/request-password-reset — request a password-reset link
   POST /v1/auth/reset-password       — consume a reset token and set a new password
@@ -79,6 +80,7 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
         display_name=user.display_name,
         status=user.status,
         email_verified=user.email_verified,
+        onboarding_completed=user.onboarding_completed_at is not None,
     )
 
 
@@ -191,6 +193,26 @@ async def login(
 )
 async def me(current_user: CurrentUser) -> UserPublic:
     return _build_user_public(current_user)
+
+
+@router.post(
+    "/onboarding/complete",
+    response_model=UserPublic,
+    summary="Mark the first-time onboarding wizard as completed",
+    description=(
+        "Called once, from the onboarding wizard's final step "
+        "(apps/dashboard's /onboarding route). Idempotent — safe to call "
+        "again, it just refreshes the completion timestamp."
+    ),
+)
+async def complete_onboarding(
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> UserPublic:
+    svc = AuthService(db, settings)
+    user = await svc.complete_onboarding(user=current_user)
+    return _build_user_public(user)
 
 
 @router.post(

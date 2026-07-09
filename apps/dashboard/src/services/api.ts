@@ -21,6 +21,8 @@ import type {
   BackendLoginResponse,
   BackendTokenResponse,
   BackendOrganizationsResponse,
+  BackendOrgMembershipItem,
+  BackendUserPublic,
 } from "../types/backend";
 import {
   mapOverview,
@@ -226,10 +228,27 @@ export async function logout(): Promise<void> {
   }
 }
 
+export async function getMe(): Promise<BackendUserPublic> {
+  return get<BackendUserPublic>("/v1/auth/me");
+}
+
+/** EP-21.3 — marks the first-time onboarding wizard as completed for the current user. */
+export async function completeOnboarding(): Promise<BackendUserPublic> {
+  return post<BackendUserPublic>("/v1/auth/onboarding/complete", {});
+}
+
 // ── Organizations endpoint (EP-12.1) ──────────────────────────────────────────
 
 export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
   return get<BackendOrganizationsResponse>("/v1/organizations");
+}
+
+/** EP-21.3 onboarding Step 2 — rename an organization/workspace. */
+export async function updateOrganization(
+  organizationId: string,
+  name: string,
+): Promise<BackendOrgMembershipItem> {
+  return patch<BackendOrgMembershipItem>(`/v1/organizations/${organizationId}`, { name });
 }
 
 // ── Member management (EP-13) ─────────────────────────────────────────────────
@@ -346,6 +365,121 @@ export async function createApiKey(
 
 export async function revokeApiKey(organizationId: string, keyId: string): Promise<void> {
   return del<void>(`/v1/organizations/${organizationId}/api-keys/${keyId}`);
+}
+
+// ── Projects CRUD (EP-23) ──────────────────────────────────────────────────────
+
+export interface ProjectRecord {
+  id: string;
+  name: string;
+  description: string | null;
+  environment: "development" | "staging" | "production";
+  budget: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectsCrudListResponse {
+  projects: ProjectRecord[];
+  total: number;
+}
+
+export async function listProjectsCrud(organizationId: string): Promise<ProjectsCrudListResponse> {
+  return get<ProjectsCrudListResponse>(`/v1/organizations/${organizationId}/projects`);
+}
+
+export async function createProject(
+  organizationId: string,
+  body: { name: string; description?: string; environment?: string; budget?: string },
+): Promise<ProjectRecord> {
+  return post<ProjectRecord>(`/v1/organizations/${organizationId}/projects`, body);
+}
+
+export async function updateProject(
+  organizationId: string,
+  projectId: string,
+  body: { name?: string; description?: string; environment?: string; budget?: string | null },
+): Promise<ProjectRecord> {
+  return patch<ProjectRecord>(`/v1/organizations/${organizationId}/projects/${projectId}`, body);
+}
+
+export async function deleteProject(organizationId: string, projectId: string): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}/projects/${projectId}`);
+}
+
+// ── Provider Connections CRUD (EP-22) ──────────────────────────────────────────
+
+export interface ProviderConnectionRecord {
+  id: string;
+  provider_type: string;
+  display_name: string;
+  project_id: string | null;
+  is_active: boolean;
+  health_status: "unknown" | "healthy" | "warning" | "critical" | "recovering";
+  last_failure_at: string | null;
+  last_recovery_at: string | null;
+  consecutive_failure_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProviderConnectionsListResponse {
+  connections: ProviderConnectionRecord[];
+  total: number;
+}
+
+export async function listProviderConnections(
+  organizationId: string,
+): Promise<ProviderConnectionsListResponse> {
+  return get<ProviderConnectionsListResponse>(
+    `/v1/organizations/${organizationId}/provider-connections`,
+  );
+}
+
+export async function createProviderConnection(
+  organizationId: string,
+  body: { provider_type: string; display_name: string; project_id?: string },
+): Promise<ProviderConnectionRecord> {
+  return post<ProviderConnectionRecord>(
+    `/v1/organizations/${organizationId}/provider-connections`,
+    body,
+  );
+}
+
+export async function updateProviderConnection(
+  organizationId: string,
+  connectionId: string,
+  body: { display_name?: string; project_id?: string | null; is_active?: boolean },
+): Promise<ProviderConnectionRecord> {
+  return patch<ProviderConnectionRecord>(
+    `/v1/organizations/${organizationId}/provider-connections/${connectionId}`,
+    body,
+  );
+}
+
+export async function deleteProviderConnection(
+  organizationId: string,
+  connectionId: string,
+): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}/provider-connections/${connectionId}`);
+}
+
+export interface TestProviderConnectionResult {
+  connection_id: string;
+  provider_type: string;
+  health_status: string;
+  tested: boolean;
+  detail: string;
+}
+
+export async function testProviderConnectionById(
+  organizationId: string,
+  connectionId: string,
+): Promise<TestProviderConnectionResult> {
+  return post<TestProviderConnectionResult>(
+    `/v1/organizations/${organizationId}/provider-connections/${connectionId}/test`,
+    {},
+  );
 }
 
 // ── Provider connection intelligence (EP-07) ─────────────────────────────────

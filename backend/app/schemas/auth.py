@@ -61,6 +61,11 @@ class UserPublic(BaseModel):
     display_name: str
     status: str
     email_verified: bool
+    # EP-21.3: True once the first-time onboarding wizard (apps/dashboard's
+    # /onboarding route) has been completed. Derived from
+    # User.onboarding_completed_at (NULL = not yet) — see that column's
+    # docstring for the backfill behavior on pre-existing users.
+    onboarding_completed: bool
 
     model_config = {"from_attributes": True}
 

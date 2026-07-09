@@ -1,29 +1,42 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BookOpen,
   CheckCircle2,
   ChevronDown,
   Loader2,
+  Pencil,
+  Plug,
   PlugZap,
+  Plus,
   ShieldCheck,
+  Trash2,
   Wrench,
   XCircle,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
+import EmptyState from "../components/EmptyState";
+import ConfirmDialog from "../components/ConfirmDialog";
 import {
   getProviderInfo,
   getProviderModels,
   testProviderConnection,
+  listProviderConnections,
+  createProviderConnection,
+  updateProviderConnection,
+  deleteProviderConnection,
+  testProviderConnectionById,
   ApiError,
   type TestConnectionResponse,
+  type ProviderConnectionRecord,
 } from "../services/api";
 import { PROVIDER_COLORS } from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
+import { useOrgStore } from "../stores/org";
 
 // Adapters the backend can actually talk to today (kept in sync with the
 // backend's _PRODUCTION_PROVIDERS). Everything else 404s at the API.
@@ -252,13 +265,339 @@ function ProductionProviderCard({ providerId, index }: { providerId: string; ind
   );
 }
 
+// EP-22 — the 7 providers the product spec calls "supported": persisted,
+// customer-managed connection *records* (name, type, active/inactive,
+// health). Values match backend ProviderType exactly (some differ from
+// PROVIDER_CATALOG's ids — e.g. "azure_openai" not "azure", "grok" not "xai").
+const CONNECTABLE_PROVIDERS: { value: string; label: string; color: string }[] = [
+  { value: "openai", label: "OpenAI", color: PROVIDER_COLORS["openai"] ?? "#888" },
+  { value: "anthropic", label: "Anthropic", color: PROVIDER_COLORS["anthropic"] ?? "#888" },
+  { value: "google", label: "Google Gemini", color: PROVIDER_COLORS["google"] ?? "#888" },
+  { value: "openrouter", label: "OpenRouter", color: PROVIDER_COLORS["openrouter"] ?? "#888" },
+  { value: "azure_openai", label: "Azure OpenAI", color: PROVIDER_COLORS["azure"] ?? "#888" },
+  { value: "grok", label: "Grok (xAI)", color: PROVIDER_COLORS["xai"] ?? "#888" },
+  { value: "ollama", label: "Ollama", color: PROVIDER_COLORS["ollama"] ?? "#888" },
+];
+
+function connectableLabel(providerType: string): string {
+  return CONNECTABLE_PROVIDERS.find((p) => p.value === providerType)?.label ?? providerType;
+}
+
+const HEALTH_BADGE: Record<string, { className: string; label: string }> = {
+  healthy: { className: "bg-success-dim text-success", label: "Healthy" },
+  critical: { className: "bg-danger-dim text-danger", label: "Critical" },
+  warning: { className: "bg-warning-dim text-warning", label: "Warning" },
+  recovering: { className: "bg-warning-dim text-warning", label: "Recovering" },
+  unknown: { className: "bg-app-muted text-tx-muted", label: "Not tested" },
+};
+
+function HealthBadge({ status }: { status: string }) {
+  const cfg = HEALTH_BADGE[status] ?? HEALTH_BADGE["unknown"]!;
+  return <span className={cn("badge text-[10px]", cfg.className)}>{cfg.label}</span>;
+}
+
+function AddConnectionForm({
+  organizationId,
+  onDone,
+}: {
+  organizationId: string;
+  onDone: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [providerType, setProviderType] = useState(CONNECTABLE_PROVIDERS[0]!.value);
+  const [displayName, setDisplayName] = useState("");
+
+  const create = useMutation({
+    mutationFn: () =>
+      createProviderConnection(organizationId, {
+        provider_type: providerType,
+        display_name: displayName.trim(),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
+      toast.success("Connection added", `${displayName.trim()} is ready to use.`);
+      onDone();
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "Couldn't add connection",
+        err instanceof ApiError ? err.message : "Please try again.",
+      );
+    },
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (displayName.trim().length === 0) return;
+        create.mutate();
+      }}
+      className="flex flex-col sm:flex-row gap-2 rounded-xl border border-border-subtle bg-app-muted p-3"
+    >
+      <select
+        value={providerType}
+        onChange={(e) => setProviderType(e.target.value)}
+        disabled={create.isPending}
+        className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+      >
+        {CONNECTABLE_PROVIDERS.map((p) => (
+          <option key={p.value} value={p.value}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+      <input
+        value={displayName}
+        onChange={(e) => setDisplayName(e.target.value)}
+        placeholder="Connection name (e.g. Production OpenAI)"
+        disabled={create.isPending}
+        autoFocus
+        className="flex-1 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+      />
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={create.isPending || displayName.trim().length === 0}
+          className="btn-primary h-9 px-4 text-xs disabled:opacity-60"
+        >
+          {create.isPending ? "Adding…" : "Add"}
+        </button>
+        <button type="button" onClick={onDone} className="btn-ghost h-9 px-3 text-xs">
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ConnectionRow({
+  organizationId,
+  connection,
+}: {
+  organizationId: string;
+  connection: ProviderConnectionRecord;
+}) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(connection.display_name);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
+
+  const rename = useMutation({
+    mutationFn: () =>
+      updateProviderConnection(organizationId, connection.id, { display_name: name.trim() }),
+    onSuccess: () => {
+      setEditing(false);
+      void invalidate();
+      toast.success("Connection renamed");
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "Couldn't rename connection",
+        err instanceof ApiError ? err.message : "Please try again.",
+      );
+    },
+  });
+
+  const toggleActive = useMutation({
+    mutationFn: () =>
+      updateProviderConnection(organizationId, connection.id, {
+        is_active: !connection.is_active,
+      }),
+    onSuccess: () => void invalidate(),
+    onError: () => toast.error("Couldn't update connection"),
+  });
+
+  const test = useMutation({
+    mutationFn: () => testProviderConnectionById(organizationId, connection.id),
+    onSuccess: (result) => {
+      void invalidate();
+      if (result.tested) {
+        toast[result.health_status === "healthy" ? "success" : "error"]("Test complete", result.detail);
+      } else {
+        toast.info("Not testable yet", result.detail);
+      }
+    },
+    onError: () => toast.error("Test failed", "Unexpected error while testing the connection."),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteProviderConnection(organizationId, connection.id),
+    onSuccess: () => {
+      void invalidate();
+      toast.success("Connection deleted");
+    },
+    onError: () => toast.error("Couldn't delete connection"),
+  });
+
+  const color = CONNECTABLE_PROVIDERS.find((p) => p.value === connection.provider_type)?.color ?? "#888";
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border-subtle bg-app-muted p-3">
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
+        {editing ? (
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={rename.isPending}
+            autoFocus
+            className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-app-bg px-2 py-1 text-sm text-tx-primary outline-none focus:border-brand"
+          />
+        ) : (
+          <div className="min-w-0">
+            <p className="text-sm text-tx-primary truncate">{connection.display_name}</p>
+            <p className="text-[11px] text-tx-muted">{connectableLabel(connection.provider_type)}</p>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <HealthBadge status={connection.health_status} />
+        <span className={cn("badge text-[10px]", connection.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
+          {connection.is_active ? "Active" : "Inactive"}
+        </span>
+
+        {editing ? (
+          <>
+            <button
+              onClick={() => rename.mutate()}
+              disabled={rename.isPending || name.trim().length === 0}
+              className="btn-primary h-7 px-2 text-[11px] disabled:opacity-60"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setName(connection.display_name);
+              }}
+              className="btn-ghost h-7 px-2 text-[11px]"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => test.mutate()}
+              disabled={test.isPending}
+              className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1"
+            >
+              {test.isPending ? <Loader2 size={11} className="animate-spin" /> : <Activity size={11} />}
+              Test
+            </button>
+            <button
+              onClick={() => toggleActive.mutate()}
+              disabled={toggleActive.isPending}
+              className="btn-ghost h-7 px-2 text-[11px]"
+            >
+              {connection.is_active ? "Deactivate" : "Activate"}
+            </button>
+            <button
+              onClick={() => setEditing(true)}
+              className="text-tx-muted hover:text-tx-primary"
+              aria-label="Rename connection"
+            >
+              <Pencil size={13} />
+            </button>
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              className="text-tx-muted hover:text-danger"
+              aria-label="Delete connection"
+            >
+              <Trash2 size={13} />
+            </button>
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this connection?"
+        description={`"${connection.display_name}" will be removed. This can't be undone.`}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onConfirm={() => {
+          remove.mutate(undefined, { onSuccess: () => setConfirmingDelete(false) });
+        }}
+        onCancel={() => setConfirmingDelete(false)}
+      />
+    </div>
+  );
+}
+
+function ManageConnectionsSection() {
+  const organizationId = useOrgStore((s) => s.organizationId);
+  const [adding, setAdding] = useState(false);
+
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
+
+  const list = connections.data?.connections ?? [];
+
+  return (
+    <Section
+      title="Your provider connections"
+      description="Persisted connections you manage — add, rename, activate/deactivate, test, or remove."
+      icon={Plug}
+      actions={
+        !adding && (
+          <button onClick={() => setAdding(true)} className="btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5">
+            <Plus size={13} /> Add provider
+          </button>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {adding && organizationId && (
+          <AddConnectionForm organizationId={organizationId} onDone={() => setAdding(false)} />
+        )}
+
+        {connections.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-14 skeleton rounded-xl" />)}
+          </div>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={Plug}
+            title="No provider connections yet"
+            description="Add your first connection to start tracking a provider by name, or use the SDK with an API key in the meantime."
+            action={
+              !adding && organizationId ? (
+                <button onClick={() => setAdding(true)} className="btn-primary h-9 px-4 text-sm">
+                  Connect provider
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {list.map((c) => (
+              <ConnectionRow key={c.id} organizationId={organizationId!} connection={c} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 export default function Connections() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <PageHeader
         title="Provider Connections"
-        description="Verify credentials, inspect capabilities, and browse live model lists for each adapter."
+        description="Manage persisted connections, verify credentials, and browse live model lists for each adapter."
       />
+
+      <ManageConnectionsSection />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {PRODUCTION_ADAPTERS.map((p, i) => (

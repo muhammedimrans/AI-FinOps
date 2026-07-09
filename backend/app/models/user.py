@@ -94,6 +94,17 @@ class User(BaseModel):
         DateTime(timezone=True), nullable=True, default=None
     )
 
+    # ── Onboarding (EP-21.3) ──────────────────────────────────────────────────
+    # NULL = the first-time onboarding wizard (apps/dashboard's /onboarding
+    # route) has not been completed yet; set once, on completion, and never
+    # cleared. New registrations start NULL; the EP-21.3 migration backfills
+    # this to "already completed" for every pre-existing user so onboarding
+    # only ever surfaces for genuinely new accounts, not retroactively for
+    # people who already know the product.
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+
     # ── Relationships ─────────────────────────────────────────────────────────
     # lazy="raise" prevents accidental N+1 queries in async context.
 

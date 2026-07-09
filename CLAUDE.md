@@ -339,9 +339,80 @@ The pre-existing `OnboardingModal.tsx` (a separate, shorter "welcome + theme pic
 ### Known limitations
 
 - A dashboard session persisted before this EP shipped will have `AuthUser.onboarding_completed === undefined` until its access token is next refreshed (self-heals automatically, per the `ProtectedRoute` change above — in practice this is at most one page reload for most sessions, since the access token is memory-only). `undefined` is treated as "don't force onboarding," not as "not completed," to avoid surfacing the wizard to users who never should have seen it.
-- Step 3 (Choose Provider) cannot actually connect a provider — that's EP-22, not started. This is disclosed in the step's own copy ("coming soon"), not hidden.
+- Step 3 (Choose Provider) still cannot fully "connect" a provider with a customer-supplied credential — that requires a secrets vault, which doesn't exist yet (see §12's ProviderConnection scope note). ProviderConnection CRUD itself is now real (§12), and the wizard's "Connect provider" button correctly routes to the `/connections` page where a connection record can actually be created — this is disclosed in the step's own copy, not hidden.
 - No automated end-to-end browser test of the full register → onboarding → dashboard journey exists yet (same caveat as §9/§10 — verified in pieces: backend endpoint tests, frontend component/redirect tests, builds — not as one continuous live browser session).
 
 ### Next milestone recommendation
 
-A separate, much larger message arrived mid-EP asking to redefine "EP-21.3" as "Frontend Completion & Dashboard Integration" — full Provider CRUD (add/edit/delete), Projects CRUD, complete Settings, live Dashboard data, a full navigation/empty-state/API-integration audit. That message directly conflicts with this repo's own roadmap (§8): Provider Connections CRUD is explicitly EP-22 territory, not started, because the backend has no persistence API for it yet — building "Add/Edit/Delete provider" UI without EP-22's backend work first would mean either fabricating a backend under a mandate that also said "avoid backend changes," or shipping UI with nothing real behind it, both of which contradict this project's stated no-fake-functionality standard (§9, §10). That message was paused rather than acted on — see the conversation for the full context. The clean next step, matching the roadmap already in this file, is **EP-22 — Provider Connections (real, persisted)** as scoped in §8, which is also the actual prerequisite for most of what that larger message asked for (a real Provider Management page, a real "Connect Provider" onboarding step, live provider health).
+A separate, much larger message arrived mid-EP asking to redefine "EP-21.3" as "Frontend Completion & Dashboard Integration," including full Provider CRUD and Projects CRUD — which conflicted with this repo's own roadmap at the time (§8 had those scoped as not-yet-started EP-22/EP-23, since the backend had no persistence API for either). That request was paused rather than guessed at, and resolved properly as its own initiative — see §12, which delivers exactly the backend work (EP-22, EP-23) that request actually needed, plus real frontend management UI on top of it. §12's "Next milestone" carries forward from here.
+
+---
+
+## 12. EP-22 + EP-23 — Provider Connections & Projects CRUD (Dashboard Integration)
+
+**Status: Priorities 1–2 of the "Frontend Completion & Dashboard Integration" request complete (real backend + real frontend, tested). Priorities 3–9 audited; findings and honest scope below — not a full pass, see "Known limitations."**
+
+### Why this became EP-22 + EP-23, not a UI-only pass
+
+The request's Priority 1 ("Add provider / Edit provider / Delete provider") and Priority 2 ("Create/Rename/Delete Project") both require persisted CRUD for entities that had models and repositories (`Project`, `ProviderConnection` — both already existed, from earlier EPs) but **no API router at all**. "Backend changes should only be made if absolutely required" — for these two, it was: there was no existing endpoint to reuse, and building the requested UI without one would mean either fabricating fake success responses or leaving the buttons non-functional. Both are exactly what this project's standing no-fake-functionality rule (§9, §10) forbids. So the backend work below is that "absolutely required" case — not scope creep, and it was reused everywhere reuse was possible (permissions, repositories, the generic `BaseRepository.update()`/`soft_delete()`, the existing `RequirePermission` dependency — no RBAC changes, no new tables, no migration).
+
+### Backend — Projects CRUD (EP-22 roadmap item's sibling, EP-23)
+
+- `app/schemas/projects.py` (new) — `ProjectResponse`, `ProjectsListResponse`, `CreateProjectRequest`, `UpdateProjectRequest`.
+- `app/api/v1/projects.py` (new) — `GET/POST /v1/organizations/{org_id}/projects`, `PATCH/DELETE /v1/organizations/{org_id}/projects/{project_id}`. `PROJECT_READ`/`PROJECT_WRITE`/`PROJECT_DELETE` (all pre-existing permissions, already granted per-role since EP-13 — VIEWER+ can read, MEMBER+ can write, **ADMIN+ only** can delete). Built entirely on the pre-existing `Project` model and `ProjectRepository` — no migration.
+- Registered in `app/api/router.py`.
+
+### Backend — Provider Connections CRUD (EP-22)
+
+- `app/schemas/provider_connections.py` (new) — `ProviderConnectionResponse`, list/create/update request schemas, `TestProviderConnectionResponse`.
+- `app/api/v1/provider_connections.py` (new) — `GET/POST /v1/organizations/{org_id}/provider-connections`, `PATCH/DELETE .../{connection_id}`, `POST .../{connection_id}/test`. `PROVIDER_READ` (every role) / `PROVIDER_WRITE` / `PROVIDER_DELETE` (**ADMIN+OWNER only** — MEMBER has read but not write/delete, per the pre-existing `app.auth.rbac` permission grants). Built on the pre-existing `ProviderConnection` model and `ProviderConnectionRepository` — no migration.
+- **Deliberately not built: per-connection API key/secret storage.** `ProviderConnection`'s own docstring says credentials belong in a "Secrets store, by reference" — no such store exists anywhere in this codebase. Storing a raw customer API key in a new ad-hoc column would be a real security regression, not a shortcut. So a `ProviderConnection` here is metadata only (type, display name, active/inactive, project scoping, health) — genuinely useful (the health/test/activate-deactivate lifecycle is fully real), but not yet "paste your OpenAI key and go." A secrets vault is the next real blocker for that, tracked below.
+- **"Test connection" reuses the existing connectivity probe** (`app/api/v1/providers.py`'s `_require_supported`/`_get_adapter`, which authenticates via server-side environment-variable credentials) rather than building a second, parallel testing path. Only `openai`/`anthropic` have production-ready adapters today (`_PRODUCTION_PROVIDERS`); testing any other provider type returns `tested: false` with an honest "no adapter yet" message instead of a fake result — this is why the endpoint doesn't error on the other 5 providers named in the product spec (Google Gemini, OpenRouter, Azure OpenAI, Grok, Ollama), it just tells the truth about what it can verify today.
+- Registered in `app/api/router.py`.
+
+### Frontend
+
+- `apps/dashboard/src/services/api.ts` — `listProjectsCrud`/`createProject`/`updateProject`/`deleteProject`, `listProviderConnections`/`createProviderConnection`/`updateProviderConnection`/`deleteProviderConnection`/`testProviderConnectionById`.
+- **Projects** (`apps/dashboard/src/features/Projects.tsx`) — added a "Manage projects" section (create via inline form, inline rename, delete via the existing `ConfirmDialog`) above the page's pre-existing spend-analytics cards. Deliberately additive, not a replacement: the existing cards are a *usage-derived analytics view* (`GET /v1/dashboard/projects`, only shows projects with spend data in the selected period) while the new section is a *management view* of the `Project` entity itself (shows every project, including ones with zero usage) — different data sources serving different, complementary purposes on the same page.
+- **Provider Connections** (`apps/dashboard/src/features/Connections.tsx`) — added a "Your provider connections" section (add via inline form with a provider-type dropdown covering exactly the 7 providers the product spec names, rename, activate/deactivate, test, delete) above the page's pre-existing per-provider connectivity-probe cards. Same reasoning: the existing cards test *server-side* credentials for the 2 production adapters; the new section manages *persisted connection records* for all 7 named providers. `apps/dashboard/src/features/Providers.tsx` (the cost/usage-breakdown-by-provider analytics page) was intentionally left untouched — it's an analytics page, not a connections page, and `/connections` was the better-fitting, already-existing home for this per "reuse, don't recreate."
+- Both sections use `EmptyState` (not a blank page) when the org has none yet, and route their own errors through `toast.error`/`toast.success` — no new toast/empty-state primitives introduced.
+
+### Priorities 3–9 — audit findings (not all re-implemented this pass)
+
+- **Priority 3 (Workspace Settings)**: audited. `apps/dashboard/src/features/Settings.tsx` still does not call `updateOrganization` (added in EP-21.3) or persist anything else to the backend — this is the same pre-existing gap CLAUDE.md has documented since the EP-21 migration ("`Settings.tsx` doesn't persist anything to the backend despite a full save UI"), confirmed still true, not newly introduced. Not fixed in this pass — it's a substantial page (843 lines, 6 tabs) that deserves its own focused pass rather than a rushed edit alongside two new CRUD systems.
+- **Priority 4 (Dashboard live data)**: audited, not re-verified line-by-line. Per §8/EP-19.2, the dashboard's KPIs, activity feed, and notification center were already wired to real endpoints in a prior EP; this pass did not find or introduce any new placeholder cards.
+- **Priority 5 (Navigation audit)**: done. Every entry in `apps/dashboard/src/lib/navigation.ts` (`NAV_ITEMS`, the single source shared by the sidebar and command palette) was checked against `App.tsx`'s registered routes — all 14 resolve to a real route and render. `/audit-logs` is the one intentional exception, and it's an honest `Placeholder` (documented endpoint it's waiting on), not a dead link.
+- **Priority 6 (Empty states)**: done for the two sections built this EP (see above). Not audited across every other existing page.
+- **Priority 7 (UI polish)**: the two new sections reuse the existing design system (`Section`, `EmptyState`, `ConfirmDialog`, `btn-primary`/`btn-ghost`/`btn-outline`, `badge`, toast) with no new primitives — consistent by construction, not by a separate polish pass. No dedicated responsive/loading/error audit was run across the rest of the app.
+- **Priority 8 (Authentication)**: not re-audited this pass — covered in depth by EP-21.2/EP-21.3 (§6, §11), unchanged here.
+- **Priority 9 (API integration audit)**: partial. This pass's own two new endpoint groups are fully wired (nothing left "built but unused"). A repo-wide "every backend endpoint: used / partially used / unused" inventory was not produced — that's a larger, standalone audit task.
+
+### Testing
+
+- **Backend**: 22 new tests — `backend/tests/test_ep23_projects.py` (10: list/create/update/delete, role-permission checks for VIEWER/MEMBER/ADMIN, validation) and `backend/tests/test_ep22_provider_connections.py` (12: list/create/update/delete/test, including the "unsupported provider returns untested rather than erroring" case, and the ADMIN-vs-MEMBER permission boundary). Full backend suite: **1500 passed** (1478 + 22), ruff/black/mypy clean.
+- **Frontend**: 10 new tests — `apps/dashboard/src/__tests__/ManageProjectsSection.test.tsx` and `ManageConnectionsSection.test.tsx` (empty state, list rendering, create, rename, delete-with-confirm, test-connection), following the same `vi.mock("../services/api")` + `QueryClientProvider` pattern as the existing `ApiKeys.test.tsx`. Full dashboard suite: **146 passed** (136 + 10), lint clean, typecheck clean, build clean (both `tsc --noEmit` and the stricter `tsc -b` project-build path the actual `build` script uses).
+
+### API endpoints added
+
+| Method | Path | Permission |
+|---|---|---|
+| GET | `/v1/organizations/{org_id}/projects` | `PROJECT_READ` |
+| POST | `/v1/organizations/{org_id}/projects` | `PROJECT_WRITE` |
+| PATCH | `/v1/organizations/{org_id}/projects/{project_id}` | `PROJECT_WRITE` |
+| DELETE | `/v1/organizations/{org_id}/projects/{project_id}` | `PROJECT_DELETE` |
+| GET | `/v1/organizations/{org_id}/provider-connections` | `PROVIDER_READ` |
+| POST | `/v1/organizations/{org_id}/provider-connections` | `PROVIDER_WRITE` |
+| PATCH | `/v1/organizations/{org_id}/provider-connections/{connection_id}` | `PROVIDER_WRITE` |
+| DELETE | `/v1/organizations/{org_id}/provider-connections/{connection_id}` | `PROVIDER_DELETE` |
+| POST | `/v1/organizations/{org_id}/provider-connections/{connection_id}/test` | `PROVIDER_WRITE` |
+
+### Known limitations
+
+- No secrets vault — `ProviderConnection` cannot yet hold a customer-supplied API key. This is the concrete next blocker for a real "paste your key and go" connect flow (see §7's original note on this, still accurate).
+- Settings page (Priority 3) still not wired — see above.
+- The Projects page now has two different "projects" data sources on one screen (analytics cards vs. management list) which, while each internally consistent, could read as confusing without the section headers distinguishing them; a future pass could consider merging them once the analytics endpoint also returns zero-usage projects.
+- Priorities 4, 8, 9 were not re-verified from scratch this pass (see above) — asserting they're "done" would overstate what was actually checked in this EP.
+
+### Next milestone recommendation
+
+**A secrets vault** (or at minimum, an encrypted-column credential store scoped to `ProviderConnection`) is the single blocker shared by the two biggest remaining gaps: real "Connect Provider" (onboarding Step 3, §11, and this section's Connections UI) and Priority 3's Workspace/API-key-adjacent settings. After that, a focused Settings.tsx pass (Priority 3) is the next highest-value, well-scoped piece of the original request.

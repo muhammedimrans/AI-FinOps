@@ -1,12 +1,259 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, FolderOpen, TrendingUp, TrendingDown, FolderKanban, DollarSign, Wallet, AlertOctagon } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertTriangle,
+  FolderOpen,
+  TrendingUp,
+  TrendingDown,
+  FolderKanban,
+  DollarSign,
+  Wallet,
+  AlertOctagon,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import BudgetBar from "../components/BudgetBar";
 import PageHeader from "../components/PageHeader";
+import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { useProjects } from "../hooks/useDashboard";
+import {
+  listProjectsCrud,
+  createProject,
+  updateProject,
+  deleteProject,
+  ApiError,
+  type ProjectRecord,
+} from "../services/api";
 import { formatCost, formatNumber, modelDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { useOrgStore } from "../stores/org";
+import { toast } from "../stores/toast";
+
+const ENVIRONMENTS: ProjectRecord["environment"][] = ["development", "staging", "production"];
+
+const ENV_BADGE: Record<ProjectRecord["environment"], string> = {
+  development: "bg-app-muted text-tx-muted",
+  staging: "bg-warning-dim text-warning",
+  production: "bg-success-dim text-success",
+};
+
+function AddProjectForm({ organizationId, onDone }: { organizationId: string; onDone: () => void }) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+  const [environment, setEnvironment] = useState<ProjectRecord["environment"]>("production");
+
+  const create = useMutation({
+    mutationFn: () => createProject(organizationId, { name: name.trim(), environment }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["projects-crud", organizationId] });
+      toast.success("Project created", `"${name.trim()}" is ready.`);
+      onDone();
+    },
+    onError: (err: unknown) => {
+      toast.error("Couldn't create project", err instanceof ApiError ? err.message : "Please try again.");
+    },
+  });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (name.trim().length === 0) return;
+        create.mutate();
+      }}
+      className="flex flex-col sm:flex-row gap-2 rounded-xl border border-border-subtle bg-app-muted p-3"
+    >
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Project name"
+        disabled={create.isPending}
+        autoFocus
+        className="flex-1 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+      />
+      <select
+        value={environment}
+        onChange={(e) => setEnvironment(e.target.value as ProjectRecord["environment"])}
+        disabled={create.isPending}
+        className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+      >
+        {ENVIRONMENTS.map((env) => (
+          <option key={env} value={env}>
+            {env}
+          </option>
+        ))}
+      </select>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={create.isPending || name.trim().length === 0}
+          className="btn-primary h-9 px-4 text-xs disabled:opacity-60"
+        >
+          {create.isPending ? "Creating…" : "Create"}
+        </button>
+        <button type="button" onClick={onDone} className="btn-ghost h-9 px-3 text-xs">
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ProjectCrudRow({ organizationId, project }: { organizationId: string; project: ProjectRecord }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(project.name);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["projects-crud", organizationId] });
+
+  const rename = useMutation({
+    mutationFn: () => updateProject(organizationId, project.id, { name: name.trim() }),
+    onSuccess: () => {
+      setEditing(false);
+      void invalidate();
+      toast.success("Project renamed");
+    },
+    onError: (err: unknown) => {
+      toast.error("Couldn't rename project", err instanceof ApiError ? err.message : "Please try again.");
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: () => deleteProject(organizationId, project.id),
+    onSuccess: () => {
+      void invalidate();
+      toast.success("Project deleted");
+    },
+    onError: () => toast.error("Couldn't delete project"),
+  });
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border-subtle bg-app-muted p-3">
+      <div className="min-w-0 flex-1">
+        {editing ? (
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={rename.isPending}
+            autoFocus
+            className="w-full rounded-lg border border-border-subtle bg-app-bg px-2 py-1 text-sm text-tx-primary outline-none focus:border-brand"
+          />
+        ) : (
+          <p className="text-sm text-tx-primary truncate">{project.name}</p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className={cn("badge text-[10px]", ENV_BADGE[project.environment])}>{project.environment}</span>
+
+        {editing ? (
+          <>
+            <button
+              onClick={() => rename.mutate()}
+              disabled={rename.isPending || name.trim().length === 0}
+              className="btn-primary h-7 px-2 text-[11px] disabled:opacity-60"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setName(project.name);
+              }}
+              className="btn-ghost h-7 px-2 text-[11px]"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => setEditing(true)} className="text-tx-muted hover:text-tx-primary" aria-label="Rename project">
+              <Pencil size={13} />
+            </button>
+            <button onClick={() => setConfirmingDelete(true)} className="text-tx-muted hover:text-danger" aria-label="Delete project">
+              <Trash2 size={13} />
+            </button>
+          </>
+        )}
+      </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this project?"
+        description={`"${project.name}" will be removed. This can't be undone.`}
+        confirmLabel="Delete"
+        loading={remove.isPending}
+        onConfirm={() => remove.mutate(undefined, { onSuccess: () => setConfirmingDelete(false) })}
+        onCancel={() => setConfirmingDelete(false)}
+      />
+    </div>
+  );
+}
+
+function ManageProjectsSection() {
+  const organizationId = useOrgStore((s) => s.organizationId);
+  const [adding, setAdding] = useState(false);
+
+  const projectsCrud = useQuery({
+    queryKey: ["projects-crud", organizationId],
+    queryFn: () => listProjectsCrud(organizationId!),
+    enabled: !!organizationId,
+  });
+
+  const list = projectsCrud.data?.projects ?? [];
+
+  return (
+    <Section
+      title="Manage projects"
+      description="Create, rename, and delete projects — attribution units usage and provider connections can be scoped to."
+      icon={FolderKanban}
+      actions={
+        !adding && (
+          <button onClick={() => setAdding(true)} className="btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5">
+            <Plus size={13} /> New project
+          </button>
+        )
+      }
+    >
+      <div className="space-y-3">
+        {adding && organizationId && (
+          <AddProjectForm organizationId={organizationId} onDone={() => setAdding(false)} />
+        )}
+
+        {projectsCrud.isLoading ? (
+          <div className="space-y-2">
+            {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-14 skeleton rounded-xl" />)}
+          </div>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={FolderKanban}
+            title="No projects yet"
+            description="Create a project to start attributing usage and provider connections to it."
+            action={
+              !adding && organizationId ? (
+                <button onClick={() => setAdding(true)} className="btn-primary h-9 px-4 text-sm">
+                  Create project
+                </button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <div className="space-y-2">
+            {list.map((p) => (
+              <ProjectCrudRow key={p.id} organizationId={organizationId!} project={p} />
+            ))}
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
 
 function MiniTrendLine({ data, positive }: { data: string[]; positive: boolean }) {
   const nums = data.map(parseFloat);
@@ -47,6 +294,8 @@ export default function Projects() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <PageHeader title="Projects" description="Track budget utilization and spend by project." />
+
+      <ManageProjectsSection />
 
       {/* Alert banner */}
       {!projects.isLoading && (overBudget.length > 0 || nearBudget.length > 0) && (

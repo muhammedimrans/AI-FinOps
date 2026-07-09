@@ -9,6 +9,8 @@ from app.api.v1 import (
     ingest,
     organizations,
     pricing,
+    projects,
+    provider_connections,
     providers,
     rbac,
     realtime,
@@ -47,3 +49,9 @@ api_router.include_router(realtime.router, prefix="/v1")
 
 # EP-19.3 — Alert Rule Engine & Notification Persistence
 api_router.include_router(alerts.router, prefix="/v1")
+
+# EP-22 — Provider Connections (real, persisted)
+api_router.include_router(provider_connections.router, prefix="/v1")
+
+# EP-23 — Projects CRUD
+api_router.include_router(projects.router, prefix="/v1")

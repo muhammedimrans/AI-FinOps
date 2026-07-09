@@ -34,7 +34,7 @@ from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
 from app.models.organization_api_key import OrganizationApiKey
 from app.models.project import Project, ProjectEnvironment
-from app.models.provider_connection import ProviderConnection, ProviderType
+from app.models.provider_connection import ProviderConnection, ProviderHealthStatus, ProviderType
 from app.models.usage_record import UsageRecord, UsageRecordStatus
 from app.models.user import User, UserStatus
 from app.realtime.connection_manager import ConnectionManager
@@ -301,6 +301,28 @@ def make_membership(
     obj.organization_id = org_id or uuid7()
     obj.user_email = user_email
     obj.role = role
+    return obj
+
+
+def make_provider_connection(
+    *,
+    org_id: uuid.UUID | None = None,
+    provider_type: ProviderType = ProviderType.OPENAI,
+    display_name: str = "OpenAI (production)",
+    project_id: uuid.UUID | None = None,
+) -> ProviderConnection:
+    """Return a transient ProviderConnection instance."""
+    obj = ProviderConnection()
+    obj.id = uuid7()
+    obj.organization_id = org_id or uuid7()
+    obj.provider_type = provider_type
+    obj.provider_name = provider_type.value
+    obj.display_name = display_name
+    obj.project_id = project_id
+    obj.is_active = True
+    obj.configuration = {}
+    obj.health_status = ProviderHealthStatus.UNKNOWN
+    obj.consecutive_failure_count = 0
     return obj
 
 

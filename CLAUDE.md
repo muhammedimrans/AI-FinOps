@@ -593,3 +593,107 @@ Swapping the encryption root from `APP_SECRET_KEY`-derived Fernet to a cloud KMS
 ### Next milestone recommendation
 
 With credential storage and live validation now real for all 7 named providers, the highest-value next piece is: (1) **Settings.tsx wiring** (Priority 3, carried forward from §12 — still the largest remaining "full save UI that doesn't persist" gap), and (2) **wiring `ProviderConnection.encrypted_api_key` into actual usage collection** (EP-16's ingestion path and the SDK-facing `get_usage()` calls), so a connected, validated credential doesn't just prove reachability but is the one Costorah actually uses to pull real cost data — closing the loop the product spec's own framing ("Without this, Costorah cannot collect AI usage") points at.
+
+---
+
+## 14. EP-21.3 — First-Time User Onboarding, Post-EP-22 Refresh
+
+**Status: complete.** This is a re-scoping of the original EP-21.3 wizard (§11, shipped before EP-22) to reuse the real, now-persisted Provider Connections CRUD that landed in EP-22 (§13), and to close the "new user lands on a blank dashboard" gap the product spec calls out explicitly. No new backend endpoints, no new tables, no new migration — every persistence and CRUD operation this EP touches already existed.
+
+### Why this is a refresh, not a new EP
+
+§11's wizard was built and shipped correctly for the state of the platform *at the time*: `ProviderConnection` had no credential storage yet, so Step 3 ("Choose your first provider") could only display a static list of provider names and route to `/connections` for the existing env-var-keyed connectivity probe. EP-22 (§13) then built the real thing — encrypted, validated, per-connection credentials — which made §11's Step 3 copy ("Persisted, customer-managed provider connections are coming soon") stale and its functionality strictly worse than what the platform could now actually do. This EP updates Step 3 to use the real thing, and adds the "never land on a blank dashboard" empty-state work the original spec didn't cover. The route (`/onboarding`), the 5-step shape, the backend persistence field (`users.onboarding_completed_at`), and the `ProtectedRoute` enforcement are **all unchanged from §11** — reused exactly as they were, per this EP's own "do not duplicate existing functionality" instruction.
+
+### Flow
+
+```
+POST /v1/auth/register or /login  (website or dashboard)  — unchanged, §6/§11
+        │
+        ▼
+ProtectedRoute (apps/dashboard) checks user.onboarding_completed
+        │
+        ├── false ──► /onboarding
+        │                │
+        │                ▼
+        │        Step 1 Welcome  →  Step 2 Workspace  →  Step 3 Provider  →  Step 4 Tour  →  Step 5 Finish
+        │           (unchanged)      (unchanged)          (EP-22 CRUD,        (unchanged)     (unchanged)
+        │                                                   this EP)
+        │                                                       │
+        │                                    AddConnectionForm (features/Connections.tsx,
+        │                                    exported & reused verbatim) creates a real,
+        │                                    encrypted, validated ProviderConnection —
+        │                                    same row the /connections page manages after
+        │                                                       │
+        │                                              POST /v1/auth/onboarding/complete ◄── Finish
+        │                                                       │
+        │                                                       ▼
+        │                                            users.onboarding_completed_at = now()
+        │                                                       │
+        └── true ──► /dashboard, or, if a completed user opens /onboarding directly
+                      (bookmark, back button), Onboarding.tsx itself redirects to
+                      /dashboard immediately — new in this EP, see "Routing" below.
+                                                                  │
+                                                                  ▼
+                                                    Overview.tsx: GettingStartedBanner
+                                                    (new, this EP) — prompts to connect a
+                                                    provider / create a project instead of
+                                                    rendering blank KPI cards, if either is
+                                                    still missing (e.g. Step 3 was skipped).
+```
+
+### Routing
+
+`/onboarding` (`apps/dashboard/src/App.tsx`) — unchanged route, still standalone (no `AppLayout` sidebar/header chrome), still gated by `ProtectedRoute` only.
+
+**New in this EP**: `ProtectedRoute`'s existing rule only ever redirected an *incomplete* user *into* `/onboarding` — it never redirected a *completed* user *out* of it if they navigated there directly (bookmark, browser back button after finishing). `Onboarding.tsx` now closes that gap itself: a `useEffect` on mount checks `user.onboarding_completed === true` and calls `navigate("/dashboard", { replace: true })`, with an accompanying early `return null` so the wizard never flashes before the redirect fires. This lives in the component rather than `ProtectedRoute` because the rule is specific to this one route ("already done, don't show it again") rather than a general auth gate — keeping `ProtectedRoute` itself unchanged from §11.
+
+### Step 3 — Connect First Provider (rewritten this EP)
+
+`ProviderStep` (`apps/dashboard/src/features/Onboarding.tsx`) now:
+- Fetches the org's existing connections via `listProviderConnections` (same query key, `["provider-connections", organizationId]`, as `features/Connections.tsx` — so the cache is shared and a connection made here is instantly visible on the real Connections page with no extra fetch).
+- Lists the same 7 providers the spec names (OpenAI, Anthropic, Google Gemini, Azure OpenAI, OpenRouter, Grok, Ollama) by importing `CONNECTABLE_PROVIDERS` from `apps/dashboard/src/lib/providerCatalog.ts` — a **new shared module**, not a new catalog: this constant (and `connectableLabel`) moved out of `features/Connections.tsx` in this EP so it could be imported without an ESLint `react-refresh/only-export-components` violation (a component file exporting non-component values breaks Fast Refresh); `Connections.tsx` re-imports it from the same place, so there is exactly one list of connectable providers, not two.
+- On "Connect provider", renders `AddConnectionForm` — **imported directly from `features/Connections.tsx` and exported for this purpose**, not reimplemented. Submitting it calls the real `POST /v1/organizations/{org_id}/provider-connections` (EP-22), which encrypts the key, validates it live, and returns the connection; `onDone` (the form's existing success callback) advances the wizard to Step 4 automatically.
+- "Skip for now" advances immediately with the spec's exact copy ("You can always connect providers later.") shown above the buttons, not gated behind the click.
+
+No provider CRUD logic — request building, encryption, validation dispatch, error normalization — was rewritten; this step is entirely composed from the EP-22 component and API client.
+
+### Empty Dashboard Improvements (new this EP)
+
+`Overview.tsx` gained `GettingStartedBanner` (exported for testability), rendered directly under the existing `CriticalAlertBanner`:
+- Queries `listProviderConnections` and `listProjectsCrud` using the **same query keys** `Connections.tsx` and `Projects.tsx` already use (`["provider-connections", orgId]` / `["projects-crud", orgId]`), so this never drifts out of sync with what those pages show and never issues a redundant network request if either page was already visited this session.
+- Renders nothing once both a connection and a project exist.
+- Otherwise shows one or two CTAs — "Connect your first provider" (→ `/connections`) and/or "Create your first project" (→ `/projects`) — exactly the two cases the spec names, replacing what would otherwise be a page of empty/zeroed KPI cards and charts (the existing `ChartCard`/`MetricCard` empty states, unchanged, still handle the "some data, some empty periods" case underneath this banner).
+- The Projects page's own "no projects" case was **already handled** before this EP — the EP-22/EP-23 "Manage projects" section (§12) already shows an `EmptyState` with a "New project" CTA when the org has zero projects. This EP's `GettingStartedBanner` is additive (dashboard-level prompt), not a replacement for that existing, page-level empty state.
+
+### Persistence
+
+**Unchanged from §11** — `users.onboarding_completed_at` (nullable timestamp, migration `a3c8e21f5b7d`), `POST /v1/auth/onboarding/complete`, `UserPublic.onboarding_completed`. No new column, no new migration, no new endpoint. This EP's "only introduce a migration if absolutely necessary" instruction is satisfied by not needing one at all.
+
+### Backend
+
+**No backend files changed in this EP.** Every operation Step 2 (workspace rename, `PATCH /v1/organizations/{org_id}`) and Step 3 (provider connection CRUD, EP-22's `/v1/organizations/{org_id}/provider-connections*` routes) needs already existed and required no modification. The full backend test suite (1509 tests) was re-run as a regression check and passed unchanged.
+
+### Frontend changes
+
+- `apps/dashboard/src/features/Onboarding.tsx` — Step 3 rewritten (above), redirect-if-already-completed effect added, Finish step's secondary button relabeled "Manage providers" (from "Connect provider") to match the spec's exact button name.
+- `apps/dashboard/src/features/Connections.tsx` — `AddConnectionForm` exported; `CONNECTABLE_PROVIDERS`/`connectableLabel` moved to `lib/providerCatalog.ts` (still re-exported at the same import site other code already used, so this was a non-breaking move).
+- `apps/dashboard/src/lib/providerCatalog.ts` — gained `CONNECTABLE_PROVIDERS`/`connectableLabel` (moved from `Connections.tsx`, see above).
+- `apps/dashboard/src/features/Overview.tsx` — `GettingStartedBanner` added (new component, exported), rendered once in the page body.
+
+### Testing
+
+- `apps/dashboard/src/__tests__/Onboarding.test.tsx` (new, 5 tests) — welcome step shows the user's first name; a completed session is redirected straight to `/dashboard` without the wizard ever rendering; the full Welcome→Workspace→Provider→Tour→Finish path advances correctly; Step 3's "Connect provider" button opens the real `AddConnectionForm` and a successful submit auto-advances to Tour; clicking "Go to dashboard" on Finish calls `completeOnboarding` and navigates.
+- `apps/dashboard/src/__tests__/GettingStartedBanner.test.tsx` (new, 3 tests) — prompts to connect a provider when there are none; prompts to create a project when there are none; renders nothing once both exist. (Required stubbing `window.matchMedia`, since importing `features/Overview.tsx` transitively pulls in the theme store via `lib/chartPalette`, which jsdom doesn't implement — documented inline in the test file so a future test importing the same module isn't surprised by the same failure.)
+- `backend/tests/test_ep21_3_onboarding.py` — unchanged, re-run as a regression check (11 tests, all passing) since no backend code in this EP touches onboarding persistence.
+- Full suites: backend **1509 passed** (unchanged from EP-22, ruff/black/mypy clean); dashboard **158 passed** (150 + 8 new), lint clean, typecheck clean, build clean (`tsc -b` + `vite build`).
+
+### Known limitations
+
+- **Step 3's "already connected" copy is a simple count, not a list** — `ProviderStep` shows "You already have N connections" but not which providers, so a user who already connected OpenAI during a prior onboarding attempt (e.g. they refreshed mid-wizard) isn't shown that specific provider as already-done in the picker grid. Minor UX polish, not a functional gap — the actual connection is real and visible on `/connections` either way.
+- **The onboarding wizard's own `AddConnectionForm` instance and the Connections page's instance are two separate mounted components** sharing a query cache, not a single shared component instance — this is the correct pattern for two different pages, but means any *future* local (non-server) state added to `AddConnectionForm` (e.g. optimistic UI) needs to work correctly when mounted from either call site, not just one.
+- **`GettingStartedBanner`'s CTAs link to `/connections` and `/projects` but do not pre-open the "create" form** on arrival — a user still has to click "Add provider"/"New project" again on the destination page. Acceptable per the spec ("Do not leave empty cards" — satisfied) but a slightly smoother handoff (e.g. a `?new=1` query param the destination page reads) is easy follow-up polish, not attempted here to avoid scope creep into those pages' own state management.
+- **No live, continuous browser test of the full register → onboarding (with a real provider connect) → dashboard-with-data journey** — same caveat as §9/§10/§11: verified in pieces (component tests, backend regression, builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Next milestone recommendation
+
+Both items §13 already flagged as EP-22's own next milestone are still the highest-value work remaining and are unaffected by this EP: (1) **Settings.tsx wiring** (Priority 3, open since §12), and (2) **wiring `ProviderConnection.encrypted_api_key` into actual usage collection** so a validated connection also becomes the credential Costorah's ingestion path uses to pull real cost data — until that lands, `GettingStartedBanner` (this EP) will keep prompting even a fully-connected org, since "provider connected" and "usage data flowing" remain two different signals. That gap is worth calling out explicitly as this EP's most direct dependency on the next one.

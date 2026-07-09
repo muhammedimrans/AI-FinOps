@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -22,9 +22,11 @@ import {
   completeOnboarding,
   getOrganizations,
   updateOrganization,
+  listProviderConnections,
   ApiError,
 } from "../services/api";
-import { PROVIDER_CATALOG } from "../lib/providerCatalog";
+import { AddConnectionForm } from "./Connections";
+import { CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
 import { cn } from "../utils";
 import { toast } from "../stores/toast";
 import CostorahLogo from "../components/CostorahLogo";
@@ -35,23 +37,13 @@ import CostorahLogo from "../components/CostorahLogo";
 // user.onboarding_completed from the backend (POST
 // /v1/auth/onboarding/complete marks it done, called from Finish below).
 //
-// Step 3 (Choose Provider) intentionally does not build provider CRUD —
-// ProviderConnection has no persistence API yet (EP-22). "Connect
-// Provider" routes to the existing /connections page (live connectivity
-// checks against server-side provider credentials), which is the closest
-// real, working feature today.
+// Step 3 (Choose Provider) reuses the real Provider Connections CRUD +
+// credential form built in EP-22 (`AddConnectionForm`, imported from
+// features/Connections.tsx) rather than recreating it — connecting a
+// provider here creates a real, encrypted, validated ProviderConnection
+// row, the same one the /connections page manages afterward.
 
 const STEPS = ["Welcome", "Workspace", "Provider", "Tour", "Finish"] as const;
-
-const ONBOARDING_PROVIDER_IDS = [
-  "openai",
-  "anthropic",
-  "google",
-  "openrouter",
-  "azure",
-  "xai",
-  "ollama",
-];
 
 const TOUR_ITEMS = [
   {
@@ -147,6 +139,18 @@ export default function Onboarding() {
   const firstName = user?.display_name?.split(" ")[0] ?? "there";
   const next = () => setStep((s) => Math.min(s + 1, STEPS.length - 1));
 
+  // Onboarding must run at most once — a completed user landing here
+  // directly (bookmark, back button) is sent straight to the dashboard
+  // instead of seeing the wizard again. ProtectedRoute only redirects
+  // *incomplete* users *into* /onboarding; this is the corresponding
+  // "and never show it again" half of that rule.
+  useEffect(() => {
+    if (user?.onboarding_completed === true) {
+      navigate("/dashboard", { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const finishMutation = useMutation({
     mutationFn: completeOnboarding,
     onSuccess: (updated) => {
@@ -168,6 +172,10 @@ export default function Onboarding() {
     finishMutation.mutate(undefined, { onSettled: () => navigate("/connections", { replace: true }) });
   }
 
+  if (user?.onboarding_completed === true) {
+    return null;
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12 bg-app-bg">
       <CostorahLogo className="h-8 mb-8" />
@@ -182,7 +190,9 @@ export default function Onboarding() {
             onNext={next}
           />
         )}
-        {step === 2 && <ProviderStep key="provider" onSkip={next} onConnect={goToConnections} />}
+        {step === 2 && (
+          <ProviderStep key="provider" organizationId={organizationId} onSkip={next} onConnected={next} />
+        )}
         {step === 3 && <TourStep key="tour" onNext={next} />}
         {step === 4 && (
           <FinishStep
@@ -340,24 +350,62 @@ function WorkspaceStep({
 
 // ── Step 3: Choose First Provider ────────────────────────────────────────────
 
-function ProviderStep({ onSkip, onConnect }: { onSkip: () => void; onConnect: () => void }) {
-  const providers = PROVIDER_CATALOG.filter((p) => ONBOARDING_PROVIDER_IDS.includes(p.id));
+function ProviderStep({
+  organizationId,
+  onSkip,
+  onConnected,
+}: {
+  organizationId: string | null;
+  onSkip: () => void;
+  onConnected: () => void;
+}) {
+  const [connecting, setConnecting] = useState(false);
+
+  const existing = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
+  const connectedCount = existing.data?.total ?? 0;
+
+  if (connecting && organizationId) {
+    return (
+      <StepShell wide>
+        <div className="text-center">
+          <IconBadge icon={PlugZap} />
+          <h2 className="text-lg font-semibold text-tx-primary mb-1">Connect a provider</h2>
+          <p className="text-sm text-tx-muted leading-relaxed mb-6 max-w-md mx-auto">
+            Your key is encrypted immediately and validated live — the same connection you&apos;ll
+            see on the Connections page afterward.
+          </p>
+        </div>
+        <AddConnectionForm organizationId={organizationId} onDone={onConnected} />
+        <button
+          onClick={() => setConnecting(false)}
+          className="btn-ghost h-9 mt-4 mx-auto px-4 text-xs block"
+        >
+          Back
+        </button>
+      </StepShell>
+    );
+  }
 
   return (
     <StepShell wide>
       <div className="text-center">
         <IconBadge icon={PlugZap} />
-        <h2 className="text-lg font-semibold text-tx-primary mb-1">Choose your first provider</h2>
+        <h2 className="text-lg font-semibold text-tx-primary mb-1">Connect your first provider</h2>
         <p className="text-sm text-tx-muted leading-relaxed mb-6 max-w-md mx-auto">
-          Persisted, customer-managed provider connections are coming soon (EP-22). For now, use
-          the SDK with an API key, or check live connectivity from Connections.
+          {connectedCount > 0
+            ? `You already have ${connectedCount} connection${connectedCount === 1 ? "" : "s"}. Add another, or continue.`
+            : "Costorah tracks cost and usage once a provider is connected."}
         </p>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {providers.map((p) => (
+        {CONNECTABLE_PROVIDERS.map((p) => (
           <div
-            key={p.id}
+            key={p.value}
             className="flex items-center gap-2.5 rounded-xl border border-border-subtle bg-app-muted px-3 py-3"
           >
             <span
@@ -365,18 +413,22 @@ function ProviderStep({ onSkip, onConnect }: { onSkip: () => void; onConnect: ()
               style={{ backgroundColor: p.color }}
               aria-hidden="true"
             />
-            <span className="text-sm text-tx-primary truncate">{p.name}</span>
+            <span className="text-sm text-tx-primary truncate">{p.label}</span>
           </div>
         ))}
       </div>
 
-      <p className="mt-5 text-xs text-tx-muted text-center">You can connect providers later.</p>
+      <p className="mt-5 text-xs text-tx-muted text-center">You can always connect providers later.</p>
 
       <div className="mt-6 flex flex-col sm:flex-row gap-3">
         <button onClick={onSkip} className="btn-ghost h-10 flex-1 text-sm">
           Skip for now
         </button>
-        <button onClick={onConnect} className="btn-primary h-10 flex-1 text-sm">
+        <button
+          onClick={() => setConnecting(true)}
+          disabled={!organizationId}
+          className="btn-primary h-10 flex-1 text-sm disabled:opacity-60"
+        >
           Connect provider
           <ArrowRight size={15} />
         </button>
@@ -447,7 +499,7 @@ function FinishStep({
           disabled={pending}
           className="btn-ghost h-10 flex-1 text-sm disabled:opacity-60"
         >
-          Connect provider
+          Manage providers
         </button>
         <button
           onClick={onGoToDashboard}

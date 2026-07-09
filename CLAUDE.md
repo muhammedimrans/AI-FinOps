@@ -820,3 +820,69 @@ Auditing `app/api/v1/auth.py` and `app/api/v1/organizations.py` first (per this 
 ### Next milestone recommendation
 
 With Settings now fully wired, the two items §12/§13/§14 have been carrying forward as "the next real blocker" are unaffected by this EP and remain the highest-value work: (1) **wiring `ProviderConnection.encrypted_api_key` into actual usage collection** (EP-16's ingestion path and the SDK-facing `get_usage()` calls), and (2) the still-open **transactional email** gap (EP-25 in the §8 roadmap) — which would also let account/workspace deletion gain the email-confirmation step this EP's "Known limitations" flagged as a reasonable future hardening, once outbound email exists to send it through.
+
+---
+
+## 17. EP-22.3 — Intelligent Dashboard Empty States & Guided First Experience
+
+**Status: complete.** Replaces the dashboard's generic "No data for this period" placeholders with a 4-state setup-progress machine and contextual, actionable empty states — a brand-new organization now sees guidance toward its next concrete action instead of blank charts. Zero new backend endpoints; every signal is derived from three already-existing endpoints.
+
+### Why no backend changes were needed
+
+This EP's own instruction was "avoid new endpoints unless absolutely required." Auditing what "has this org connected/validated/used anything" actually needs turned up nothing missing: `GET /v1/organizations/{id}/provider-connections` already returns `last_validation_status` per connection (EP-22, §13) — the exact signal needed to distinguish "provider exists" from "provider validated"; `GET /v1/organizations/{id}/projects` already returns a count; and `GET /v1/dashboard/overview` already answers "how much usage occurred in [start, end]" — querying it with a fixed, far-past `start_date` (`2020-01-01`, predating the product's own existence) turns it into an honest "has this org ever recorded any usage" check without adding any new backend surface area. No migration, no schema change, no new router — this EP is 100% frontend.
+
+### Dashboard State Machine (`apps/dashboard/src/hooks/useDashboardState.ts`, new)
+
+```
+state 1 — no provider connected           → hasConnections is false
+state 2 — provider(s) exist, none validated → hasConnections true, hasValidatedConnection false
+state 3 — validated, but no usage ever     → hasValidatedConnection true, hasUsage false
+state 4 — usage exists                     → render the full dashboard, unchanged
+```
+
+`useDashboardState()` composes three TanStack Query calls:
+- `listProviderConnections` — **same query key** (`["provider-connections", organizationId]`) `features/Connections.tsx` and the EP-21.3/EP-22 onboarding step already use, so this hook's cache is always the one true copy, never a second fetch drifting out of sync.
+- `listProjectsCrud` — same reuse pattern, same query key as `features/Projects.tsx`.
+- `getOverview({ start_date: "2020-01-01", end_date: today })` — a **distinct** query key (`["overview-all-time", organizationId]`) from the date-range-scoped `["overview", ...]` key `hooks/useDashboard.ts`'s `useOverview()` already uses for the KPI cards, since this one is intentionally range-independent and only used for state detection, not display.
+
+`hasValidatedConnection` checks `connections.some(c => c.last_validation_status === "healthy")` — the fine-grained per-connection signal EP-22 (§13) introduced specifically to distinguish "a credential is stored" from "a credential was proven to work," which is exactly the state-2-vs-state-3 boundary this EP needed.
+
+### Component architecture (`apps/dashboard/src/features/Overview.tsx`)
+
+- **`GettingStartedBanner`** (rewritten in place, same export name — Overview.tsx's one call site is unchanged) — supersedes EP-21.3's 2-item version with the full 5-step checklist the spec names: Connect Provider, Validate Provider, Create Project, Generate AI Usage, View Analytics. Each row shows a check/circle icon, strikes through once done, and shows a "Go" link to the relevant page only while incomplete. "Generate AI Usage" and "View Analytics" both read `hasUsage` — Overview.tsx *is* the analytics view, so once usage exists there is nothing further to detect; a separate "has visited /analytics" flag would have been exactly the kind of duplicate client-side progress state this EP's own instructions forbid. Renders `null` once all 5 items are done, matching the EP-21.3 predecessor's "disappear when done" behavior.
+- **`DashboardStateHero`** (new, exported) — renders the state-1/2/3 copy verbatim from the spec (title, body, bullet list for state 3, primary/secondary CTAs) directly under the checklist; returns `null` for state 4, letting the KPI cards and charts underneath carry the page on their own exactly as before this EP.
+- **`SpendTrendEmpty` / `ProviderDistributionEmpty` / `TopModelsEmpty`** (new, internal to Overview.tsx) — passed into `ChartCard`'s new `emptyContent` prop (see below) so each chart's empty state matches the spec's per-card copy instead of the generic "No data for this period." `ProviderDistributionEmpty` lists the same 7 providers `CONNECTABLE_PROVIDERS` (`lib/providerCatalog.ts`, EP-21.3/EP-22) already names — reused, not a second hardcoded list.
+- **Provider Snapshot section and `LiveActivityFeed`** are now gated on `dashboardState.state === 4` — an empty stats grid or an empty activity feed under a hero that already says "waiting for requests" would be redundant blank space, so these sections simply don't mount until there's something in them to show.
+
+### `ChartCard` extension (`apps/dashboard/src/components/ChartCard.tsx`)
+
+Added one new optional prop, `emptyContent?: ReactNode`. When `empty` is true and `emptyContent` is provided, it fully replaces the default `ChartEmpty` (icon + "No data for this period" + generic message) — every other `ChartCard` call site in the app that doesn't pass this prop is byte-for-byte unaffected, verified by the full existing test suite passing unmodified. This is a general-purpose extension (any chart anywhere can now supply contextual empty guidance), not an Overview-only hack.
+
+### Empty-state strategy
+
+| Chart | Condition | Content |
+|---|---|---|
+| Spend Trend | state 1 (no providers) | "Start tracking AI spend. Connect your first provider." + Connect Provider button |
+| Spend Trend | state 2/3 (provider connected, no usage) | "Waiting for AI usage. Charts will automatically appear..." |
+| Provider Distribution | `!hasConnections` | "No providers connected." + the 7 supported-provider chips + Add Provider button |
+| Top Models | `topModels.length === 0` (any state) | "Your highest-cost AI models will appear here automatically once requests are recorded." |
+| Token Throughput | unchanged | Spec didn't name a contextual variant for this chart — left on `ChartCard`'s existing generic empty message. |
+
+### Testing
+
+- **Backend**: none — no endpoint was added, so per this EP's own instruction ("Backend: only if new endpoint is added") no backend test changes were made. Full backend suite re-verified unchanged (1545 passed) as a regression check.
+- **Frontend**:
+  - `src/__tests__/GettingStartedBanner.test.tsx` (rewritten, 5 tests — supersedes the EP-21.3 2-test version, which tested behavior this EP intentionally replaced): all 5 steps render unchecked for a brand-new org; Connect Provider checks off once a connection exists (and its own "Go" link disappears while Validate Provider's remains); Validate Provider checks off once a connection's `last_validation_status` is `"healthy"`; Generate AI Usage and View Analytics both check off together once `total_requests > 0`; the whole banner renders nothing once all 5 are done.
+  - `src/__tests__/DashboardStateHero.test.tsx` (new, 4 tests — one per state): state 1 shows "Welcome to Costorah" with Connect Provider (linking to `/connections`) and Learn More; state 2 shows "Provider connected" with Validate Connection; state 3 shows "Everything is ready." with the 5-item bullet list (token usage, model usage, request count, spending, trends) and View Providers; state 4 renders nothing.
+  - Full dashboard suite: **176 passed** (170 + 5 rewritten GettingStartedBanner + 4 new DashboardStateHero, net +6 from the prior EP's 170), lint clean, typecheck clean, build clean (`tsc -b` + `vite build`). No pre-existing test needed changes beyond the intentionally-rewritten `GettingStartedBanner.test.tsx`.
+
+### Known limitations
+
+- **"Has usage ever" is computed via a wide-range query, not a true unbounded one.** `ALL_TIME_START = "2020-01-01"` is a safe lower bound (predates Costorah's own existence) rather than an actual "since account creation" query — functionally equivalent for every real account, but if the backend's `GET /v1/dashboard/overview` is ever changed to reject very old `start_date` values, this constant would need to move with it. A dedicated `has_usage: bool` field on a future summary endpoint (if one is ever justified by other needs) would remove this assumption entirely.
+- **The all-time usage check adds one extra request per Overview page load** (`["overview-all-time", ...]`) beyond the existing date-range-scoped overview query. It's cached for 5 minutes and only runs once per organization per session in practice, but it is a real additional network call — the tradeoff this EP's own "if one lightweight summary endpoint improves performance, implement it" clause anticipated; not built here because the added latency is negligible (a single indexed aggregate query) and the reuse-over-new-endpoint instruction was the stronger signal.
+- **Provider Distribution's contextual empty state only covers the "no providers" case.** When a provider is connected but has no usage yet (state 2/3), the pie chart falls back to `ChartCard`'s generic empty message rather than a second bespoke variant — the spec's Analytics Cards section only specified copy for the "no providers" case for this particular chart.
+- **No live, continuous browser test of the full state-1-through-4 journey** — same caveat as every prior EP (§9, §10, §11, §14, §16): verified in pieces (component tests per state, full build), not as one continuous browser session driving a real account from zero through to its first usage event, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Next milestone recommendation
+
+Unchanged from §16 — this EP was purely a frontend guidance/empty-state pass and doesn't move either of the two standing highest-value backend items: (1) wiring `ProviderConnection.encrypted_api_key` into actual usage collection (the thing that would make state 3 → state 4 happen for real accounts, not just demo/test data), and (2) transactional email. Once (1) lands, this EP's state machine is what will make that transition visibly obvious to a user for the first time — the "Everything is ready. Waiting for your applications to send AI requests." message becomes literally true rather than aspirational.

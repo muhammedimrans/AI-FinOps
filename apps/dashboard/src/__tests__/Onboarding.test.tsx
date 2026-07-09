@@ -32,6 +32,11 @@ const baseUser = {
   display_name: "Ada Lovelace",
   status: "active",
   email_verified: true,
+  avatar_url: null,
+  bio: null,
+  timezone: null,
+  created_at: "2026-01-01T00:00:00Z",
+  preferences: {},
 };
 
 function renderOnboarding() {

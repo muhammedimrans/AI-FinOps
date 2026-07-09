@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,8 @@ from app.auth.exceptions import (
     EmailAlreadyVerifiedError,
     InvalidCredentialsError,
     InvalidTokenError,
+    OwnerOfSharedWorkspaceError,
+    UsernameAlreadyTakenError,
 )
 from app.auth.password import hash_password, verify_password
 from app.auth.slug import unique_slug
@@ -219,6 +222,105 @@ class AuthService:
         user.onboarding_completed_at = datetime.now(UTC)
         await self._session.flush()
         return user
+
+    # ── Profile / preferences (EP-22.2 Settings) ─────────────────────────────
+
+    async def update_profile(
+        self,
+        *,
+        user: User,
+        display_name: str | None = None,
+        username: str | None = None,
+        avatar_url: str | None = None,
+        bio: str | None = None,
+        timezone: str | None = None,
+        set_fields: set[str] | None = None,
+    ) -> User:
+        """
+        Apply a partial profile update. ``set_fields`` names exactly which of
+        the keyword args were actually supplied by the caller (the endpoint
+        passes ``body.model_fields_set``) so an omitted field is left
+        untouched rather than overwritten with ``None``.
+        """
+        fields = set_fields or set()
+        if "username" in fields and username:
+            if await self._user_repo.username_exists(username, exclude_id=user.id):
+                raise UsernameAlreadyTakenError
+        if "display_name" in fields and display_name is not None:
+            user.display_name = display_name
+        if "username" in fields:
+            user.username = username
+        if "avatar_url" in fields:
+            user.avatar_url = avatar_url
+        if "bio" in fields:
+            user.bio = bio
+        if "timezone" in fields:
+            user.timezone = timezone
+        await self._session.flush()
+        return user
+
+    async def update_preferences(self, *, user: User, patch: dict[str, Any]) -> User:
+        """Shallow-merge ``patch`` into ``user.preferences``."""
+        merged = {**user.preferences, **patch}
+        user.preferences = merged
+        await self._session.flush()
+        return user
+
+    # ── Password change (EP-22.2) ────────────────────────────────────────────
+
+    async def change_password(
+        self,
+        *,
+        user: User,
+        current_password: str,
+        new_password: str,
+        current_session_id: uuid.UUID,
+    ) -> None:
+        """
+        Verify the caller's current password, set the new one, and revoke
+        every other active session (matching ``reset_password``'s
+        "sign out everywhere" behavior) while keeping the session that made
+        this request alive.
+        """
+        if user.password_hash is None or not verify_password(user.password_hash, current_password):
+            raise InvalidCredentialsError
+        user.password_hash = hash_password(new_password)
+        await self._session.flush()
+        await self._session_repo.revoke_all_for_user_except(user.id, current_session_id)
+
+    # ── Account deletion (EP-22.2 Settings — Danger Zone) ────────────────────
+
+    async def delete_account(self, *, user: User, password: str) -> None:
+        """
+        Verify the caller's password, then permanently (soft-)delete the
+        account and every workspace they solely own.
+
+        Refuses (``OwnerOfSharedWorkspaceError``) when the user is OWNER of
+        a workspace that still has other members — deleting the account
+        would otherwise silently orphan that workspace. The caller must
+        transfer ownership or remove the other members first. Workspaces
+        the user owns alone (including their personal workspace) are
+        soft-deleted along with the account; memberships where the user
+        holds a non-OWNER role are left as-is (soft-deleting the user is
+        enough to end their access).
+        """
+        if user.password_hash is None or not verify_password(user.password_hash, password):
+            raise InvalidCredentialsError
+
+        memberships = await self._membership_repo.list_by_user_email_with_orgs(user.email)
+        owned = [m for m in memberships if m.role == MembershipRole.OWNER]
+        for m in owned:
+            other_members = await self._membership_repo.list_by_org_with_users(m.organization_id)
+            if any(x.user_email != user.email for x in other_members):
+                raise OwnerOfSharedWorkspaceError(m.organization.name)
+
+        for m in owned:
+            org = await self._org_repo.get(m.organization_id)
+            if org is not None:
+                await self._org_repo.soft_delete(org, deleted_by=user.id)
+
+        await self._user_repo.soft_delete(user, deleted_by=user.id)
+        await self._session_repo.revoke_all_for_user(user.id)
 
     # ── Refresh ───────────────────────────────────────────────────────────────
 

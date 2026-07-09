@@ -34,12 +34,16 @@ from app.auth.exceptions import (
     EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
     InvalidCredentialsError,
+    OwnerOfSharedWorkspaceError,
+    UsernameAlreadyTakenError,
 )
 from app.auth.exceptions import InvalidTokenError as AuthInvalidTokenError
 from app.auth.rate_limit import LoginRateLimiter
 from app.auth.service import AuthService
 from app.auth.tokens import decode_access_token
 from app.schemas.auth import (
+    ChangePasswordRequest,
+    DeleteAccountRequest,
     LoginRequest,
     LoginResponse,
     MessageResponse,
@@ -49,6 +53,8 @@ from app.schemas.auth import (
     RegisterResponse,
     ResetPasswordRequest,
     TokenResponse,
+    UpdatePreferencesRequest,
+    UpdateProfileRequest,
     UserPublic,
     VerifyEmailRequest,
     WorkspacePublic,
@@ -81,6 +87,11 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
         status=user.status,
         email_verified=user.email_verified,
         onboarding_completed=user.onboarding_completed_at is not None,
+        avatar_url=user.avatar_url,
+        bio=user.bio,
+        timezone=user.timezone,
+        created_at=user.created_at,
+        preferences=user.preferences,
     )
 
 
@@ -193,6 +204,164 @@ async def login(
 )
 async def me(current_user: CurrentUser) -> UserPublic:
     return _build_user_public(current_user)
+
+
+def _current_session_id(request: Request, settings: SettingsDep) -> uuid.UUID | None:
+    """Best-effort extraction of the calling session's id from its own access token.
+
+    Mirrors ``logout``'s token-location logic (header, then cookie). Used by
+    change-password to know which session to spare when revoking the rest —
+    if the token can't be read for any reason, callers treat that as "no
+    session to spare" and revoke everything, which is still safe.
+    """
+    auth_header = request.headers.get("authorization", "")
+    raw_token: str | None
+    if auth_header.lower().startswith("bearer "):
+        raw_token = auth_header[7:].strip()
+    else:
+        raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if not raw_token:
+        return None
+    try:
+        claims = decode_access_token(raw_token, settings=settings)
+    except (ExpiredSignatureError, DecodeError, InvalidTokenError):
+        return None
+    session_id_str = claims.get("jti")
+    if not isinstance(session_id_str, str):
+        return None
+    try:
+        return uuid.UUID(session_id_str)
+    except ValueError:
+        return None
+
+
+@router.patch(
+    "/me",
+    response_model=UserPublic,
+    summary="Update the authenticated caller's profile",
+    description=(
+        "Partial update (EP-22.2) — only the fields present in the request "
+        "body are applied; omitted fields are left unchanged."
+    ),
+)
+async def update_profile(
+    body: UpdateProfileRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> UserPublic:
+    svc = AuthService(db, settings)
+    try:
+        user = await svc.update_profile(
+            user=current_user,
+            display_name=body.display_name,
+            username=body.username,
+            avatar_url=body.avatar_url,
+            bio=body.bio,
+            timezone=body.timezone,
+            set_fields=body.model_fields_set,
+        )
+    except UsernameAlreadyTakenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This username is already taken",
+        ) from exc
+    return _build_user_public(user)
+
+
+@router.patch(
+    "/me/preferences",
+    response_model=UserPublic,
+    summary="Merge a patch into the authenticated caller's preferences",
+    description=(
+        "Shallow-merges the given keys into the stored preferences JSON "
+        "(theme, timezone, currency, date format, sidebar-collapsed, "
+        "notification toggles, ...). Keys not present in the request are "
+        "left untouched."
+    ),
+)
+async def update_preferences(
+    body: UpdatePreferencesRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> UserPublic:
+    svc = AuthService(db, settings)
+    user = await svc.update_preferences(user=current_user, patch=body.preferences)
+    return _build_user_public(user)
+
+
+@router.post(
+    "/change-password",
+    response_model=MessageResponse,
+    summary="Change the authenticated caller's password",
+    description=(
+        "Requires the current password. On success, every other active "
+        "session for this user is revoked — the session making this "
+        "request stays signed in."
+    ),
+)
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+    request: Request,
+) -> MessageResponse:
+    svc = AuthService(db, settings)
+    session_id = _current_session_id(request, settings)
+    try:
+        await svc.change_password(
+            user=current_user,
+            current_password=body.current_password,
+            new_password=body.new_password,
+            current_session_id=session_id or uuid.uuid4(),
+        )
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect",
+        ) from exc
+    return MessageResponse(message="Password changed successfully")
+
+
+@router.delete(
+    "/me",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Permanently delete the authenticated caller's account",
+    description=(
+        "Requires password confirmation. Refuses (409) when the caller "
+        "solely owns a workspace that still has other members — ownership "
+        "must be transferred or the workspace emptied first. Workspaces "
+        "the caller owns alone (including their personal workspace) are "
+        "deleted along with the account."
+    ),
+)
+async def delete_account(
+    body: DeleteAccountRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+    response: Response,
+) -> None:
+    svc = AuthService(db, settings)
+    try:
+        await svc.delete_account(user=current_user, password=body.password)
+    except InvalidCredentialsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Password is incorrect",
+        ) from exc
+    except OwnerOfSharedWorkspaceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"You are the sole owner of '{exc.organization_name}', which has "
+                "other members. Transfer ownership or remove its other members "
+                "before deleting your account."
+            ),
+        ) from exc
+    clear_session_cookies(response, settings)
 
 
 @router.post(

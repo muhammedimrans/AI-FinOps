@@ -27,6 +27,23 @@ class EmailAlreadyRegisteredError(AuthError):
     """Registration was attempted with an email that already has an account."""
 
 
+class UsernameAlreadyTakenError(AuthError):
+    """Profile update was attempted with a username already used by another account."""
+
+
+class OwnerOfSharedWorkspaceError(AuthError):
+    """Account deletion was blocked because the user solely owns a workspace with other members.
+
+    Carries the organization's name so the endpoint can return an
+    actionable message (transfer ownership or remove the other members
+    first) rather than a generic failure.
+    """
+
+    def __init__(self, organization_name: str) -> None:
+        self.organization_name = organization_name
+        super().__init__(organization_name)
+
+
 # ── Organization API Key authentication (EP-15) ─────────────────────────────
 
 

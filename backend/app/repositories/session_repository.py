@@ -71,6 +71,29 @@ class SessionRepository(BaseRepository[Session]):
         )
         await self._session.execute(stmt)
 
+    async def revoke_all_for_user_except(
+        self, user_id: uuid.UUID, keep_session_id: uuid.UUID
+    ) -> None:
+        """Revoke every active session for a user except one (EP-22.2 change-password).
+
+        Used so changing your password from the current session doesn't log
+        you out of the device you're using, while still invalidating every
+        other session — the same "log out everywhere else" behavior most
+        products give a password change.
+        """
+        now = datetime.now(UTC)
+        stmt = (
+            sql_update(Session)
+            .where(
+                Session.user_id == user_id,
+                Session.id != keep_session_id,
+                Session.revoked_at.is_(None),
+                Session.deleted_at.is_(None),
+            )
+            .values(revoked_at=now, updated_at=now)
+        )
+        await self._session.execute(stmt)
+
     async def rotate(
         self,
         session_id: uuid.UUID,

@@ -263,7 +263,7 @@ function WorkspaceStep({
   const displayName = name || current?.name || "";
 
   const saveMutation = useMutation({
-    mutationFn: (newName: string) => updateOrganization(organizationId!, newName),
+    mutationFn: (newName: string) => updateOrganization(organizationId!, { name: newName }),
     onSuccess: (updated) => {
       setName(updated.name);
       setEditing(false);

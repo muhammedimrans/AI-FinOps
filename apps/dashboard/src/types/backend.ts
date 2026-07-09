@@ -18,6 +18,12 @@ export interface BackendUserPublic {
   // own *persisted* AuthUser (see stores/auth.ts) that can predate the
   // field and needs the optional/undefined handling, not this wire type.
   onboarding_completed: boolean;
+  // EP-22.2 Settings — profile fields + the free-form preferences bag.
+  avatar_url: string | null;
+  bio: string | null;
+  timezone: string | null;
+  created_at: string;
+  preferences: Record<string, unknown>;
 }
 
 export interface BackendLoginResponse {
@@ -198,6 +204,10 @@ export interface BackendOrgMembershipItem {
   name: string;
   slug: string;
   role: string; // "owner" | "admin" | "member" | "viewer"
+  // EP-22.2 Settings — Workspace section fields.
+  description?: string | null;
+  is_personal?: boolean;
+  created_at?: string | null;
 }
 
 export interface BackendOrganizationsResponse {

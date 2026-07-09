@@ -1,13 +1,21 @@
-"""Tests for Provider Connections CRUD API (EP-22).
+"""Tests for Provider Connections CRUD + credential API (EP-22).
 
 Covers:
   - GET/POST/PATCH/DELETE /v1/organizations/{org_id}/provider-connections[...]
   - POST .../provider-connections/{id}/test
+  - POST .../provider-connections/{id}/rotate
   - PROVIDER_READ (every role) / PROVIDER_WRITE / PROVIDER_DELETE
     (ADMIN+OWNER only — MEMBER has PROVIDER_READ but not WRITE/DELETE,
     per app.auth.rbac._MEMBER_PERMS vs _ADMIN_PERMS) authorization
+  - A decrypted API key is never present anywhere in a response body —
+    only ``masked_api_key`` (EP-22 Part 7 security requirement)
 
-All tests are hermetic — no network calls, no real database.
+All tests are hermetic — no network calls, no real database. Provider
+validation is exercised by patching ``ProviderValidator.validate`` directly
+(unit-level fake — the live HTTP validation path itself is covered by
+``test_ep22_provider_validator.py`` with mocked httpx transports), so these
+tests focus on the API/service wiring: encryption round-trip, masking,
+persistence of health fields, and authorization.
 """
 
 from __future__ import annotations
@@ -22,12 +30,20 @@ from httpx import ASGITransport, AsyncClient
 
 from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
-from app.models.provider_connection import ProviderConnection, ProviderHealthStatus, ProviderType
+from app.models.provider_connection import (
+    ProviderConnection,
+    ProviderHealthStatus,
+    ProviderType,
+    ProviderValidationStatus,
+)
 from app.models.user import User
-from app.providers.errors import AuthenticationError
+from app.providers.validation import ValidationResult
+from app.security.encryption import EncryptionService
 from tests.conftest import make_provider_connection
 
 _ORG_ID = uuid.uuid4()
+
+_TEST_ENCRYPTION = EncryptionService(primary_secret="test-secret-key-for-testing-only-32ch")
 
 
 def _timestamped(conn: ProviderConnection) -> ProviderConnection:
@@ -90,12 +106,22 @@ class TestListProviderConnectionsEndpoint:
                 MembershipRepository=MagicMock(return_value=mem_repo_lookup),
             ):
                 conn = _timestamped(
-                    make_provider_connection(org_id=_ORG_ID, display_name="OpenAI prod")
+                    make_provider_connection(
+                        org_id=_ORG_ID,
+                        display_name="OpenAI prod",
+                        encrypted_api_key=_TEST_ENCRYPTION.encrypt("sk-" + "a" * 40),
+                    )
                 )
-                with patch(
-                    "app.api.v1.provider_connections.ProviderConnectionRepository.list_by_org",
-                    new=AsyncMock(
-                        return_value=type("Page", (), {"items": [conn], "next_cursor": None})()
+                with (
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.list_by_org",
+                        new=AsyncMock(
+                            return_value=type("Page", (), {"items": [conn], "next_cursor": None})()
+                        ),
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections._credentials._encryption",
+                        _TEST_ENCRYPTION,
                     ),
                 ):
                     async with AsyncClient(
@@ -105,15 +131,20 @@ class TestListProviderConnectionsEndpoint:
             assert resp.status_code == 200
             body = resp.json()
             assert body["total"] == 1
-            assert body["connections"][0]["display_name"] == "OpenAI prod"
-            assert body["connections"][0]["health_status"] == "unknown"
+            item = body["connections"][0]
+            assert item["display_name"] == "OpenAI prod"
+            assert item["health_status"] == "unknown"
+            assert item["has_credential"] is True
+            assert item["masked_api_key"] is not None
+            assert item["masked_api_key"].startswith("sk-")
+            assert "a" * 40 not in resp.text  # raw key never leaves the process
         finally:
             app.dependency_overrides.clear()
 
 
 class TestCreateProviderConnectionEndpoint:
     @pytest.mark.asyncio
-    async def test_admin_can_create(self, app: Any) -> None:
+    async def test_admin_can_create_without_key(self, app: Any) -> None:
         org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         try:
             with patch.multiple(
@@ -136,8 +167,60 @@ class TestCreateProviderConnectionEndpoint:
                             json={"provider_type": "openai", "display_name": "My OpenAI"},
                         )
             assert resp.status_code == 201
-            assert resp.json()["display_name"] == "My OpenAI"
-            assert resp.json()["is_active"] is True
+            body = resp.json()
+            assert body["display_name"] == "My OpenAI"
+            assert body["is_active"] is True
+            assert body["has_credential"] is False
+            assert body["masked_api_key"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_create_with_key_validates_immediately(self, app: Any) -> None:
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                created = _timestamped(
+                    make_provider_connection(org_id=_ORG_ID, display_name="My OpenAI")
+                )
+                healthy = ValidationResult(
+                    validation_status=ProviderValidationStatus.HEALTHY,
+                    health_status=ProviderHealthStatus.HEALTHY,
+                    detail="Connection healthy.",
+                )
+                with (
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.create",
+                        new=AsyncMock(return_value=created),
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.update",
+                        new=AsyncMock(return_value=created),
+                    ),
+                    patch(
+                        "app.providers.validation.ProviderValidator.validate",
+                        new=AsyncMock(return_value=healthy),
+                    ) as validate_mock,
+                ):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app), base_url="http://test"
+                    ) as ac:
+                        resp = await ac.post(
+                            f"/v1/organizations/{_ORG_ID}/provider-connections",
+                            json={
+                                "provider_type": "openai",
+                                "display_name": "My OpenAI",
+                                "api_key": "sk-" + "a" * 40,
+                            },
+                        )
+            assert resp.status_code == 201
+            validate_mock.assert_awaited_once()
+            # The plaintext key must never appear in the response body.
+            assert "sk-" + "a" * 40 not in resp.text
         finally:
             app.dependency_overrides.clear()
 
@@ -246,6 +329,47 @@ class TestUpdateProviderConnectionEndpoint:
         finally:
             app.dependency_overrides.clear()
 
+    @pytest.mark.asyncio
+    async def test_update_does_not_accept_api_key_field(self, app: Any) -> None:
+        """api_key is intentionally not part of UpdateProviderConnectionRequest —
+        rotation is a distinct, separately-audited endpoint."""
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                existing = _timestamped(make_provider_connection(org_id=_ORG_ID))
+                captured: dict[str, Any] = {}
+
+                async def fake_update(self: Any, conn: Any, **kwargs: Any) -> Any:
+                    captured.update(kwargs)
+                    return existing
+
+                with (
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.get",
+                        new=AsyncMock(return_value=existing),
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.update",
+                        new=fake_update,
+                    ),
+                ):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app), base_url="http://test"
+                    ) as ac:
+                        resp = await ac.patch(
+                            f"/v1/organizations/{_ORG_ID}/provider-connections/{existing.id}",
+                            json={"display_name": "New", "api_key": "sk-should-be-ignored"},
+                        )
+            assert resp.status_code == 200
+            assert "api_key" not in captured
+            assert "encrypted_api_key" not in captured
+        finally:
+            app.dependency_overrides.clear()
+
 
 class TestDeleteProviderConnectionEndpoint:
     @pytest.mark.asyncio
@@ -310,10 +434,17 @@ class TestTestProviderConnectionEndpoint:
                 MembershipRepository=MagicMock(return_value=mem_repo_lookup),
             ):
                 existing = _timestamped(
-                    make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OPENAI)
+                    make_provider_connection(
+                        org_id=_ORG_ID,
+                        provider_type=ProviderType.OPENAI,
+                        encrypted_api_key=_TEST_ENCRYPTION.encrypt("sk-" + "a" * 40),
+                    )
                 )
-                adapter = AsyncMock()
-                adapter.verify_auth = AsyncMock(return_value=None)
+                healthy = ValidationResult(
+                    validation_status=ProviderValidationStatus.HEALTHY,
+                    health_status=ProviderHealthStatus.HEALTHY,
+                    detail="Connection healthy.",
+                )
                 with (
                     patch(
                         "app.api.v1.provider_connections.ProviderConnectionRepository.get",
@@ -324,8 +455,12 @@ class TestTestProviderConnectionEndpoint:
                         new=AsyncMock(return_value=existing),
                     ),
                     patch(
-                        "app.api.v1.provider_connections._get_adapter",
-                        return_value=adapter,
+                        "app.api.v1.provider_connections._credentials._encryption",
+                        _TEST_ENCRYPTION,
+                    ),
+                    patch(
+                        "app.providers.validation.ProviderValidator.validate",
+                        new=AsyncMock(return_value=healthy),
                     ),
                 ):
                     async with AsyncClient(
@@ -338,6 +473,7 @@ class TestTestProviderConnectionEndpoint:
             body = resp.json()
             assert body["tested"] is True
             assert body["health_status"] == "healthy"
+            assert body["last_validation_status"] == "healthy"
         finally:
             app.dependency_overrides.clear()
 
@@ -351,10 +487,17 @@ class TestTestProviderConnectionEndpoint:
                 MembershipRepository=MagicMock(return_value=mem_repo_lookup),
             ):
                 existing = _timestamped(
-                    make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OPENAI)
+                    make_provider_connection(
+                        org_id=_ORG_ID,
+                        provider_type=ProviderType.OPENAI,
+                        encrypted_api_key=_TEST_ENCRYPTION.encrypt("sk-bad"),
+                    )
                 )
-                adapter = AsyncMock()
-                adapter.verify_auth = AsyncMock(side_effect=AuthenticationError("bad key"))
+                invalid = ValidationResult(
+                    validation_status=ProviderValidationStatus.INVALID_API_KEY,
+                    health_status=ProviderHealthStatus.CRITICAL,
+                    detail="The API key is invalid or has been revoked.",
+                )
                 with (
                     patch(
                         "app.api.v1.provider_connections.ProviderConnectionRepository.get",
@@ -365,8 +508,12 @@ class TestTestProviderConnectionEndpoint:
                         new=AsyncMock(return_value=existing),
                     ),
                     patch(
-                        "app.api.v1.provider_connections._get_adapter",
-                        return_value=adapter,
+                        "app.api.v1.provider_connections._credentials._encryption",
+                        _TEST_ENCRYPTION,
+                    ),
+                    patch(
+                        "app.providers.validation.ProviderValidator.validate",
+                        new=AsyncMock(return_value=invalid),
                     ),
                 ):
                     async with AsyncClient(
@@ -379,11 +526,17 @@ class TestTestProviderConnectionEndpoint:
             body = resp.json()
             assert body["tested"] is True
             assert body["health_status"] == "critical"
+            assert body["last_validation_status"] == "invalid_api_key"
+            assert "revoked" in body["detail"]
         finally:
             app.dependency_overrides.clear()
 
     @pytest.mark.asyncio
-    async def test_unsupported_provider_returns_untested(self, app: Any) -> None:
+    async def test_no_credential_configured_still_returns_tested_result(self, app: Any) -> None:
+        """A connection with no stored key still gets a real, honest result —
+        the validator surfaces "no credential" as an authentication failure
+        rather than a fabricated success (Ollama, which needs no key, is the
+        one exception — covered by test_ep22_provider_validator.py)."""
         org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
         try:
             with patch.multiple(
@@ -392,12 +545,27 @@ class TestTestProviderConnectionEndpoint:
                 MembershipRepository=MagicMock(return_value=mem_repo_lookup),
             ):
                 existing = _timestamped(
-                    make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OLLAMA)
+                    make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OPENAI)
                 )
-                existing.health_status = ProviderHealthStatus.UNKNOWN
-                with patch(
-                    "app.api.v1.provider_connections.ProviderConnectionRepository.get",
-                    new=AsyncMock(return_value=existing),
+                assert existing.encrypted_api_key is None
+                no_key = ValidationResult(
+                    validation_status=ProviderValidationStatus.INVALID_API_KEY,
+                    health_status=ProviderHealthStatus.CRITICAL,
+                    detail="The API key is invalid or has been revoked.",
+                )
+                with (
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.get",
+                        new=AsyncMock(return_value=existing),
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.update",
+                        new=AsyncMock(return_value=existing),
+                    ),
+                    patch(
+                        "app.providers.validation.ProviderValidator.validate",
+                        new=AsyncMock(return_value=no_key),
+                    ) as validate_mock,
                 ):
                     async with AsyncClient(
                         transport=ASGITransport(app=app), base_url="http://test"
@@ -406,7 +574,116 @@ class TestTestProviderConnectionEndpoint:
                             f"/v1/organizations/{_ORG_ID}/provider-connections/{existing.id}/test"
                         )
             assert resp.status_code == 200
-            body = resp.json()
-            assert body["tested"] is False
+            # api_key=None was passed through — the endpoint never invents a key.
+            validate_mock.assert_awaited_once_with(ProviderType.OPENAI, api_key=None, base_url=None)
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestRotateProviderConnectionKeyEndpoint:
+    @pytest.mark.asyncio
+    async def test_admin_can_rotate_key(self, app: Any) -> None:
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                existing = _timestamped(
+                    make_provider_connection(
+                        org_id=_ORG_ID,
+                        provider_type=ProviderType.OPENAI,
+                        encrypted_api_key=_TEST_ENCRYPTION.encrypt("sk-" + "old" * 12),
+                    )
+                )
+                healthy = ValidationResult(
+                    validation_status=ProviderValidationStatus.HEALTHY,
+                    health_status=ProviderHealthStatus.HEALTHY,
+                    detail="Connection healthy.",
+                )
+                captured: dict[str, Any] = {}
+
+                async def fake_update(self: Any, conn: Any, **kwargs: Any) -> Any:
+                    captured.update(kwargs)
+                    existing.encrypted_api_key = kwargs.get(
+                        "encrypted_api_key", existing.encrypted_api_key
+                    )
+                    return existing
+
+                with (
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.get",
+                        new=AsyncMock(return_value=existing),
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections.ProviderConnectionRepository.update",
+                        new=fake_update,
+                    ),
+                    patch(
+                        "app.api.v1.provider_connections._credentials._encryption",
+                        _TEST_ENCRYPTION,
+                    ),
+                    patch(
+                        "app.providers.validation.ProviderValidator.validate",
+                        new=AsyncMock(return_value=healthy),
+                    ) as validate_mock,
+                ):
+                    async with AsyncClient(
+                        transport=ASGITransport(app=app), base_url="http://test"
+                    ) as ac:
+                        resp = await ac.post(
+                            f"/v1/organizations/{_ORG_ID}/provider-connections/{existing.id}/rotate",
+                            json={"api_key": "sk-" + "newnew" * 8},
+                        )
+            assert resp.status_code == 200
+            # The new plaintext key was used for validation...
+            validate_mock.assert_awaited_once_with(
+                ProviderType.OPENAI, api_key="sk-" + "newnew" * 8, base_url=None
+            )
+            # ...but never appears anywhere in the response.
+            assert "newnew" not in resp.text
+            # The stored ciphertext changed (encrypted_api_key was re-set).
+            assert captured["encrypted_api_key"] != _TEST_ENCRYPTION.encrypt("sk-" + "old" * 12)
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_member_cannot_rotate(self, app: Any) -> None:
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.MEMBER)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as ac:
+                    resp = await ac.post(
+                        f"/v1/organizations/{_ORG_ID}/provider-connections/{uuid.uuid4()}/rotate",
+                        json={"api_key": "sk-anything"},
+                    )
+            assert resp.status_code == 403
+        finally:
+            app.dependency_overrides.clear()
+
+    @pytest.mark.asyncio
+    async def test_empty_key_is_422(self, app: Any) -> None:
+        org_repo, mem_repo_lookup = _override_auth(app, caller_role=MembershipRole.ADMIN)
+        try:
+            with patch.multiple(
+                "app.auth.dependencies",
+                OrganizationRepository=MagicMock(return_value=org_repo),
+                MembershipRepository=MagicMock(return_value=mem_repo_lookup),
+            ):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app), base_url="http://test"
+                ) as ac:
+                    resp = await ac.post(
+                        f"/v1/organizations/{_ORG_ID}/provider-connections/{uuid.uuid4()}/rotate",
+                        json={"api_key": ""},
+                    )
+            assert resp.status_code == 422
         finally:
             app.dependency_overrides.clear()

@@ -1,12 +1,35 @@
-"""OpenRouter provider adapter stub — EP-06."""
+"""OpenRouter provider adapter — EP-22 (validation), EP-06 (catalog/capabilities).
+
+Authentication
+--------------
+``Authorization: Bearer <api_key>``.
+
+Live API calls
+---------------
+``GET /models`` — the models endpoint named in the EP-22 spec. Note this
+endpoint is unauthenticated on OpenRouter's side (it returns the same public
+catalog regardless of the key supplied), so a successful response confirms
+reachability but not key validity; a genuinely invalid key is only caught
+on a later completion call. This is disclosed rather than silently treated
+as a stronger guarantee than it is — see CLAUDE.md §13's per-provider
+validation-strength note.
+"""
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import httpx
+
+from app.http.auth import BearerTokenAuth
+from app.http.client import ProviderHttpClient
+from app.http.transport import HttpxTransport
 from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
+from app.providers.config import ProviderConfig
+from app.providers.credential import CredentialValidator, SecretResolver
 from app.providers.interface import AIProvider
 from app.providers.models import (
     ConnectionStatus,
@@ -20,6 +43,8 @@ from app.providers.models import (
 if TYPE_CHECKING:
     from app.providers.info import ProviderInfo
     from app.providers.models import UsagePage
+
+_BASE_URL = "https://openrouter.ai/api/v1"
 
 _CAPABILITIES = ProviderCapabilities(
     supports_streaming=True,
@@ -103,6 +128,23 @@ _MODELS: list[ModelMetadata] = [
 
 
 class OpenRouterProvider(AIProvider):
+    """OpenRouter provider adapter (EP-22)."""
+
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__(config)
+        self._healthy: bool = False
+        self._last_checked: datetime | None = None
+        self._transport = HttpxTransport(
+            base_url=config.base_url or _BASE_URL,
+            verify=True,
+            mock_transport=http_transport,
+        )
+
     @property
     def provider_type(self) -> ProviderType:
         return ProviderType.OPENROUTER
@@ -111,25 +153,79 @@ class OpenRouterProvider(AIProvider):
     def capabilities(self) -> ProviderCapabilities:
         return _CAPABILITIES
 
-    async def check_connection(self) -> ConnectionStatus:
-        return ConnectionStatus(
-            is_connected=False,
-            health_status=HealthStatus.UNKNOWN,
-            checked_at=datetime.now(UTC),
-        )
-
-    async def verify_auth(self) -> bool:
-        raise NotImplementedError("OpenRouter auth verification is implemented in EP-07")
-
-    async def check_capability(self, capability: str) -> bool:
-        raise NotImplementedError("OpenRouter capability check is implemented in EP-07")
-
     @property
     def is_healthy(self) -> bool:
-        return False
+        return self._healthy
+
+    def _build_client(self, api_key: str) -> ProviderHttpClient:
+        return ProviderHttpClient(
+            base_url=self._config.base_url or _BASE_URL,
+            auth=BearerTokenAuth(api_key),
+            provider_type="openrouter",
+            timeout=self._config.timeout_seconds,
+            transport=self._transport,
+        )
+
+    def _resolve_key(self) -> str:
+        if self._config.api_key_ref is None:
+            from app.providers.errors import AuthenticationError
+
+            raise AuthenticationError(
+                "OpenRouter provider has no api_key_ref configured",
+                provider_type="openrouter",
+            )
+        return SecretResolver.resolve(self._config.api_key_ref, provider_type="openrouter")
+
+    async def verify_auth(self) -> bool:
+        """Live GET /models — see module docstring for the validation-strength caveat."""
+        key = self._resolve_key()
+        CredentialValidator.validate_openrouter_key(key)
+        async with self._build_client(key) as client:
+            await client.get("/models")
+        return True
+
+    async def check_connection(self) -> ConnectionStatus:
+        start = time.monotonic()
+        try:
+            await self.verify_auth()
+            latency = round((time.monotonic() - start) * 1000, 2)
+            self._healthy = True
+            self._last_checked = datetime.now(UTC)
+            return ConnectionStatus(
+                is_connected=True,
+                health_status=HealthStatus.HEALTHY,
+                latency_ms=latency,
+                checked_at=self._last_checked,
+            )
+        except Exception as exc:
+            latency = round((time.monotonic() - start) * 1000, 2)
+            self._healthy = False
+            self._last_checked = datetime.now(UTC)
+            return ConnectionStatus(
+                is_connected=False,
+                health_status=HealthStatus.UNHEALTHY,
+                latency_ms=latency,
+                error_message=str(exc),
+                checked_at=self._last_checked,
+            )
+
+    async def check_capability(self, capability: str) -> bool:
+        cap = capability.lower()
+        return getattr(_CAPABILITIES, f"supports_{cap}", False) or getattr(
+            _CAPABILITIES, cap, False
+        )
 
     async def list_models(self) -> list[ModelMetadata]:
         return list(_MODELS)
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+    async def __aenter__(self) -> OpenRouterProvider:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.aclose()
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("OpenRouter completion is implemented in EP-07")

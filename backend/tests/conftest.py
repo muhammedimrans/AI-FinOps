@@ -310,6 +310,8 @@ def make_provider_connection(
     provider_type: ProviderType = ProviderType.OPENAI,
     display_name: str = "OpenAI (production)",
     project_id: uuid.UUID | None = None,
+    encrypted_api_key: str | None = None,
+    base_url: str | None = None,
 ) -> ProviderConnection:
     """Return a transient ProviderConnection instance."""
     obj = ProviderConnection()
@@ -321,8 +323,12 @@ def make_provider_connection(
     obj.project_id = project_id
     obj.is_active = True
     obj.configuration = {}
+    obj.encrypted_api_key = encrypted_api_key
+    obj.base_url = base_url
     obj.health_status = ProviderHealthStatus.UNKNOWN
     obj.consecutive_failure_count = 0
+    obj.last_validation_status = None
+    obj.last_error = None
     return obj
 
 

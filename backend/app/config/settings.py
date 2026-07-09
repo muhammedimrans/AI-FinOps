@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     app_env: Literal["development", "staging", "production", "testing"] = "development"
     app_debug: bool = False
     app_secret_key: SecretStr = Field(default=_DEV_SECRET, min_length=32)  # type: ignore[assignment]
+    # EP-22: the previous-generation APP_SECRET_KEY, set only during a secret
+    # rotation window. EncryptionService falls back to this key to decrypt
+    # provider credentials encrypted before the rotation, so rotating
+    # APP_SECRET_KEY does not require a bulk re-encryption migration. Unset
+    # (None) outside of an active rotation.
+    app_secret_key_previous: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("APP_SECRET_KEY_PREVIOUS", "app_secret_key_previous"),
+    )
 
     @model_validator(mode="after")
     def _enforce_secret_in_production(self) -> Settings:

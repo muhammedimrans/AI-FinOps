@@ -1,12 +1,35 @@
-"""Azure OpenAI provider adapter stub — EP-06."""
+"""Azure OpenAI provider adapter — EP-22 (validation), EP-06 (catalog/capabilities).
+
+Authentication
+--------------
+``api-key: <api_key>`` header against the customer's own Azure resource
+endpoint (``AzureOpenAIConfig.azure_endpoint`` — there is no shared
+``api.x.com``-style base URL; every Azure OpenAI customer has a distinct
+per-resource hostname).
+
+Live API calls
+---------------
+``GET {azure_endpoint}/openai/deployments?api-version=<api_version>`` —
+"deployment validation" per the EP-22 spec: Azure OpenAI has no bare model
+list, only a list of the customer's configured deployments, which is the
+correct live signal that both the key and the endpoint are valid.
+"""
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import httpx
+
+from app.http.auth import ApiKeyHeaderAuth
+from app.http.client import ProviderHttpClient
+from app.http.transport import HttpxTransport
 from app.models.provider_connection import ProviderType
 from app.providers.capabilities import ProviderCapabilities
+from app.providers.config import AzureOpenAIConfig, ProviderConfig
+from app.providers.credential import CredentialValidator, SecretResolver
 from app.providers.interface import AIProvider
 from app.providers.models import (
     ConnectionStatus,
@@ -20,6 +43,8 @@ from app.providers.models import (
 if TYPE_CHECKING:
     from app.providers.info import ProviderInfo
     from app.providers.models import UsagePage
+
+_DEFAULT_API_VERSION = "2024-02-01"
 
 _CAPABILITIES = ProviderCapabilities(
     supports_streaming=True,
@@ -90,6 +115,23 @@ _MODELS: list[ModelMetadata] = [
 
 
 class AzureOpenAIProvider(AIProvider):
+    """Azure OpenAI provider adapter (EP-22)."""
+
+    def __init__(
+        self,
+        config: ProviderConfig,
+        *,
+        http_transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
+        super().__init__(config)
+        self._healthy: bool = False
+        self._last_checked: datetime | None = None
+        self._transport = HttpxTransport(
+            base_url=self._endpoint(),
+            verify=True,
+            mock_transport=http_transport,
+        )
+
     @property
     def provider_type(self) -> ProviderType:
         return ProviderType.AZURE_OPENAI
@@ -98,25 +140,94 @@ class AzureOpenAIProvider(AIProvider):
     def capabilities(self) -> ProviderCapabilities:
         return _CAPABILITIES
 
-    async def check_connection(self) -> ConnectionStatus:
-        return ConnectionStatus(
-            is_connected=False,
-            health_status=HealthStatus.UNKNOWN,
-            checked_at=datetime.now(UTC),
-        )
-
-    async def verify_auth(self) -> bool:
-        raise NotImplementedError("Azure OpenAI auth verification is implemented in EP-07")
-
-    async def check_capability(self, capability: str) -> bool:
-        raise NotImplementedError("Azure OpenAI capability check is implemented in EP-07")
-
     @property
     def is_healthy(self) -> bool:
-        return False
+        return self._healthy
+
+    def _endpoint(self) -> str:
+        if isinstance(self._config, AzureOpenAIConfig) and self._config.azure_endpoint:
+            return self._config.azure_endpoint
+        from app.providers.errors import AuthenticationError
+
+        raise AuthenticationError(
+            "Azure OpenAI provider has no azure_endpoint configured",
+            provider_type="azure_openai",
+        )
+
+    def _api_version(self) -> str:
+        if isinstance(self._config, AzureOpenAIConfig):
+            return self._config.api_version
+        return _DEFAULT_API_VERSION
+
+    def _build_client(self, api_key: str) -> ProviderHttpClient:
+        return ProviderHttpClient(
+            base_url=self._endpoint(),
+            auth=ApiKeyHeaderAuth("api-key", api_key),
+            provider_type="azure_openai",
+            timeout=self._config.timeout_seconds,
+            transport=self._transport,
+        )
+
+    def _resolve_key(self) -> str:
+        if self._config.api_key_ref is None:
+            from app.providers.errors import AuthenticationError
+
+            raise AuthenticationError(
+                "Azure OpenAI provider has no api_key_ref configured",
+                provider_type="azure_openai",
+            )
+        return SecretResolver.resolve(self._config.api_key_ref, provider_type="azure_openai")
+
+    async def verify_auth(self) -> bool:
+        """Live GET .../openai/deployments — "deployment validation" per the EP-22 spec."""
+        key = self._resolve_key()
+        CredentialValidator.validate_azure_key(key)
+        async with self._build_client(key) as client:
+            await client.get("/openai/deployments", params={"api-version": self._api_version()})
+        return True
+
+    async def check_connection(self) -> ConnectionStatus:
+        start = time.monotonic()
+        try:
+            await self.verify_auth()
+            latency = round((time.monotonic() - start) * 1000, 2)
+            self._healthy = True
+            self._last_checked = datetime.now(UTC)
+            return ConnectionStatus(
+                is_connected=True,
+                health_status=HealthStatus.HEALTHY,
+                latency_ms=latency,
+                checked_at=self._last_checked,
+            )
+        except Exception as exc:
+            latency = round((time.monotonic() - start) * 1000, 2)
+            self._healthy = False
+            self._last_checked = datetime.now(UTC)
+            return ConnectionStatus(
+                is_connected=False,
+                health_status=HealthStatus.UNHEALTHY,
+                latency_ms=latency,
+                error_message=str(exc),
+                checked_at=self._last_checked,
+            )
+
+    async def check_capability(self, capability: str) -> bool:
+        cap = capability.lower()
+        return getattr(_CAPABILITIES, f"supports_{cap}", False) or getattr(
+            _CAPABILITIES, cap, False
+        )
 
     async def list_models(self) -> list[ModelMetadata]:
         return list(_MODELS)
+
+    async def aclose(self) -> None:
+        await self._transport.aclose()
+
+    async def __aenter__(self) -> AzureOpenAIProvider:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        await self.aclose()
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
         raise NotImplementedError("Azure OpenAI completion is implemented in EP-07")

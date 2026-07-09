@@ -18,20 +18,32 @@ class SecretStoreType(enum.StrEnum):
     ENV = "env"
     VAULT = "vault"
     AWS_SECRETS_MANAGER = "aws_secrets_manager"
+    # EP-22: the secret value has already been decrypted (by
+    # app.security.encryption.EncryptionService, from a customer's stored
+    # ProviderConnection.encrypted_api_key) and is carried inline in
+    # ``lookup_key`` for the duration of a single validation/usage request.
+    # Never persisted in this form — see ProviderValidator, which is the only
+    # place this variant is constructed.
+    INLINE = "inline"
 
 
 class SecretReference(BaseModel):
-    """Reference to a secret stored externally — never the secret value itself.
+    """Reference to a secret — usually stored externally, never the secret
+    value itself, with one deliberate exception (see ``SecretStoreType.INLINE``).
 
     Storing the *name* of the environment variable (or Vault path) rather than
     the raw credential prevents secrets from appearing in logs, serialised
     configs, or stack traces.  The ``__repr__`` override redacts ``lookup_key``
-    even if the object is inadvertently included in a log message.
+    even if the object is inadvertently included in a log message — this
+    holds even for ``INLINE`` references, where ``lookup_key`` does carry the
+    actual decrypted value.
 
     Note: the field is named ``lookup_key`` (not ``secret_key``) so that static
     security scanners (e.g. Bandit's hardcoded-password heuristic) do not flag
-    call sites — the value is always the *name* of an env var / vault path,
-    never a secret value itself.
+    call sites — for ``ENV``/``VAULT``/``AWS_SECRETS_MANAGER`` the value is
+    the *name* of an env var / vault path, never a secret value itself; for
+    ``INLINE`` it is the already-decrypted value, held only in memory for a
+    single request (see ``SecretStoreType.INLINE``).
     """
 
     model_config = {"frozen": True}

@@ -416,3 +416,180 @@ The request's Priority 1 ("Add provider / Edit provider / Delete provider") and 
 ### Next milestone recommendation
 
 **A secrets vault** (or at minimum, an encrypted-column credential store scoped to `ProviderConnection`) is the single blocker shared by the two biggest remaining gaps: real "Connect Provider" (onboarding Step 3, §11, and this section's Connections UI) and Priority 3's Workspace/API-key-adjacent settings. After that, a focused Settings.tsx pass (Priority 3) is the next highest-value, well-scoped piece of the original request.
+
+**Update, EP-22 (below): the secrets-vault gap named above is now closed** — `ProviderConnection` holds a real, encrypted, per-connection API key, validated live against all 7 named providers. The Settings.tsx wiring gap (Priority 3) remains open and is EP-22's own recommended next milestone — see §13's own "Next milestone recommendation."
+
+---
+
+## 13. EP-22 — Secure Provider Credentials & Connection Validation
+
+**Status: complete.** Converts `ProviderConnection` from metadata-only (§12) into a fully functional, production-ready integration: encrypted per-connection API keys, live validation against all 7 named providers on save/rotate/test, normalized health/error reporting, and a real credential-management UI. This closes the "no secrets vault" gap §12 flagged as its own next blocker.
+
+### Why this needed real backend work, not just a UI pass
+
+§12 deliberately did not store credentials because no encryption abstraction existed and 5 of the 7 named providers (Grok, Google, Azure OpenAI, OpenRouter, Ollama) had stub adapters whose `verify_auth()` raised `NotImplementedError` — only OpenAI and Anthropic had production-ready live validation (`app/api/v1/providers.py`'s `_PRODUCTION_PROVIDERS`). Building real credential storage without also finishing those 5 adapters would mean either faking validation results or shipping a "save" button that couldn't tell a user whether their key actually works. Both are exactly what this project's no-fake-functionality convention (§9, §10, §12) forbids. So EP-22 is genuinely two things bundled: (1) encryption + credential CRUD, and (2) finishing the provider adapter framework EP-06/EP-07 left at 2-of-7 complete — reusing that same framework throughout rather than building a second one.
+
+### Architecture
+
+```
+Frontend (apps/dashboard/src/features/Connections.tsx)
+        │  POST/PATCH/rotate — plaintext key travels over HTTPS only, once
+        ▼
+API layer (app/api/v1/provider_connections.py)
+        │
+        ├─► ProviderCredentialService  (app/services/provider_credential_service.py)
+        │       encrypt() / decrypt() / masked() — the ONLY call site permitted
+        │       to decrypt a stored key. Depends on EncryptionService's
+        │       encrypt()/decrypt() interface only (dependency inversion).
+        │
+        ├─► ProviderHealthService  (app/services/provider_health_service.py)
+        │       runs a validation probe, persists health_status /
+        │       last_validation_status / last_error / last_failure_at /
+        │       last_recovery_at / consecutive_failure_count. Backs
+        │       create (validate-on-save), POST .../test, and
+        │       POST .../rotate — one code path, three entry points, so the
+        │       health fields can never drift between them.
+        │
+        └─► ProviderValidator  (app/providers/validation.py)
+                builds the right ProviderConfig subclass (reusing
+                app.providers.config from EP-06/EP-07), gets an adapter via
+                the existing ProviderFactory + ProviderRegistry, calls
+                adapter.verify_auth() with the decrypted key carried as an
+                INLINE SecretReference (never persisted, never logged),
+                and normalizes the outcome into ProviderValidationStatus.
+
+Storage: app.models.provider_connection.ProviderConnection
+        encrypted_api_key  — ciphertext only (EncryptionService.encrypt())
+        base_url           — optional override (SSRF-validated by ProviderConfig)
+        last_validation_status / last_error — normalized, user-safe
+        health_status / last_failure_at / last_recovery_at /
+        consecutive_failure_count — unchanged from EP-19.3/§12
+```
+
+### Part 1 — Encryption (`app/security/encryption.py`, `app/security/masking.py`)
+
+- **`EncryptionService`** — `encrypt()`/`decrypt()` over `cryptography.fernet.Fernet` (AES-128-CBC + HMAC-SHA256, authenticated encryption), keyed by PBKDF2-HMAC-SHA256 (390,000 iterations — OWASP's current minimum) derived from `APP_SECRET_KEY`. No dedicated KMS exists yet, so `APP_SECRET_KEY` is the encryption root, exactly as this EP's own brief allowed ("Use APP_SECRET_KEY ... if no dedicated key-management system exists yet").
+- **Dependency inversion**: every caller (`ProviderCredentialService`, and transitively the API router) depends only on `EncryptionService.encrypt()`/`decrypt()`'s signatures — none of them import `Fernet` or know a key derivation happens at all. Swapping to AWS KMS / Azure Key Vault / GCP KMS / HashiCorp Vault later means writing one new class with the same two methods and swapping the `get_encryption_service()` factory (see "Future KMS integration" below) — zero call-site changes.
+- **Key rotation**: ciphertext is stored as `"v<version>:<token>"`. A new `APP_SECRET_KEY_PREVIOUS` setting (`app/config/settings.py`) lets `decrypt()` fall back to the pre-rotation key for ciphertext encrypted before a rotation, so rotating `APP_SECRET_KEY` does not require a bulk re-encryption migration — old rows keep decrypting via the previous key until next rotated (`ProviderCredentialService`/rotate endpoint re-encrypts under the current key on next save).
+- **Masking** (`mask_secret()`) — display-only transform, e.g. `sk-********************************AbC` (3-char prefix, 4-char suffix, rest starred). Fully masks values too short to safely reveal a prefix+suffix. Never used to protect data at rest — only for what leaves the process in an API response.
+
+### Part 2 — Provider Credentials (model + migration)
+
+`ProviderConnection` (`app/models/provider_connection.py`) gained four columns via migration `c7d4f9a1b3e5` (chained off EP-21.3's `a3c8e21f5b7d`, all nullable additions — no backfill needed, no existing row's behavior changes):
+
+| Column | Purpose |
+|---|---|
+| `encrypted_api_key` | Ciphertext only. `NULL` = no credential configured (fine for Ollama, or a connection saved before a key was added). |
+| `base_url` | Optional per-connection endpoint override. SSRF-validated by `ProviderConfig._check_ssrf` (EP-06/EP-07) at adapter-construction time — the same guard that already protects the env-var-keyed probe endpoints. |
+| `last_validation_status` | New `ProviderValidationStatus` enum — see Part 3. |
+| `last_error` | Normalized, user-safe error text only — never a raw provider response body, never the credential value. |
+
+The pre-existing `health_status` / `last_failure_at` / `last_recovery_at` / `consecutive_failure_count` (EP-19.3) are unchanged and keep backing the alert engine. `Provider` / `Display Name` / `Organization` / `Project` / `Created` / `Updated` were already present (§12).
+
+### Part 3 — Validation Engine (`app/providers/validation.py`)
+
+`ProviderValidator.validate(provider_type, api_key, base_url)`:
+1. Builds the correct `ProviderConfig` subclass (`OpenAIConfig`, `AnthropicConfig`, `GrokConfig`, `GoogleConfig`, `AzureOpenAIConfig`, `OpenRouterConfig`, `OllamaConfig` — all pre-existing from EP-06) with the decrypted key wrapped in a new `SecretStoreType.INLINE` `SecretReference` (`app/providers/config.py`) — the value is the plaintext itself, held only in memory for this one call, never written to logs (the `SecretReference.__repr__` redaction already covers this variant) or persisted.
+2. Gets an adapter via the existing `ProviderFactory` + `ProviderRegistry` (EP-06.5) — no new adapter-selection logic.
+3. Calls `adapter.verify_auth()` — the real, live probe per provider:
+
+| Provider | Live call | Notes |
+|---|---|---|
+| OpenAI | `GET /v1/models` | Unchanged from EP-07. |
+| Anthropic | `GET /v1/models` | Unchanged from EP-07. |
+| Google Gemini | `GET /v1beta/models?key=<key>` | Key travels as a query param (Gemini convention), not a header — new `NullAuth` strategy (`app/http/auth.py`) plus the key passed via request `params`. |
+| Azure OpenAI | `GET {azure_endpoint}/openai/deployments?api-version=<v>` | "Deployment validation" per the product spec — Azure has no bare model-list endpoint, only a deployments list, which is the correct live signal. `api-key` header auth. Requires `base_url` (the resource endpoint) — missing one is a config-validation failure, not a network error. |
+| OpenRouter | `GET /models` | Named in the product spec. Disclosed limitation: this endpoint is unauthenticated on OpenRouter's side, so it confirms reachability but not key validity — a genuinely bad key is only caught on a later completion call. Documented in the adapter's own docstring, not hidden. |
+| Grok (xAI) | `GET /models` | OpenAI-compatible Bearer auth. |
+| Ollama | `GET /api/tags` | No credential — "validation" means confirming the local/LAN server is reachable, not verifying a secret (`OllamaConfig.requires_api_key=False`, unchanged from EP-06). |
+
+4. Maps the resulting `app.providers.errors` exception (the existing EP-06/EP-07 hierarchy — `AuthenticationError`, `RateLimitError`, `QuotaExceededError`, `NetworkError`, `InternalProviderError`, `InvalidRequestError`, `ProviderError`) to a `ProviderValidationStatus`:
+
+| Result | `ProviderValidationStatus` | Normalized, user-facing detail |
+|---|---|---|
+| Success | `healthy` | "Connection healthy." |
+| `AuthenticationError` (401, or "forbidden" absent) | `invalid_api_key` | "The API key is invalid or has been revoked." |
+| `AuthenticationError` ("forbidden" in message, i.e. 403) | `unauthorized` | "The API key is valid but is not authorized for this operation." |
+| `RateLimitError` / `QuotaExceededError` | `quota_exceeded` | "The provider account has exceeded its usage quota or rate limit." |
+| `NetworkError` ("timed out" in message) | `timeout` | "The request to the provider timed out." |
+| `NetworkError` (other) | `network_failure` | "Could not reach the provider — network error." |
+| `InternalProviderError` / other `ProviderError` / `NotImplementedError` | `provider_unavailable` | "The provider is currently unavailable." |
+
+**Every value returned to the frontend (and stored in `last_error`) is one of the seven canned strings above — never `str(exception)`.** This is what "do not expose provider error details directly to users" means in practice: the raw exception (which can carry account IDs, org-scoped billing detail, or other provider-side specifics) never crosses the `ProviderValidator` boundary. `ProviderValidationStatus` is deliberately a finer-grained sibling of the pre-existing `ProviderHealthStatus` (EP-19.3), not a replacement — `health_status` stays the coarse signal the alert engine keys off (`healthy`/`warning`/`critical`/`recovering`/`unknown`); `last_validation_status` is the specific reason behind the most recent transition.
+
+**Extending to an 8th provider** requires exactly one new `match` arm in `ProviderValidator._build_config` plus registering its adapter in `ProviderFactory.build_default_registry` (EP-06) — no other code in the validation, health, or credential layers changes, satisfying this EP's "minimal code changes for future providers" requirement.
+
+### Part 4 — Health Checks (`app/services/provider_health_service.py`)
+
+`ProviderHealthService.check_and_persist(repo, conn, api_key, base_url)` is the single function backing all three "run a validation and save the result" call sites:
+- **Save** (`POST /v1/organizations/{org_id}/provider-connections`) — validates immediately whenever there's something to validate (a supplied `api_key`, or a no-credential-required provider like Ollama), so a freshly created connection never sits at a fabricated "unknown" when the answer could be known right away.
+- **Test Connection** (`POST .../{id}/test`) — decrypts the stored key (if any) and re-validates on demand.
+- **Rotate** (`POST .../{id}/rotate`) — re-validates with the new key immediately after re-encrypting it.
+
+On success: `health_status=HEALTHY`, `last_recovery_at=now`, `consecutive_failure_count=0`. On failure: `health_status` derived from the validation status (see Part 3's table — `invalid_api_key`/`unauthorized`/`provider_unavailable` → `CRITICAL`, `quota_exceeded`/`network_failure`/`timeout` → `WARNING`), `last_failure_at=now`, `consecutive_failure_count += 1`. Frontend health-badge vocabulary (Healthy / Warning / Offline / Invalid Credentials / Unknown) is derived client-side from `last_validation_status` (`VALIDATION_LABELS` in `Connections.tsx`) rather than a 5th backend enum, avoiding a duplicate status vocabulary for the same underlying signal.
+
+### Part 5 — Credential Rotation
+
+`POST /v1/organizations/{org_id}/provider-connections/{connection_id}/rotate` (`RotateProviderConnectionKeyRequest`, `PROVIDER_WRITE`): re-encrypts the supplied key, overwrites `encrypted_api_key`, and re-validates. The previous key is never returned, logged, or diffable from the response — only the ciphertext column changes, and `updated_at` (bumped automatically by `BaseRepository.update()`) plus `last_recovery_at`/`last_failure_at` (set by the post-rotation validation) serve as the audit trail. `UpdateProviderConnectionRequest` (the ordinary metadata-PATCH endpoint) deliberately does **not** accept `api_key` — rotation is a distinct, separately-logged action, not a side effect of renaming a connection (covered by `test_update_does_not_accept_api_key_field`).
+
+### Part 6 — Frontend (`apps/dashboard/src/features/Connections.tsx`)
+
+The EP-22-era "Manage provider connections" section (§12) gained:
+- **API key input** — new `ApiKeyInput` component, `type="password"` by default with an `Eye`/`EyeOff` reveal toggle (Part 6's "show masked / reveal toggle" requirement — applies to the *input field while typing*, since the backend never returns a decrypted key to reveal).
+- **Base URL field** — optional for most providers, required (and labelled as such) for Azure OpenAI.
+- **Masked key display** — `connection.masked_api_key` (e.g. `sk-********************************AbC`) shown inline once a connection has a credential; never the plaintext.
+- **Test Connection** — unchanged button, now backed by real per-connection validation instead of §12's env-var-keyed probe.
+- **Rotate key** — new inline form (masked `ApiKeyInput` + Save & validate / Cancel), opened via a "Rotate key" button on each row.
+- **Health badge / last validation / error message** — `HealthBadge` (unchanged component) plus a new line showing `VALIDATION_LABELS[last_validation_status]` (color-coded success/danger) and `last_error` when present, and "Last checked <timestamp>" derived from `last_recovery_at`/`last_failure_at`.
+- **Loading / success / failure states** — `create`/`rotate`/`test` mutations all show a spinner while pending and route through `toast.success`/`toast.warning`/`toast.error` depending on whether the immediate post-save/rotate validation came back healthy — no new toast primitive introduced (reuses the existing `stores/toast.ts`, matching §12's convention).
+
+The pre-existing `ProductionProviderCard`/`IN_DEVELOPMENT_ADAPTERS` section (the *server-side environment-variable* probe from `GET /v1/providers/{provider}/test`, EP-07/PH) is untouched — it's a different, still-accurate mechanism (only OpenAI/Anthropic have that specific env-var-keyed endpoint promoted to "production" status in `app/api/v1/providers.py`'s `_PRODUCTION_PROVIDERS`), unrelated to the per-connection credentials this EP adds.
+
+### Part 7 — Security
+
+- **Never returns decrypted secrets via API** — `ProviderConnectionResponse` has no plaintext field; `masked_api_key` is built by `ProviderCredentialService.masked()`, which decrypts only transiently in-process to compute the mask, then discards the plaintext.
+- **Masking format**: `sk-********************************AbC` (3-char prefix, 4-char suffix visible; values too short to safely reveal both are fully masked).
+- **Never logs secrets** — the plaintext key exists only as a Python local inside `ProviderCredentialService`/`ProviderValidator`/the adapter's `verify_auth()` call stack; no `structlog` call in any of these paths includes the key, and `SecretReference.__repr__` redacts `lookup_key` even for the new `INLINE` variant that carries a real value.
+- **Never includes secrets in exceptions** — every `ProviderError` subclass raised by an adapter carries a fixed, generic message (e.g. `"Invalid API key or unauthorized"` from `map_http_error`, EP-07) that never interpolates the key; `ProviderValidator` additionally re-normalizes even that generic message down to one of the seven canned strings in Part 3's table before it can reach a response or `last_error`.
+- **Never exposed in frontend state** — `apps/dashboard` never stores a fetched plaintext key in Zustand/React Query cache; the API key `useState` in `AddConnectionForm`/the rotate form lives only until submit, and the response written back into the connections list cache is the server's masked representation.
+
+### Part 8 — Architecture (service boundaries)
+
+| Service | Responsibility | Depends on |
+|---|---|---|
+| `EncryptionService` | `encrypt()`/`decrypt()` over Fernet, keyed from `APP_SECRET_KEY` | Nothing provider-specific — pure crypto primitive |
+| `ProviderCredentialService` | Encrypt-for-storage / decrypt-for-validation / mask-for-display | `EncryptionService` (interface only) |
+| `ProviderValidator` | Live validation probe + error normalization | `ProviderFactory`/`ProviderRegistry`/`ProviderConfig` (EP-06), `app.providers.errors` |
+| `ProviderHealthService` | Persist validation outcome onto `ProviderConnection` | `ProviderValidator`, `ProviderConnectionRepository` |
+
+`app/api/v1/provider_connections.py` composes all four; no service imports another's internals, and `ProviderConnectionRepository` (EP-22/EP-23's original repository, §12) is unchanged — it has no idea encryption exists, satisfying "keep provider repositories independent from encryption implementation."
+
+### Future KMS integration
+
+Swapping the encryption root from `APP_SECRET_KEY`-derived Fernet to a cloud KMS is a two-step, call-site-free change:
+1. Write a new class (e.g. `KmsEncryptionService`) implementing the same `encrypt(plaintext: str) -> str` / `decrypt(ciphertext: str) -> str` contract as `EncryptionService`, backed by AWS KMS `Encrypt`/`Decrypt`, Azure Key Vault, GCP KMS, or HashiCorp Vault's transit engine.
+2. Swap `app.security.encryption.get_encryption_service()`'s body to construct the new class instead.
+
+`ProviderCredentialService`, `ProviderHealthService`, `ProviderValidator`, and the API router all depend on `EncryptionService`'s two-method interface, never its internals — none of them need to change. Existing ciphertext (the `"v1:..."` Fernet tokens) would need either a one-time re-encryption pass under the new KMS, or (simpler) the new service could recognize the `v1:` prefix and delegate decryption of legacy rows to a retained `EncryptionService` instance, mirroring the existing `APP_SECRET_KEY_PREVIOUS` rotation-window pattern.
+
+### Testing
+
+- **Backend**, 3 new files, no live provider keys required (all HTTP mocked via `httpx.MockTransport`, matching the existing `test_ep07.py` pattern):
+  - `tests/test_ep22_encryption.py` (16 tests) — round-trip, tamper detection (`InvalidToken` → `EncryptionError`), malformed-ciphertext handling, empty-plaintext rejection, key-rotation fallback (with and without the previous key), masking edge cases, `ProviderCredentialService` never returning plaintext.
+  - `tests/test_ep22_provider_validator.py` (18 tests) — full `ProviderValidator` dispatch/normalization matrix (all 7 mapping rows from Part 3's table), config-building edge cases (Azure without `base_url`, an unsupported provider type, Ollama with no key), plus one real-HTTP-shape test per new adapter (Grok, OpenRouter, Google's query-param key, Azure's deployments endpoint, Ollama's tags endpoint and its unreachable-server case) confirming each adapter actually calls the endpoint named in Part 3's table, not just that the dispatch logic is right.
+  - `tests/test_ep22_provider_connections.py` (rewritten, 17 tests) — API-level coverage: create-with-key triggers validation, masked key never appears in any response body (asserted via `resp.text` substring checks against the raw plaintext), rotate re-encrypts and re-validates, update endpoint rejects an `api_key` field, RBAC boundaries (ADMIN can create/rotate/delete, MEMBER cannot) unchanged from §12.
+  - `tests/test_ep06.py` — 6 tests updated: the 5 stub adapters' `test_verify_auth_not_implemented` tests (now stale, since EP-22 makes `verify_auth()` real) became `test_verify_auth_without_key_raises_authentication_error` / `test_verify_auth_unreachable_raises_network_error` (Ollama), and `test_all_adapters_check_capability_not_implemented` became `test_all_adapters_check_capability_implemented` since every adapter now implements it.
+  - Full backend suite: **1509 passed**, ruff/black/mypy clean. Integration tests (`tests/integration/`) still require a live local Postgres/Redis unavailable in this sandbox — same pre-existing, documented limitation as every prior EP's verification (§9, §10).
+- **Frontend**, `apps/dashboard/src/__tests__/ManageConnectionsSection.test.tsx` extended with 5 new tests (masked-key display, last-validation-status + error-message display, create-with-key including the reveal-toggle interaction, rotate-key flow) alongside the existing 4 from §12. Full dashboard suite: **150 passed** (146 + 4 EP-22), lint clean, typecheck clean, build clean (both `tsc --noEmit` and the stricter `tsc -b` project-build path — this session again hit and fixed an `exactOptionalPropertyTypes` mismatch in the create-connection request body and an `HTMLElement` vs `HTMLInputElement` test-typing mismatch, both invisible to `tsc --noEmit` alone; see CLAUDE.md §2's "Monorepo Build Rule" section history for why `tsc -b` is the gate that matters).
+
+### Known limitations
+
+- **OpenRouter's validation call does not itself prove the key is valid** (Part 3) — `GET /models` is unauthenticated on OpenRouter's side. A more authoritative check would call OpenRouter's key-introspection endpoint instead; not done here to keep strictly to the "models endpoint" the EP-22 spec named for OpenRouter. Disclosed in the adapter's own docstring, not hidden.
+- **No completion/usage calls are exercised by validation** — `verify_auth()` (and therefore `ProviderValidator`) only proves the key can authenticate to a cheap, read-only endpoint; it does not confirm the key has quota or permission for the completion/chat endpoints the SDK would actually use in production. This matches EP-06/EP-07's original scope (`complete()` remains `NotImplementedError` on every adapter) and was not expanded here.
+- **`base_url` is accepted per-connection but not exercised by usage ingestion** — EP-16's ingestion path and EP-08's `get_usage()` still use each adapter's default base URL; wiring a customer's `base_url` override into usage collection is out of this EP's scope (validation only).
+- **Settings.tsx (Priority 3, §12) is still not wired** — unrelated to this EP, still open from §12's own "known limitations."
+- **No secret-scanning / leaked-credential detection** — a customer could paste an already-compromised key and this EP would happily encrypt and validate it; that's a different security control (credential-breach monitoring) out of scope here.
+
+### Next milestone recommendation
+
+With credential storage and live validation now real for all 7 named providers, the highest-value next piece is: (1) **Settings.tsx wiring** (Priority 3, carried forward from §12 — still the largest remaining "full save UI that doesn't persist" gap), and (2) **wiring `ProviderConnection.encrypted_api_key` into actual usage collection** (EP-16's ingestion path and the SDK-facing `get_usage()` calls), so a connected, validated credential doesn't just prove reachability but is the one Costorah actually uses to pull real cost data — closing the loop the product spec's own framing ("Without this, Costorah cannot collect AI usage") points at.

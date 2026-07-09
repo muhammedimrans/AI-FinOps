@@ -17,6 +17,19 @@ class HttpAuth(ABC):
     def headers(self) -> dict[str, str]: ...
 
 
+class NullAuth(HttpAuth):
+    """No authentication headers.
+
+    Used by self-hosted providers with no API key (Ollama) and by providers
+    whose key travels as a query parameter rather than a header (Google
+    Gemini's ``?key=``, applied by the caller directly at the call site, not
+    via this strategy).
+    """
+
+    def headers(self) -> dict[str, str]:
+        return {}
+
+
 class BearerTokenAuth(HttpAuth):
     """``Authorization: Bearer <token>`` — used by OpenAI."""
 

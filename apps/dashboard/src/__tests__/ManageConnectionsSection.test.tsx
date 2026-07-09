@@ -21,6 +21,7 @@ vi.mock("../services/api", async (importOriginal) => {
     updateProviderConnection: vi.fn(),
     deleteProviderConnection: vi.fn(),
     testProviderConnectionById: vi.fn(),
+    rotateProviderConnectionKey: vi.fn(),
   };
 });
 
@@ -49,7 +50,12 @@ const SAMPLE_CONNECTION: ProviderConnectionRecord = {
   display_name: "Production OpenAI",
   project_id: null,
   is_active: true,
+  has_credential: false,
+  masked_api_key: null,
+  base_url: null,
   health_status: "unknown",
+  last_validation_status: null,
+  last_error: null,
   last_failure_at: null,
   last_recovery_at: null,
   consecutive_failure_count: 0,
@@ -121,6 +127,7 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
       connection_id: "conn_1",
       provider_type: "openai",
       health_status: "healthy",
+      last_validation_status: "healthy",
       tested: true,
       detail: "Connection healthy.",
     });
@@ -152,6 +159,94 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
 
     await waitFor(() => {
       expect(mockedApi.deleteProviderConnection).toHaveBeenCalledWith("org_1", "conn_1");
+    });
+  });
+
+  it("shows the masked key, not the plaintext, for a connection with a credential", async () => {
+    const withKey: ProviderConnectionRecord = {
+      ...SAMPLE_CONNECTION,
+      has_credential: true,
+      masked_api_key: "sk-********************************AbC",
+    };
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [withKey], total: 1 });
+    renderPage();
+    expect(await screen.findByText("sk-********************************AbC")).toBeTruthy();
+  });
+
+  it("shows last validation status and error message when present", async () => {
+    const failed: ProviderConnectionRecord = {
+      ...SAMPLE_CONNECTION,
+      health_status: "critical",
+      last_validation_status: "invalid_api_key",
+      last_error: "The API key is invalid or has been revoked.",
+      last_failure_at: "2026-07-01T00:00:00Z",
+    };
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [failed], total: 1 });
+    renderPage();
+    await screen.findByText("Production OpenAI");
+    expect(screen.getByText("Invalid API key")).toBeTruthy();
+    expect(screen.getByText("The API key is invalid or has been revoked.")).toBeTruthy();
+  });
+
+  it("creates a connection with an API key, masked by default with a reveal toggle", async () => {
+    const user = userEvent.setup();
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
+    mockedApi.createProviderConnection.mockResolvedValue({
+      ...SAMPLE_CONNECTION,
+      has_credential: true,
+      last_validation_status: "healthy",
+    });
+
+    renderPage();
+    await screen.findByText(/No provider connections yet/i);
+
+    await user.click(screen.getAllByRole("button", { name: /add provider/i })[0]!);
+    await user.type(screen.getByPlaceholderText(/Connection name/i), "Production OpenAI");
+
+    const keyInput = screen.getByPlaceholderText("API key (sk-...)");
+    expect(keyInput.getAttribute("type")).toBe("password");
+    await user.click(screen.getByLabelText("Reveal API key"));
+    expect(keyInput.getAttribute("type")).toBe("text");
+    await user.type(keyInput, "sk-" + "a".repeat(40));
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+
+    await waitFor(() => {
+      expect(mockedApi.createProviderConnection).toHaveBeenCalledWith("org_1", {
+        provider_type: "openai",
+        display_name: "Production OpenAI",
+        api_key: "sk-" + "a".repeat(40),
+      });
+    });
+  });
+
+  it("rotates a connection's API key", async () => {
+    const user = userEvent.setup();
+    const withKey: ProviderConnectionRecord = {
+      ...SAMPLE_CONNECTION,
+      has_credential: true,
+      masked_api_key: "sk-********************************AbC",
+    };
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [withKey], total: 1 });
+    mockedApi.rotateProviderConnectionKey.mockResolvedValue({
+      ...withKey,
+      last_validation_status: "healthy",
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    await user.click(screen.getByRole("button", { name: /rotate key/i }));
+    const newKeyInput = screen.getByPlaceholderText("New API key");
+    await user.type(newKeyInput, "sk-" + "newnew".repeat(6));
+    await user.click(screen.getByRole("button", { name: /save & validate/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.rotateProviderConnectionKey).toHaveBeenCalledWith(
+        "org_1",
+        "conn_1",
+        "sk-" + "newnew".repeat(6),
+      );
     });
   });
 });

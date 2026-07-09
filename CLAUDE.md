@@ -64,6 +64,22 @@ AI-FinOps/                  (pnpm workspace: apps/* + packages/*)
 - Turborepo — not introduced; still plain `pnpm --recursive`/`--filter`.
 - Website CI (`apps/website` has no lint/build/test job in `.github/workflows/ci.yml` yet — only the dashboard's jobs were updated to the new path).
 
+### Monorepo Build Rule
+
+All Cloudflare Pages, Vercel, Netlify, CI, and local production builds for workspace applications must use:
+
+```
+pnpm --filter <package>... build
+```
+
+Never use:
+
+```
+pnpm --filter <package> build
+```
+
+Packages such as `@costorah/shared-ui`, `@costorah/shared-types`, and `@costorah/api-contracts` ship no committed build output (`dist/` is gitignored by design — see the Node section of `.gitignore`) and must be built before their consumers. The `...` selector tells pnpm to include the target package's full workspace dependency graph and build it in topological order (dependencies first); the bare form without `...` builds only the named package and silently skips its unbuilt workspace dependencies, which is what produced the `TS2307: Cannot find module '@costorah/shared-ui'` Cloudflare Pages failure on `apps/website` — the platform's build command was scoped to `apps/website` alone, so `packages/shared-ui`'s `tsc --build` step never ran and `dist/index.d.ts` never existed in that build environment.
+
 ---
 
 ## 3. Website Architecture

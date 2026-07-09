@@ -10,7 +10,8 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
-    "dev": "pnpm --filter frontend dev",
+    "dev": "pnpm --filter @costorah/dashboard dev",
+    "dev:website": "pnpm --filter @costorah/website dev",
     "build": "pnpm --recursive build",
     "test": "pnpm --recursive test",
     "lint": "pnpm --recursive lint",

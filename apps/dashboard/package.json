@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/frontend",
+  "name": "@costorah/dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -18,9 +18,9 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@ai-finops/api-contracts": "workspace:*",
-    "@ai-finops/shared-types": "workspace:*",
-    "@ai-finops/error-codes": "workspace:*",
+    "@costorah/api-contracts": "workspace:*",
+    "@costorah/shared-types": "workspace:*",
+    "@costorah/error-codes": "workspace:*",
     "@tanstack/react-query": "^5.56.0",
     "@tanstack/react-query-devtools": "^5.56.0",
     "@tanstack/react-table": "^8.20.5",

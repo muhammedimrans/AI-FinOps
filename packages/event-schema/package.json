@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/event-schema",
+  "name": "@costorah/event-schema",
   "version": "0.1.0",
   "description": "Usage event schemas for the AI FinOps platform",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "dev": "tsc --build --watch"
   },
   "dependencies": {
-    "@ai-finops/shared-types": "workspace:*"
+    "@costorah/shared-types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

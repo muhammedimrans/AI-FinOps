@@ -1,5 +1,5 @@
-import type { ApiError } from "@ai-finops/error-codes";
-import type { Page } from "@ai-finops/shared-types";
+import type { ApiError } from "@costorah/error-codes";
+import type { Page } from "@costorah/shared-types";
 
 /**
  * Standard success envelope for all API responses (SDD API-6).

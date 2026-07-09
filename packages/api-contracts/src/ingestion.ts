@@ -1,5 +1,5 @@
-import type { UsageEventInput } from "@ai-finops/event-schema";
-import type { UsageEventBatchResult } from "@ai-finops/event-schema";
+import type { UsageEventInput } from "@costorah/event-schema";
+import type { UsageEventBatchResult } from "@costorah/event-schema";
 
 /** POST /v1/ingest/events — single event. */
 export interface IngestEventRequest {

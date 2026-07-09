@@ -1,4 +1,4 @@
-import type { Currency } from "@ai-finops/shared-types";
+import type { Currency } from "@costorah/shared-types";
 
 /** Runtime environment. */
 export type AppEnvironment = "development" | "staging" | "production" | "testing";

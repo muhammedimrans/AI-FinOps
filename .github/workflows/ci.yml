@@ -130,9 +130,9 @@ jobs:
           flags: backend
         continue-on-error: true
 
-  # ─── Frontend ─────────────────────────────────────────────────────────────
+  # ─── Dashboard (apps/dashboard) ─────────────────────────────────────────────
   frontend-lint:
-    name: Frontend — Lint & Type Check
+    name: Dashboard — Lint & Type Check
     runs-on: ubuntu-latest
 
     steps:
@@ -150,15 +150,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run ESLint
-        working-directory: frontend
+        working-directory: apps/dashboard
         run: pnpm lint
 
       - name: Run TypeScript check
-        working-directory: frontend
+        working-directory: apps/dashboard
         run: pnpm typecheck
 
   frontend-test:
-    name: Frontend — Tests & Build
+    name: Dashboard — Tests & Build
     runs-on: ubuntu-latest
 
     steps:
@@ -176,11 +176,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run tests
-        working-directory: frontend
+        working-directory: apps/dashboard
         run: pnpm test
 
       - name: Production build
-        working-directory: frontend
+        working-directory: apps/dashboard
         run: pnpm build
 
   # ─── SDK: Python ────────────────────────────────────────────────────────

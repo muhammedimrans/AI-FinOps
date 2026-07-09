@@ -6,8 +6,8 @@ import type {
   IdempotencyKey,
   TokenUsage,
   TokenCost,
-} from "@ai-finops/shared-types";
-import { Provider, Modality, ReconciliationState } from "@ai-finops/shared-types";
+} from "@costorah/shared-types";
+import { Provider, Modality, ReconciliationState } from "@costorah/shared-types";
 import type { EventSchemaVersion } from "./schema-version.js";
 
 /**

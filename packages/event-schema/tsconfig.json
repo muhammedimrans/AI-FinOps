@@ -5,7 +5,7 @@
     "outDir": "dist",
     "composite": true,
     "paths": {
-      "@ai-finops/shared-types": ["../shared-types/src/index.ts"]
+      "@costorah/shared-types": ["../shared-types/src/index.ts"]
     }
   },
   "references": [

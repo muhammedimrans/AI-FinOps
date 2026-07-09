@@ -15,17 +15,17 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
-  frontend:
+  apps/dashboard:
     dependencies:
-      '@ai-finops/api-contracts':
+      '@costorah/api-contracts':
         specifier: workspace:*
-        version: link:../packages/api-contracts
-      '@ai-finops/error-codes':
+        version: link:../../packages/api-contracts
+      '@costorah/error-codes':
         specifier: workspace:*
-        version: link:../packages/error-codes
-      '@ai-finops/shared-types':
+        version: link:../../packages/error-codes
+      '@costorah/shared-types':
         specifier: workspace:*
-        version: link:../packages/shared-types
+        version: link:../../packages/shared-types
       '@tanstack/react-query':
         specifier: ^5.56.0
         version: 5.101.1(react@18.3.1)
@@ -141,13 +141,13 @@ importers:
 
   packages/api-contracts:
     dependencies:
-      '@ai-finops/error-codes':
+      '@costorah/error-codes':
         specifier: workspace:*
         version: link:../error-codes
-      '@ai-finops/event-schema':
+      '@costorah/event-schema':
         specifier: workspace:*
         version: link:../event-schema
-      '@ai-finops/shared-types':
+      '@costorah/shared-types':
         specifier: workspace:*
         version: link:../shared-types
     devDependencies:
@@ -163,7 +163,7 @@ importers:
 
   packages/event-schema:
     dependencies:
-      '@ai-finops/shared-types':
+      '@costorah/shared-types':
         specifier: workspace:*
         version: link:../shared-types
     devDependencies:
@@ -173,7 +173,7 @@ importers:
 
   packages/shared-config:
     dependencies:
-      '@ai-finops/shared-types':
+      '@costorah/shared-types':
         specifier: workspace:*
         version: link:../shared-types
     devDependencies:

@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/shared-config",
+  "name": "@costorah/shared-config",
   "version": "0.1.0",
   "description": "Shared configuration types and constants for the AI FinOps platform",
   "license": "MIT",
@@ -21,7 +21,7 @@
     "dev": "tsc --build --watch"
   },
   "dependencies": {
-    "@ai-finops/shared-types": "workspace:*"
+    "@costorah/shared-types": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

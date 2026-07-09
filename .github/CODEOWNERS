@@ -9,7 +9,8 @@
 /backend/ @muhammedimrans
 
 # ─── Frontend ─────────────────────────────────────────────────────────────────
-/frontend/ @muhammedimrans
+/apps/dashboard/ @muhammedimrans
+/apps/website/ @muhammedimrans
 
 # ─── Infrastructure ───────────────────────────────────────────────────────────
 /deployment/ @muhammedimrans

@@ -1,4 +1,4 @@
-import type { OrganizationId, ISOTimestamp, Status } from "@ai-finops/shared-types";
+import type { OrganizationId, ISOTimestamp, Status } from "@costorah/shared-types";
 
 /** Organization resource. */
 export interface Organization {

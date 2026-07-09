@@ -4,7 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { SiteLayout } from "@/components/site/SiteLayout";
 import { LogoMark } from "@/components/site/SiteNav";
-import { ApiError, DASHBOARD_URL, login as loginRequest } from "@/lib/api";
+import { ApiError, buildDashboardHandoffUrl, login as loginRequest } from "@/lib/api";
 import { type LoginFormValues, loginSchema } from "@/lib/authSchemas";
 
 export const Route = createFileRoute("/login")({
@@ -30,9 +30,9 @@ function Login() {
   const onSubmit = async (values: LoginFormValues) => {
     setFormError(null);
     try {
-      await loginRequest(values);
+      const session = await loginRequest(values);
       setSucceeded(true);
-      window.location.href = DASHBOARD_URL;
+      window.location.href = buildDashboardHandoffUrl("/", session);
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setFormError("Incorrect email or password.");

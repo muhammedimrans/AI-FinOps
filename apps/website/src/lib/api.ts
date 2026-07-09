@@ -103,3 +103,32 @@ export function register(body: RegisterRequest): Promise<RegisterResponse> {
 export function login(body: LoginRequest): Promise<LoginResponse> {
   return post<LoginResponse>("/v1/auth/login", body);
 }
+
+/**
+ * Builds the redirect URL that hands the session off to apps/dashboard.
+ *
+ * apps/dashboard authenticates via a Zustand-held bearer token, not the
+ * httpOnly cookie this app relies on (CLAUDE.md §6 — migrating the
+ * dashboard onto the cookie is tracked separately, not required for
+ * EP-21.2). Until then, the token pair + user (+ workspace, on register)
+ * travel in the URL *fragment*, which browsers never send to any server
+ * — this is not the query-string "token in URL" pattern, it's the same
+ * fragment-only technique OAuth's implicit flow used for exactly this
+ * reason. apps/dashboard/src/lib/consumeSessionHandoff.ts reads it once
+ * and clears it immediately.
+ */
+export function buildDashboardHandoffUrl(
+  path: string,
+  session: { access_token: string; refresh_token: string; user: UserPublic; workspace?: WorkspacePublic },
+): string {
+  const payload = {
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    user: session.user,
+    ...(session.workspace
+      ? { workspace: { id: session.workspace.id, name: session.workspace.name } }
+      : {}),
+  };
+  const encoded = encodeURIComponent(btoa(JSON.stringify(payload)));
+  return `${DASHBOARD_URL}${path}#session=${encoded}`;
+}

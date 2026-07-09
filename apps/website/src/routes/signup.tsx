@@ -4,7 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { SiteLayout } from "@/components/site/SiteLayout";
 import { LogoMark } from "@/components/site/SiteNav";
-import { ApiError, DASHBOARD_URL, register as registerAccount } from "@/lib/api";
+import { ApiError, buildDashboardHandoffUrl, register as registerAccount } from "@/lib/api";
 import { type SignupFormValues, signupSchema } from "@/lib/authSchemas";
 
 export const Route = createFileRoute("/signup")({
@@ -30,12 +30,12 @@ function Signup() {
   const onSubmit = async (values: SignupFormValues) => {
     setFormError(null);
     try {
-      await registerAccount(values);
+      const session = await registerAccount(values);
       setSucceeded(true);
-      // The session cookie is already set (credentials: "include" on the
-      // request) — this is a full navigation, not client-side routing,
-      // because app.costorah.com is a different origin in production.
-      window.location.href = `${DASHBOARD_URL}/onboarding`;
+      // Full navigation, not client-side routing — app.costorah.com is a
+      // different origin in production. See buildDashboardHandoffUrl for
+      // why the tokens travel in the fragment.
+      window.location.href = buildDashboardHandoffUrl("/onboarding", session);
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
         setFormError("An account with this email already exists. Try logging in instead.");

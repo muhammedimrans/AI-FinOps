@@ -7,6 +7,7 @@ import OrgSelector from "./components/OrgSelector";
 import { useOrgStore } from "./stores/org";
 
 const Login          = lazy(() => import("./features/Login"));
+const Onboarding     = lazy(() => import("./features/Onboarding"));
 const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./features/ResetPassword"));
 const VerifyEmail    = lazy(() => import("./features/VerifyEmail"));
@@ -67,6 +68,21 @@ export default function App() {
               <Login />
             </Suspense>
           </ErrorBoundary>
+        }
+      />
+
+      {/* Onboarding: protected, but standalone — no sidebar/header chrome
+          while the user is still being walked through first-run setup. */}
+      <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                <Onboarding />
+              </Suspense>
+            </ErrorBoundary>
+          </ProtectedRoute>
         }
       />
 

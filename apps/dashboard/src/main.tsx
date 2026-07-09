@@ -5,7 +5,11 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { BrowserRouter } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import App from "./App";
+import { consumeSessionHandoff } from "./lib/consumeSessionHandoff";
 import "./index.css";
+
+// Must run before the first render — see consumeSessionHandoff.ts.
+consumeSessionHandoff();
 
 const queryClient = new QueryClient({
   defaultOptions: {

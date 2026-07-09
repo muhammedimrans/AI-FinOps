@@ -97,6 +97,42 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
             return record
         return result
 
+    async def get_totals_by_connection(
+        self, provider_connection_id: uuid.UUID
+    ) -> list[dict[str, Any]]:
+        """All-time cost totals for one connection, grouped by currency (EP-23.3).
+
+        Powers "Estimated Cost Imported" on the Provider Connections page.
+        No date range — this is a lifetime total for the connection, unlike
+        ``get_totals_by_org``'s period-scoped variant. Grouped by currency
+        for the same reason that one is: USD and EUR must never be summed
+        together.
+        """
+        stmt = (
+            select(
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .where(
+                and_(
+                    UsageCostRecord.provider_connection_id == provider_connection_id,
+                    UsageCostRecord.deleted_at.is_(None),
+                )
+            )
+            .group_by(UsageCostRecord.currency)
+            .order_by(UsageCostRecord.currency)
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
+
     async def get_totals_by_org(
         self,
         organization_id: uuid.UUID,

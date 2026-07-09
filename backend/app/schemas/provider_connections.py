@@ -94,3 +94,65 @@ class TestProviderConnectionResponse(BaseModel):
     last_validation_status: str  # ProviderValidationStatus value
     tested: bool  # False only when no credential is configured for a provider that needs one
     detail: str  # normalized, user-safe message only
+
+
+class CostImportedItem(BaseModel):
+    """One currency's all-time imported cost total for a connection (EP-23.3)."""
+
+    currency: str
+    total_cost: str  # Decimal serialized as string — avoids float precision loss
+    record_count: int
+
+
+class SyncStatusResponse(BaseModel):
+    """Derived synchronization state for one provider connection (EP-23.3).
+
+    Every field is computed from existing ``UsageCollectionRun`` /
+    ``UsageCollectionCheckpoint`` / ``UsageEvent`` / ``UsageCostRecord`` rows
+    — see ``app.services.provider_sync_service.ProviderSyncService.
+    get_sync_status``. No credential material appears anywhere in this
+    response.
+    """
+
+    connection_id: str  # external_id
+    provider_type: str
+    sync_status: str  # "never_synced" | "pending" | "running" | "success" | "failed"
+    last_sync_started_at: datetime | None
+    last_sync_completed_at: datetime | None
+    last_successful_sync_at: datetime | None
+    last_error: str | None
+    last_imported_at: datetime | None
+    records_imported: int
+    tokens_imported: int
+    estimated_cost_imported: list[CostImportedItem]
+    supports_usage_sync: bool
+
+
+class SyncRunResponse(BaseModel):
+    """One completed or failed synchronization run (EP-23.3)."""
+
+    run_id: str  # external_id (run_...)
+    connection_id: str  # external_id (conn_...)
+    provider_type: str
+    status: str  # CollectionRunStatus value: pending/running/completed/failed/cancelled
+    started_at: datetime
+    completed_at: datetime | None
+    records_imported: int
+    records_failed: int
+    error_message: str | None
+
+
+class TriggerSyncResponse(BaseModel):
+    """Result of manually triggering a sync for one connection."""
+
+    run: SyncRunResponse
+    sync_status: SyncStatusResponse
+
+
+class SyncAllResponse(BaseModel):
+    """Result of manually triggering a sync for every active connection in an org."""
+
+    runs: list[SyncRunResponse]
+    total: int
+    succeeded: int
+    failed: int

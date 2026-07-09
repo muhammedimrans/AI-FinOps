@@ -33,17 +33,24 @@ from app.auth.rbac import Permission
 from app.db.mixins import uuid7
 from app.models.membership import Membership
 from app.models.provider_connection import ProviderConnection, ProviderType
+from app.models.usage_collection_run import UsageCollectionRun
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
 from app.schemas.provider_connections import (
+    CostImportedItem,
     CreateProviderConnectionRequest,
     ProviderConnectionResponse,
     ProviderConnectionsListResponse,
     RotateProviderConnectionKeyRequest,
+    SyncAllResponse,
+    SyncRunResponse,
+    SyncStatusResponse,
     TestProviderConnectionResponse,
+    TriggerSyncResponse,
     UpdateProviderConnectionRequest,
 )
 from app.services.provider_credential_service import ProviderCredentialService
 from app.services.provider_health_service import ProviderHealthService
+from app.services.provider_sync_service import ProviderSyncService, SyncStatus
 
 router = APIRouter(
     prefix="/organizations/{org_id}/provider-connections", tags=["provider-connections"]
@@ -84,6 +91,46 @@ def _to_response(conn: ProviderConnection) -> ProviderConnectionResponse:
         consecutive_failure_count=conn.consecutive_failure_count,
         created_at=conn.created_at,
         updated_at=conn.updated_at,
+    )
+
+
+def _to_run_response(run: UsageCollectionRun, conn: ProviderConnection) -> SyncRunResponse:
+    return SyncRunResponse(
+        run_id=run.external_id,
+        connection_id=conn.external_id,
+        provider_type=run.provider,
+        status=run.status.value,
+        started_at=run.started_at,
+        completed_at=run.completed_at,
+        records_imported=run.events_collected,
+        records_failed=run.events_failed,
+        error_message=run.error_message,
+    )
+
+
+def _to_sync_status_response(
+    sync_status: SyncStatus, conn: ProviderConnection
+) -> SyncStatusResponse:
+    return SyncStatusResponse(
+        connection_id=conn.external_id,
+        provider_type=sync_status.provider_type,
+        sync_status=sync_status.sync_status,
+        last_sync_started_at=sync_status.last_sync_started_at,
+        last_sync_completed_at=sync_status.last_sync_completed_at,
+        last_successful_sync_at=sync_status.last_successful_sync_at,
+        last_error=sync_status.last_error,
+        last_imported_at=sync_status.last_imported_at,
+        records_imported=sync_status.records_imported,
+        tokens_imported=sync_status.tokens_imported,
+        estimated_cost_imported=[
+            CostImportedItem(
+                currency=item["currency"],
+                total_cost=str(item["total_cost"]),
+                record_count=item["record_count"],
+            )
+            for item in sync_status.estimated_cost_imported
+        ],
+        supports_usage_sync=sync_status.supports_usage_sync,
     )
 
 
@@ -251,3 +298,97 @@ async def rotate_provider_connection_key(
     updated = await repo.update(conn, encrypted_api_key=_credentials.encrypt(body.api_key))
     await _health.check_and_persist(repo, updated, api_key=body.api_key, base_url=updated.base_url)
     return _to_response(updated)
+
+
+@router.get(
+    "/{connection_id}/sync-status",
+    response_model=SyncStatusResponse,
+    summary="Get a provider connection's usage synchronization status",
+    description=(
+        "Derived entirely from existing UsageCollectionRun / "
+        "UsageCollectionCheckpoint / UsageEvent / UsageCostRecord rows — read-only, "
+        "no side effects. See CLAUDE.md's EP-23.3 section for the full architecture."
+    ),
+)
+async def get_provider_connection_sync_status(
+    org_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    db: DbDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_READ)],
+) -> SyncStatusResponse:
+    repo = ProviderConnectionRepository(db)
+    conn = await _get_owned_connection(repo, org_id, connection_id)
+
+    sync_service = ProviderSyncService(db)
+    sync_status = await sync_service.get_sync_status(organization_id=org_id, connection=conn)
+    return _to_sync_status_response(sync_status, conn)
+
+
+@router.post(
+    "/{connection_id}/sync",
+    response_model=TriggerSyncResponse,
+    summary="Manually trigger a usage synchronization for one provider connection",
+    description=(
+        "Decrypts the connection's stored credential in memory only, fetches usage "
+        "from the provider (incrementally, resuming from the last checkpoint), "
+        "normalizes and persists it via the existing UsageCollectionService, and "
+        "updates the sync status. Always returns a terminal run (completed or "
+        "failed) — a provider-side failure is a normal response, not a 500."
+    ),
+)
+async def sync_provider_connection(
+    org_id: uuid.UUID,
+    connection_id: uuid.UUID,
+    db: DbDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_WRITE)],
+) -> TriggerSyncResponse:
+    repo = ProviderConnectionRepository(db)
+    conn = await _get_owned_connection(repo, org_id, connection_id)
+
+    sync_service = ProviderSyncService(db)
+    run = await sync_service.sync_connection(organization_id=org_id, connection=conn)
+    sync_status = await sync_service.get_sync_status(organization_id=org_id, connection=conn)
+
+    return TriggerSyncResponse(
+        run=_to_run_response(run, conn),
+        sync_status=_to_sync_status_response(sync_status, conn),
+    )
+
+
+@router.post(
+    "/sync",
+    response_model=SyncAllResponse,
+    summary="Manually trigger a usage synchronization for every active provider connection",
+    description=(
+        "Runs sync_connection for every active connection in the organization. One "
+        "connection's failure never stops the others — every outcome is included "
+        "in the response."
+    ),
+)
+async def sync_all_provider_connections(
+    org_id: uuid.UUID,
+    db: DbDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_WRITE)],
+) -> SyncAllResponse:
+    conn_repo = ProviderConnectionRepository(db)
+    sync_service = ProviderSyncService(db)
+    runs = await sync_service.sync_all_connections(organization_id=org_id)
+
+    responses: list[SyncRunResponse] = []
+    succeeded = 0
+    for run in runs:
+        conn = (
+            await conn_repo.get(run.provider_connection_id) if run.provider_connection_id else None
+        )
+        if conn is None:
+            continue
+        responses.append(_to_run_response(run, conn))
+        if run.status.value == "completed":
+            succeeded += 1
+
+    return SyncAllResponse(
+        runs=responses,
+        total=len(responses),
+        succeeded=succeeded,
+        failed=len(responses) - succeeded,
+    )

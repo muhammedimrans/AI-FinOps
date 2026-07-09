@@ -91,10 +91,19 @@ class ValidationResult:
         return self.validation_status == ProviderValidationStatus.HEALTHY
 
 
-def _build_config(pt: ProviderType, *, api_key: str | None, base_url: str | None) -> ProviderConfig:
+def build_provider_config(
+    pt: ProviderType, *, api_key: str | None, base_url: str | None
+) -> ProviderConfig:
     """Build the ProviderConfig subclass for *pt*, carrying an INLINE secret
     reference over the already-decrypted key — never an env-var lookup, and
-    the plaintext is never persisted anywhere by this function."""
+    the plaintext is never persisted anywhere by this function.
+
+    Public (EP-23.3): shared by ``ProviderValidator`` (below, live credential
+    validation) and ``app.services.provider_sync_service.ProviderSyncService``
+    (usage synchronization) — the one place per-provider ``ProviderConfig``
+    construction from a decrypted credential happens, so a new provider only
+    ever needs one new ``match`` arm, not one per caller.
+    """
     key_ref = (
         SecretReference(secret_store=SecretStoreType.INLINE, lookup_key=api_key)
         if api_key
@@ -177,7 +186,7 @@ class ProviderValidator:
     ) -> ValidationResult:
         """Validate *api_key* (already decrypted) against the live provider API."""
         try:
-            config = _build_config(pt, api_key=api_key, base_url=base_url)
+            config = build_provider_config(pt, api_key=api_key, base_url=base_url)
         except InvalidRequestError as exc:
             return self._result(ProviderValidationStatus.INVALID_API_KEY, detail=str(exc))
 

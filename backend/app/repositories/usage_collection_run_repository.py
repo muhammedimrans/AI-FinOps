@@ -78,3 +78,30 @@ class UsageCollectionRunRepository(BaseRepository[UsageCollectionRun]):
     ) -> UsageCollectionRun | None:
         page = await self.list_by_provider(organization_id, provider, limit=1, order="desc")
         return page.items[0] if page.items else None
+
+    async def get_latest_for_connection(
+        self,
+        organization_id: uuid.UUID,
+        provider_connection_id: uuid.UUID,
+        *,
+        status: CollectionRunStatus | None = None,
+    ) -> UsageCollectionRun | None:
+        """Return the most recent run for one connection (EP-23.3).
+
+        Pass ``status`` to scope to e.g. the latest *successful* run
+        (``CollectionRunStatus.COMPLETED``) — used by
+        ``ProviderSyncService.get_sync_status`` to answer "last successful
+        sync" separately from "most recent sync attempt (any outcome)".
+        """
+        filters = [
+            UsageCollectionRun.organization_id == organization_id,
+            UsageCollectionRun.provider_connection_id == provider_connection_id,
+        ]
+        if status is not None:
+            filters.append(UsageCollectionRun.status == status)
+        page = await self.list_page(
+            limit=1,
+            order="desc",
+            extra_filters=and_(*filters),
+        )
+        return page.items[0] if page.items else None

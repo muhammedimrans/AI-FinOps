@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 from typing import cast
 
-from sqlalchemy import Table, and_
+from sqlalchemy import Table, and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -208,3 +208,27 @@ class UsageEventRepository(BaseRepository[UsageEvent]):
 
     async def count_by_org(self, organization_id: uuid.UUID) -> int:
         return await self.count(extra_filters=UsageEvent.organization_id == organization_id)
+
+    # ── Aggregates (EP-23.3) ───────────────────────────────────────────────────
+
+    async def get_totals_by_connection(self, provider_connection_id: uuid.UUID) -> dict[str, int]:
+        """All-time record/token totals for one connection.
+
+        Used to display "Records Imported" / "Tokens Imported" on the
+        Provider Connections page — counted from ``UsageEvent`` (created for
+        every collected event regardless of whether pricing exists) rather
+        than ``UsageCostRecord`` (created only when a pricing match is
+        found), so this total is never undercounted by a missing price.
+        """
+        stmt = select(
+            func.coalesce(func.count(UsageEvent.id), 0).label("total_records"),
+            func.coalesce(func.sum(UsageEvent.total_tokens), 0).label("total_tokens"),
+        ).where(
+            and_(
+                UsageEvent.provider_connection_id == provider_connection_id,
+                UsageEvent.deleted_at.is_(None),
+            )
+        )
+        result = await self._session.execute(stmt)
+        row = result.one()
+        return {"total_records": row.total_records or 0, "total_tokens": row.total_tokens or 0}

@@ -9,6 +9,7 @@ import type {
   ProviderConnectionRecord,
   ProviderConnectionsListResponse,
   ProviderInfoResponse,
+  SyncStatusResponse,
 } from "../services/api";
 
 vi.mock("../services/api", async (importOriginal) => {
@@ -22,6 +23,9 @@ vi.mock("../services/api", async (importOriginal) => {
     deleteProviderConnection: vi.fn(),
     testProviderConnectionById: vi.fn(),
     rotateProviderConnectionKey: vi.fn(),
+    getProviderConnectionSyncStatus: vi.fn(),
+    syncProviderConnection: vi.fn(),
+    syncAllProviderConnections: vi.fn(),
   };
 });
 
@@ -63,6 +67,21 @@ const SAMPLE_CONNECTION: ProviderConnectionRecord = {
   updated_at: "2026-07-01T00:00:00Z",
 };
 
+const NEVER_SYNCED_STATUS: SyncStatusResponse = {
+  connection_id: "conn_1",
+  provider_type: "openai",
+  sync_status: "never_synced",
+  last_sync_started_at: null,
+  last_sync_completed_at: null,
+  last_successful_sync_at: null,
+  last_error: null,
+  last_imported_at: null,
+  records_imported: 0,
+  tokens_imported: 0,
+  estimated_cost_imported: [],
+  supports_usage_sync: true,
+};
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -79,6 +98,7 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
   });
 
   it("shows the empty state when there are no connections", async () => {
@@ -248,5 +268,173 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
         "sk-" + "newnew".repeat(6),
       );
     });
+  });
+});
+
+describe("Connections page — usage synchronization (EP-23.3)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
+    mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
+  });
+
+  it("shows 'never synced' for a connection that has not been synced yet", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    expect(await screen.findByText("Never synced")).toBeTruthy();
+  });
+
+  it("shows sync status, records/tokens imported, and estimated cost after a successful sync", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue({
+      ...NEVER_SYNCED_STATUS,
+      sync_status: "success",
+      last_sync_completed_at: "2026-07-01T00:00:00Z",
+      records_imported: 128,
+      tokens_imported: 45210,
+      estimated_cost_imported: [{ currency: "USD", total_cost: "1.23", record_count: 128 }],
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    expect(await screen.findByText("Synced")).toBeTruthy();
+    expect(screen.getByText(/128 records imported/)).toBeTruthy();
+    expect(screen.getByText(/45,210 tokens imported/)).toBeTruthy();
+    expect(screen.getByText(/estimated cost imported/)).toBeTruthy();
+  });
+
+  it("shows the last error when the most recent sync failed", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue({
+      ...NEVER_SYNCED_STATUS,
+      sync_status: "failed",
+      last_error: "Could not reach the provider — network error.",
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    expect(await screen.findByText("Sync failed")).toBeTruthy();
+    expect(screen.getByText("Could not reach the provider — network error.")).toBeTruthy();
+  });
+
+  it("triggers a manual sync via 'Sync now' and shows the updated status", async () => {
+    const user = userEvent.setup();
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+    mockedApi.syncProviderConnection.mockResolvedValue({
+      run: {
+        run_id: "run_1",
+        connection_id: "conn_1",
+        provider_type: "openai",
+        status: "completed",
+        started_at: "2026-07-01T00:00:00Z",
+        completed_at: "2026-07-01T00:01:00Z",
+        records_imported: 10,
+        records_failed: 0,
+        error_message: null,
+      },
+      sync_status: {
+        ...NEVER_SYNCED_STATUS,
+        sync_status: "success",
+        records_imported: 10,
+        tokens_imported: 500,
+      },
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    await user.click(screen.getByRole("button", { name: /sync now/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.syncProviderConnection).toHaveBeenCalledWith("org_1", "conn_1");
+    });
+    expect(await screen.findByText("Synced")).toBeTruthy();
+    expect(screen.getByText(/10 records imported/)).toBeTruthy();
+  });
+
+  it("disables 'Sync now' for a provider that does not support usage sync yet", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue({
+      ...NEVER_SYNCED_STATUS,
+      supports_usage_sync: false,
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+    await screen.findByText(/isn't available for this provider yet/i);
+
+    const syncButton = screen.getByRole("button", { name: /sync now/i });
+    expect(syncButton).toBeDisabled();
+  });
+
+  it("refreshes sync status via 'Refresh status'", async () => {
+    const user = userEvent.setup();
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    await user.click(screen.getByRole("button", { name: /refresh status/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.getProviderConnectionSyncStatus).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("triggers 'Sync all' for every active connection", async () => {
+    const user = userEvent.setup();
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [SAMPLE_CONNECTION],
+      total: 1,
+    });
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+    mockedApi.syncAllProviderConnections.mockResolvedValue({
+      runs: [],
+      total: 1,
+      succeeded: 1,
+      failed: 0,
+    });
+
+    renderPage();
+    await screen.findByText("Production OpenAI");
+
+    await user.click(screen.getByRole("button", { name: /sync all/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.syncAllProviderConnections).toHaveBeenCalledWith("org_1");
+    });
+  });
+
+  it("does not show 'Sync all' when there are no connections", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
+    renderPage();
+    await screen.findByText(/No provider connections yet/i);
+    expect(screen.queryByRole("button", { name: /sync all/i })).toBeNull();
   });
 });

@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.exceptions import (
     AccountDisabledError,
+    EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
     InvalidCredentialsError,
     InvalidTokenError,
 )
 from app.auth.password import hash_password, verify_password
+from app.auth.slug import unique_slug
 from app.auth.tokens import (
     create_access_token,
     generate_refresh_token,
@@ -21,11 +23,14 @@ from app.auth.tokens import (
 )
 from app.config.settings import Settings
 from app.db.mixins import uuid7
+from app.models.membership import Membership, MembershipRole
+from app.models.organization import Organization, OrganizationStatus
 from app.models.password_reset_token import PasswordResetToken
 from app.models.session import Session
 from app.models.user import User, UserStatus
 from app.models.verification_token import VerificationToken
 from app.repositories.membership_repository import MembershipRepository
+from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
@@ -62,6 +67,108 @@ class AuthService:
         self._verify_repo = VerificationTokenRepository(session)
         self._reset_repo = PasswordResetTokenRepository(session)
         self._membership_repo = MembershipRepository(session)
+        self._org_repo = OrganizationRepository(session)
+
+    # ── Shared session issuance ──────────────────────────────────────────────
+
+    async def _issue_session(
+        self,
+        user: User,
+        *,
+        ip_address: str | None,
+        user_agent: str | None,
+    ) -> TokenPair:
+        """Create a DB-backed session row + signed access token for `user`.
+
+        Shared by `login()` and `register()` — every code path that starts
+        an authenticated browser session goes through this one place.
+        """
+        refresh_raw = generate_refresh_token()
+        refresh_hash = hash_token(refresh_raw)
+        expire_delta = timedelta(days=self._settings.jwt_refresh_token_expire_days)
+        expires_at = datetime.now(UTC) + expire_delta
+
+        db_session = Session()
+        db_session.id = uuid7()
+        db_session.user_id = user.id
+        db_session.refresh_token_hash = refresh_hash
+        db_session.expires_at = expires_at
+        db_session.ip_address = ip_address
+        db_session.user_agent = user_agent
+        await self._session_repo.create(db_session)
+
+        access = create_access_token(
+            user_id=str(user.id),
+            session_id=str(db_session.id),
+            email=user.email,
+            settings=self._settings,
+        )
+        return TokenPair(
+            access_token=access,
+            refresh_token=refresh_raw,
+            expires_in=self._settings.jwt_access_token_expire_minutes * 60,
+        )
+
+    # ── Registration ──────────────────────────────────────────────────────────
+
+    async def register(
+        self,
+        *,
+        email: str,
+        password: str,
+        display_name: str,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[TokenPair, User, Organization]:
+        """
+        Create a User, a personal workspace (Organization, is_personal=True),
+        and an OWNER Membership linking them, then issue a session — all in
+        one transaction. Mirrors the User+Organization+Membership pattern
+        already used by `app/db/seed.py::seed_demo_data`, extended with the
+        is_personal flag and wired to real request-time input instead of
+        hardcoded seed constants.
+
+        The account is created ACTIVE (not gated on email verification) —
+        this platform has no outbound email transport yet (see CLAUDE.md),
+        so blocking login on a verification email that can never be
+        delivered would strand every new user. `email_verified` starts
+        False; `POST /v1/auth/verify-email` (existing, unchanged) becomes
+        usable the moment email delivery exists — no changes needed here
+        when that lands.
+        """
+        if await self._user_repo.email_exists(email):
+            raise EmailAlreadyRegisteredError
+
+        user = User()
+        user.id = uuid7()
+        user.email = email
+        user.display_name = display_name
+        user.status = UserStatus.ACTIVE
+        user.email_verified = False
+        user.password_hash = hash_password(password)
+        await self._user_repo.create(user)
+
+        org = Organization()
+        org.id = uuid7()
+        org.name = f"{display_name}'s Workspace"
+        org.slug = await unique_slug(
+            f"{display_name}-workspace", slug_exists=self._org_repo.slug_exists
+        )
+        org.is_personal = True
+        org.status = OrganizationStatus.ACTIVE
+        await self._org_repo.create(org)
+
+        membership = Membership()
+        membership.id = uuid7()
+        membership.organization_id = org.id
+        membership.user_id = user.id
+        membership.user_email = user.email
+        membership.role = MembershipRole.OWNER
+        await self._membership_repo.create(membership)
+
+        pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
+        await self._user_repo.update_last_login(user.id)
+        return pair, user, org
 
     # ── Login ─────────────────────────────────────────────────────────────────
 
@@ -86,32 +193,7 @@ class AuthService:
         # existed (invite-by-email creates a Membership with user_id=None).
         await self._membership_repo.link_pending_by_email(user.email, user.id)
 
-        refresh_raw = generate_refresh_token()
-        refresh_hash = hash_token(refresh_raw)
-        expire_delta = timedelta(days=self._settings.jwt_refresh_token_expire_days)
-        expires_at = datetime.now(UTC) + expire_delta
-
-        db_session = Session()
-        db_session.id = uuid7()
-        db_session.user_id = user.id
-        db_session.refresh_token_hash = refresh_hash
-        db_session.expires_at = expires_at
-        db_session.ip_address = ip_address
-        db_session.user_agent = user_agent
-        await self._session_repo.create(db_session)
-
-        access = create_access_token(
-            user_id=str(user.id),
-            session_id=str(db_session.id),
-            email=user.email,
-            settings=self._settings,
-        )
-        pair = TokenPair(
-            access_token=access,
-            refresh_token=refresh_raw,
-            expires_in=self._settings.jwt_access_token_expire_minutes * 60,
-        )
-
+        pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
         await self._user_repo.update_last_login(user.id)
         return pair, user
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -526,6 +526,101 @@ class TestAuthServiceLogin:
             await svc.login(email=no_pw.email, password=_TEST_PASSWORD)
 
 
+class TestAuthServiceRegister:
+    """EP-21.2: self-serve registration + personal-workspace auto-creation."""
+
+    def setup_method(self) -> None:
+        self.settings = _test_settings()
+        self.mock_session = AsyncMock()
+
+    def _make_svc(self) -> Any:
+        from app.auth.service import AuthService
+
+        svc = AuthService(self.mock_session, self.settings)
+        svc._user_repo = AsyncMock()
+        svc._session_repo = AsyncMock()
+        svc._verify_repo = AsyncMock()
+        svc._reset_repo = AsyncMock()
+        svc._membership_repo = AsyncMock()
+        svc._org_repo = AsyncMock()
+        return svc
+
+    @pytest.mark.asyncio
+    async def test_register_creates_user_org_and_owner_membership(self) -> None:
+        from app.models.membership import MembershipRole
+
+        svc = self._make_svc()
+        svc._user_repo.email_exists.return_value = False
+        svc._org_repo.slug_exists.return_value = False
+
+        pair, user, workspace = await svc.register(
+            email="new@example.com",
+            password=_TEST_PASSWORD,
+            display_name="New User",
+        )
+
+        assert pair.access_token
+        assert pair.refresh_token
+        assert user.email == "new@example.com"
+        assert user.status == UserStatus.ACTIVE
+        assert user.email_verified is False
+        assert workspace.is_personal is True
+        assert workspace.name == "New User's Workspace"
+        assert workspace.slug == "new-user-workspace"
+
+        svc._user_repo.create.assert_awaited_once()
+        svc._org_repo.create.assert_awaited_once()
+        membership_arg = svc._membership_repo.create.call_args[0][0]
+        assert membership_arg.role == MembershipRole.OWNER
+        assert membership_arg.organization_id == workspace.id
+        assert membership_arg.user_id == user.id
+        svc._session_repo.create.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_register_duplicate_email_raises(self) -> None:
+        from app.auth.exceptions import EmailAlreadyRegisteredError
+
+        svc = self._make_svc()
+        svc._user_repo.email_exists.return_value = True
+
+        with pytest.raises(EmailAlreadyRegisteredError):
+            await svc.register(
+                email="taken@example.com",
+                password=_TEST_PASSWORD,
+                display_name="Someone",
+            )
+        svc._user_repo.create.assert_not_awaited()
+        svc._org_repo.create.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_register_slug_collision_appends_suffix(self) -> None:
+        svc = self._make_svc()
+        svc._user_repo.email_exists.return_value = False
+        # First candidate taken, second free.
+        svc._org_repo.slug_exists.side_effect = [True, False]
+
+        _, _, workspace = await svc.register(
+            email="dup@example.com",
+            password=_TEST_PASSWORD,
+            display_name="Dup Name",
+        )
+        assert workspace.slug == "dup-name-workspace-2"
+
+    @pytest.mark.asyncio
+    async def test_register_hashes_password_not_stored_in_plaintext(self) -> None:
+        svc = self._make_svc()
+        svc._user_repo.email_exists.return_value = False
+        svc._org_repo.slug_exists.return_value = False
+
+        _, user, _ = await svc.register(
+            email="secure@example.com",
+            password=_TEST_PASSWORD,
+            display_name="Secure",
+        )
+        assert user.password_hash != _TEST_PASSWORD
+        assert verify_password(user.password_hash, _TEST_PASSWORD) is True
+
+
 class TestAuthServiceLogout:
     def setup_method(self) -> None:
         self.settings = _test_settings()
@@ -735,7 +830,9 @@ class TestGetCurrentUserDependency:
             patch("app.auth.dependencies.UserRepository", return_value=mock_user_repo),
             patch("app.auth.dependencies.get_settings", return_value=self.settings),
         ):
-            result = await get_current_user(token=token, db=mock_db, settings=self.settings)
+            result = await get_current_user(
+                request=MagicMock(cookies={}), token=token, db=mock_db, settings=self.settings
+            )
         assert result is self.user
 
     @pytest.mark.asyncio
@@ -747,6 +844,7 @@ class TestGetCurrentUserDependency:
         mock_db = AsyncMock()
         with pytest.raises(HTTPException) as exc_info:
             await get_current_user(
+                request=MagicMock(cookies={}),
                 token="not.a.valid.jwt",
                 db=mock_db,
                 settings=self.settings,
@@ -776,7 +874,9 @@ class TestGetCurrentUserDependency:
             patch("app.auth.dependencies.get_settings", return_value=self.settings),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(token=token, db=mock_db, settings=self.settings)
+                await get_current_user(
+                    request=MagicMock(cookies={}), token=token, db=mock_db, settings=self.settings
+                )
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
@@ -801,5 +901,7 @@ class TestGetCurrentUserDependency:
             patch("app.auth.dependencies.get_settings", return_value=self.settings),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await get_current_user(token=token, db=mock_db, settings=self.settings)
+                await get_current_user(
+                    request=MagicMock(cookies={}), token=token, db=mock_db, settings=self.settings
+                )
         assert exc_info.value.status_code == 401

@@ -175,12 +175,13 @@ async def _resolve_current_user(request: Request, db: DbDep) -> User:
     override = request.app.dependency_overrides.get(get_current_user)
     if override is not None:
         return cast("User", await override())
+    # oauth2_scheme has auto_error=False (EP-21.2) — a missing header
+    # returns None rather than raising here, so a request authenticated
+    # only via the session cookie still resolves correctly:
+    # get_current_user() itself falls back to the cookie and raises 401
+    # if neither is present.
     token = await oauth2_scheme(request)
-    if token is None:
-        # oauth2_scheme has auto_error=True, so it raises 401 itself before
-        # ever returning None — this satisfies the type checker only.
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    return await get_current_user(token=token, db=db, settings=get_settings())
+    return await get_current_user(request=request, token=token, db=db, settings=get_settings())
 
 
 async def get_membership_or_api_key(

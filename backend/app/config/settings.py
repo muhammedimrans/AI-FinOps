@@ -122,7 +122,22 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:3000",
         "https://op.0protocol.net",
+        "https://costorah.com",
+        "https://app.costorah.com",
     ]
+
+    # ─── Session cookie (ADR-006 / EP-21.2) ────────────────────────────────────
+    # Domain attribute for the browser-session cookie set by login/register.
+    # None (the local-dev default) yields a host-only cookie — correct for
+    # localhost, since cookies are not port-scoped and a host-only cookie
+    # set by the API is sent back to that same API regardless of which
+    # origin/port the calling page was served from. In production this is
+    # set to ".costorah.com" so the cookie is valid on both costorah.com
+    # (website) and app.costorah.com (dashboard) — see CLAUDE.md §6.
+    session_cookie_domain: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SESSION_COOKIE_DOMAIN", "session_cookie_domain"),
+    )
 
     # ─── PostgreSQL ───────────────────────────────────────────────────────────
     # DATABASE_URL takes priority when set (e.g. Neon, Railway, Render).

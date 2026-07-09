@@ -1,12 +1,20 @@
-"""Authentication API — EP-05 / F-017.
+"""Authentication API — EP-05 / F-017, extended by EP-21.2.
 
 Endpoints:
+  POST /v1/auth/register             — create a User + personal workspace, issue a session
   POST /v1/auth/login                — issue access + refresh tokens
   POST /v1/auth/logout               — revoke the current session
   POST /v1/auth/refresh              — rotate refresh token, issue new access token
+  GET  /v1/auth/me                   — the authenticated caller's profile
   POST /v1/auth/verify-email         — consume an email verification token
   POST /v1/auth/request-password-reset — request a password-reset link
   POST /v1/auth/reset-password       — consume a reset token and set a new password
+
+Session cookies (EP-21.2): login, register, and refresh additionally set
+httpOnly `costorah_access_token`/`costorah_refresh_token` cookies
+(app.auth.cookies) alongside the unchanged JSON token response — existing
+bearer-token clients (apps/dashboard) are unaffected; apps/website relies
+on the cookie. logout clears both cookies.
 """
 
 from __future__ import annotations
@@ -14,13 +22,15 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 
 from app.api.deps import DbDep, SettingsDep
+from app.auth.cookies import ACCESS_TOKEN_COOKIE, clear_session_cookies, set_session_cookies
 from app.auth.dependencies import CurrentUser
 from app.auth.exceptions import (
     AccountDisabledError,
+    EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
     InvalidCredentialsError,
 )
@@ -34,10 +44,13 @@ from app.schemas.auth import (
     MessageResponse,
     PasswordResetRequest,
     RefreshRequest,
+    RegisterRequest,
+    RegisterResponse,
     ResetPasswordRequest,
     TokenResponse,
     UserPublic,
     VerifyEmailRequest,
+    WorkspacePublic,
 )
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -70,6 +83,53 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
 
 
 @router.post(
+    "/register",
+    response_model=RegisterResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create an account, personal workspace, and session",
+)
+async def register(
+    body: RegisterRequest,
+    request: Request,
+    response: Response,
+    db: DbDep,
+    settings: SettingsDep,
+) -> RegisterResponse:
+    svc = AuthService(db, settings)
+    ip = request.client.host if request.client else None
+    ua = request.headers.get("user-agent")
+
+    try:
+        pair, user, workspace = await svc.register(
+            email=body.email,
+            password=body.password,
+            display_name=body.display_name,
+            ip_address=ip,
+            user_agent=ua,
+        )
+    except EmailAlreadyRegisteredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists",
+        ) from exc
+
+    set_session_cookies(response, pair, settings)
+    return RegisterResponse(
+        access_token=pair.access_token,
+        refresh_token=pair.refresh_token,
+        token_type="bearer",  # noqa: S106
+        expires_in=pair.expires_in,
+        user=_build_user_public(user),
+        workspace=WorkspacePublic(
+            id=workspace.external_id,
+            name=workspace.name,
+            slug=workspace.slug,
+            is_personal=workspace.is_personal,
+        ),
+    )
+
+
+@router.post(
     "/login",
     response_model=LoginResponse,
     summary="Authenticate with email and password",
@@ -77,6 +137,7 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
 async def login(
     body: LoginRequest,
     request: Request,
+    response: Response,
     db: DbDep,
     settings: SettingsDep,
 ) -> LoginResponse:
@@ -113,6 +174,7 @@ async def login(
             detail="Your account has been disabled",
         ) from exc
     await limiter.record_success(email=body.email)
+    set_session_cookies(response, pair, settings)
     return LoginResponse(
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,
@@ -120,6 +182,15 @@ async def login(
         expires_in=pair.expires_in,
         user=_build_user_public(user),
     )
+
+
+@router.get(
+    "/me",
+    response_model=UserPublic,
+    summary="The authenticated caller's profile",
+)
+async def me(current_user: CurrentUser) -> UserPublic:
+    return _build_user_public(current_user)
 
 
 @router.post(
@@ -132,11 +203,18 @@ async def logout(
     db: DbDep,
     settings: SettingsDep,
     request: Request,
+    response: Response,
 ) -> None:
+    clear_session_cookies(response, settings)
+
     auth_header = request.headers.get("authorization", "")
-    if not auth_header.lower().startswith("bearer "):
+    raw_token: str | None
+    if auth_header.lower().startswith("bearer "):
+        raw_token = auth_header[7:].strip()
+    else:
+        raw_token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if not raw_token:
         return
-    raw_token = auth_header[7:].strip()
     try:
         claims = decode_access_token(raw_token, settings=settings)
     except (ExpiredSignatureError, DecodeError, InvalidTokenError):
@@ -161,6 +239,7 @@ async def logout(
 )
 async def refresh(
     body: RefreshRequest,
+    response: Response,
     db: DbDep,
     settings: SettingsDep,
 ) -> TokenResponse:
@@ -173,6 +252,7 @@ async def refresh(
             detail="Refresh token is invalid or expired",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+    set_session_cookies(response, pair, settings)
     return TokenResponse(
         access_token=pair.access_token,
         refresh_token=pair.refresh_token,

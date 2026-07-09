@@ -11,8 +11,8 @@ from __future__ import annotations
 import enum
 from typing import TYPE_CHECKING
 
+from sqlalchemy import Boolean, Index, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -48,6 +48,14 @@ class Organization(BaseModel):
     website: Mapped[str | None] = mapped_column(String(2048), nullable=True, default=None)
     logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True, default=None)
     billing_email: Mapped[str | None] = mapped_column(String(320), nullable=True, default=None)
+    # EP-21.2: every user gets exactly one personal workspace (an Organization
+    # with is_personal=True) auto-created at registration — see
+    # app/auth/service.py::AuthService.register. Personal workspaces are not
+    # invitable and are never hard-deleted by normal operations; nothing else
+    # in the schema distinguishes them from a team org otherwise.
+    is_personal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     status: Mapped[OrganizationStatus] = mapped_column(
         SQLEnum(
             OrganizationStatus,

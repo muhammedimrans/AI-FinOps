@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/api-contracts",
+  "name": "@costorah/api-contracts",
   "version": "0.1.0",
   "description": "API request/response contracts for the AI FinOps platform",
   "license": "MIT",
@@ -21,9 +21,9 @@
     "dev": "tsc --build --watch"
   },
   "dependencies": {
-    "@ai-finops/shared-types": "workspace:*",
-    "@ai-finops/error-codes": "workspace:*",
-    "@ai-finops/event-schema": "workspace:*"
+    "@costorah/shared-types": "workspace:*",
+    "@costorah/error-codes": "workspace:*",
+    "@costorah/event-schema": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

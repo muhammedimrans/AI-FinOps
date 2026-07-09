@@ -19,6 +19,7 @@ from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 
 from app.api.deps import DbDep
+from app.auth.cookies import ACCESS_TOKEN_COOKIE
 from app.auth.rbac import Permission, has_permission
 from app.auth.tokens import decode_access_token
 from app.config.settings import Settings, get_settings
@@ -30,7 +31,9 @@ from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
+# auto_error=False: a missing Authorization header is not fatal here — the
+# EP-21.2 cookie-based session (get_current_user below) is checked next.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login", auto_error=False)
 
 _401 = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -44,11 +47,23 @@ _403 = HTTPException(
 
 
 async def get_current_user(
-    token: Annotated[str, Security(oauth2_scheme)],
+    request: Request,
+    token: Annotated[str | None, Security(oauth2_scheme)],
     db: DbDep,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> User:
-    """Validate the Bearer JWT and return the corresponding active User."""
+    """Validate the access token and return the corresponding active User.
+
+    Accepts either an `Authorization: Bearer <token>` header (the original
+    EP-05 flow, used by apps/dashboard today) or the `costorah_access_token`
+    httpOnly cookie (EP-21.2, used by apps/website) — same JWT format,
+    same validation, just two places to look for it. The header takes
+    precedence when both are present.
+    """
+    if token is None:
+        token = request.cookies.get(ACCESS_TOKEN_COOKIE)
+    if token is None:
+        raise _401
     try:
         claims = decode_access_token(token, settings=settings)
     except (ExpiredSignatureError, DecodeError, InvalidTokenError) as exc:

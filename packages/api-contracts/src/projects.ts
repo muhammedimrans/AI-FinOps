@@ -1,4 +1,4 @@
-import type { OrganizationId, ProjectId, ISOTimestamp, Status } from "@ai-finops/shared-types";
+import type { OrganizationId, ProjectId, ISOTimestamp, Status } from "@costorah/shared-types";
 
 /** Project resource — the cost attribution unit. */
 export interface Project {

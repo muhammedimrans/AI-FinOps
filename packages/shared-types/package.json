@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/shared-types",
+  "name": "@costorah/shared-types",
   "version": "0.1.0",
   "description": "Shared TypeScript types for the AI FinOps platform",
   "license": "MIT",

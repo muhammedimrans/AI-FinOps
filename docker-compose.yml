@@ -124,21 +124,21 @@ services:
     networks:
       - aifinops
 
-  # ─── Frontend ───────────────────────────────────────────────────────────────
+  # ─── Dashboard (apps/dashboard) ────────────────────────────────────────────
 
-  frontend:
+  dashboard:
     <<: *default-restart
     build:
-      context: ./frontend
-      dockerfile: ../deployment/docker/frontend/Dockerfile
+      context: ./apps/dashboard
+      dockerfile: ../../deployment/docker/dashboard/Dockerfile
       target: development
-    container_name: aifinops-frontend
+    container_name: aifinops-dashboard
     env_file:
       - .env
     environment:
       VITE_API_BASE_URL: http://localhost:${API_PORT:-8000}
     volumes:
-      - ./frontend:/app
+      - ./apps/dashboard:/app
       - /app/node_modules
     ports:
       - "5173:5173"

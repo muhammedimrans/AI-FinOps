@@ -16,6 +16,14 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class RegisterRequest(BaseModel):
+    """New-account details for self-serve registration (EP-21.2)."""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    display_name: str = Field(min_length=1, max_length=255)
+
+
 class RefreshRequest(BaseModel):
     """Opaque refresh token for access-token rotation."""
 
@@ -70,6 +78,24 @@ class LoginResponse(TokenResponse):
     """Token pair plus the authenticated user's profile."""
 
     user: UserPublic
+
+
+class WorkspacePublic(BaseModel):
+    """Publicly-safe representation of an Organization used as a workspace."""
+
+    id: str
+    name: str
+    slug: str
+    is_personal: bool
+
+    model_config = {"from_attributes": True}
+
+
+class RegisterResponse(TokenResponse):
+    """Token pair, the new user's profile, and their auto-created personal workspace."""
+
+    user: UserPublic
+    workspace: WorkspacePublic
 
 
 class MessageResponse(BaseModel):

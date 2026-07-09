@@ -23,6 +23,10 @@ class EmailAlreadyVerifiedError(AuthError):
     """The user's email address has already been verified."""
 
 
+class EmailAlreadyRegisteredError(AuthError):
+    """Registration was attempted with an email that already has an account."""
+
+
 # ── Organization API Key authentication (EP-15) ─────────────────────────────
 
 

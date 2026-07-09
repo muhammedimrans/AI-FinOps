@@ -1,5 +1,5 @@
 {
-  "name": "@ai-finops/error-codes",
+  "name": "@costorah/error-codes",
   "version": "0.1.0",
   "description": "Canonical error code catalog for the AI FinOps platform",
   "license": "MIT",

@@ -141,7 +141,9 @@ class TestAccessTokenRevocation:
         session_repo.get_active = AsyncMock(return_value=None)  # revoked/expired
         with patch("app.auth.dependencies.SessionRepository", return_value=session_repo):
             with pytest.raises(Exception) as exc:
-                await get_current_user(token=token, db=AsyncMock(), settings=settings)
+                await get_current_user(
+                    request=MagicMock(cookies={}), token=token, db=AsyncMock(), settings=settings
+                )
         assert getattr(exc.value, "status_code", None) == 401
 
     @pytest.mark.asyncio
@@ -160,7 +162,9 @@ class TestAccessTokenRevocation:
             patch("app.auth.dependencies.SessionRepository", return_value=session_repo),
             patch("app.auth.dependencies.UserRepository", return_value=user_repo),
         ):
-            result = await get_current_user(token=token, db=AsyncMock(), settings=settings)
+            result = await get_current_user(
+                request=MagicMock(cookies={}), token=token, db=AsyncMock(), settings=settings
+            )
         assert result is active_user
 
     @pytest.mark.asyncio
@@ -191,7 +195,9 @@ class TestAccessTokenRevocation:
             algorithm="HS256",
         )
         with pytest.raises(Exception) as exc:
-            await get_current_user(token=token, db=AsyncMock(), settings=settings)
+            await get_current_user(
+                request=MagicMock(cookies={}), token=token, db=AsyncMock(), settings=settings
+            )
         assert getattr(exc.value, "status_code", None) == 401
 
 

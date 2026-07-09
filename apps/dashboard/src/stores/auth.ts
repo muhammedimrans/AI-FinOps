@@ -8,6 +8,11 @@ export interface AuthUser {
   display_name: string;
   status: string;
   email_verified: boolean;
+  // EP-21.3: true once the first-time onboarding wizard (/onboarding) has
+  // been completed. Optional/absent means "unknown" (e.g. a session
+  // persisted before this field existed) — ProtectedRoute treats that the
+  // same as false and lets the wizard run once to populate it for real.
+  onboarding_completed?: boolean;
 }
 
 interface AuthState {

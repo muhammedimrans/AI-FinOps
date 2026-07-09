@@ -65,6 +65,19 @@ describe("consumeSessionHandoff", () => {
     expect(useOrgStore.getState().organizationId).toBeNull();
   });
 
+  it("carries onboarding_completed through into the auth store (EP-21.3)", () => {
+    const encoded = encodePayload({
+      access_token: "a.b.c",
+      refresh_token: "r-token",
+      user: { ...user, onboarding_completed: false },
+    });
+    setHash(`#session=${encoded}`);
+
+    consumeSessionHandoff();
+
+    expect(useAuthStore.getState().user?.onboarding_completed).toBe(false);
+  });
+
   it("strips the hash and returns false on malformed base64", () => {
     setHash("#session=not-valid-base64!!!");
     const result = consumeSessionHandoff();

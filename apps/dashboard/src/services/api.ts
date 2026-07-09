@@ -21,6 +21,8 @@ import type {
   BackendLoginResponse,
   BackendTokenResponse,
   BackendOrganizationsResponse,
+  BackendOrgMembershipItem,
+  BackendUserPublic,
 } from "../types/backend";
 import {
   mapOverview,
@@ -226,10 +228,27 @@ export async function logout(): Promise<void> {
   }
 }
 
+export async function getMe(): Promise<BackendUserPublic> {
+  return get<BackendUserPublic>("/v1/auth/me");
+}
+
+/** EP-21.3 — marks the first-time onboarding wizard as completed for the current user. */
+export async function completeOnboarding(): Promise<BackendUserPublic> {
+  return post<BackendUserPublic>("/v1/auth/onboarding/complete", {});
+}
+
 // ── Organizations endpoint (EP-12.1) ──────────────────────────────────────────
 
 export async function getOrganizations(): Promise<BackendOrganizationsResponse> {
   return get<BackendOrganizationsResponse>("/v1/organizations");
+}
+
+/** EP-21.3 onboarding Step 2 — rename an organization/workspace. */
+export async function updateOrganization(
+  organizationId: string,
+  name: string,
+): Promise<BackendOrgMembershipItem> {
+  return patch<BackendOrgMembershipItem>(`/v1/organizations/${organizationId}`, { name });
 }
 
 // ── Member management (EP-13) ─────────────────────────────────────────────────

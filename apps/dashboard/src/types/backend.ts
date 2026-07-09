@@ -13,6 +13,11 @@ export interface BackendUserPublic {
   display_name: string;
   status: string;
   email_verified: boolean;
+  // EP-21.3: true once the first-time onboarding wizard (/onboarding) has
+  // been completed. The backend always sends this — it's the frontend's
+  // own *persisted* AuthUser (see stores/auth.ts) that can predate the
+  // field and needs the optional/undefined handling, not this wire type.
+  onboarding_completed: boolean;
 }
 
 export interface BackendLoginResponse {

@@ -26,6 +26,7 @@ interface HandoffUser {
   display_name: string;
   status: string;
   email_verified: boolean;
+  onboarding_completed?: boolean;
 }
 
 interface HandoffWorkspace {
@@ -83,6 +84,12 @@ export function consumeSessionHandoff(): boolean {
         display_name: payload.user.display_name,
         status: payload.user.status,
         email_verified: payload.user.email_verified,
+        // exactOptionalPropertyTypes: only set the key when we actually
+        // have a value — assigning `undefined` explicitly to an optional
+        // field is a type error under this tsconfig.
+        ...(payload.user.onboarding_completed !== undefined
+          ? { onboarding_completed: payload.user.onboarding_completed }
+          : {}),
       },
       false, // handoff sessions are not "remembered" past this browser session
     );

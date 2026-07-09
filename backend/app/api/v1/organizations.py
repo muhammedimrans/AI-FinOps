@@ -1,7 +1,8 @@
-"""Organizations API — EP-12.1, EP-13, EP-14, EP-15.
+"""Organizations API — EP-12.1, EP-13, EP-14, EP-15, EP-21.3.
 
 Endpoints:
   GET    /v1/organizations                — orgs the current user belongs to
+  PATCH  /v1/organizations/{org_id}       — rename an organization/workspace
   GET    /v1/organizations/{org_id}/members                 — list members
   POST   /v1/organizations/{org_id}/members                 — add/invite a member
   PATCH  /v1/organizations/{org_id}/members/{membership_id} — change a member's role
@@ -55,6 +56,7 @@ from app.models.user import User
 from app.realtime.event_bus import EventBus
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_api_key_repository import OrganizationApiKeyRepository
+from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.organization_api_keys import (
     ApiKeyCreatedResponse,
@@ -69,6 +71,7 @@ from app.schemas.organizations import (
     OrganizationsResponse,
     OrgMembershipItem,
     UpdateMemberRoleRequest,
+    UpdateOrganizationRequest,
 )
 from app.services.api_key_auth_service import ApiKeyAuthContext
 from app.services.organization_api_key_service import (
@@ -171,6 +174,35 @@ async def list_my_organizations(
             )
             for m in memberships
         ]
+    )
+
+
+@router.patch(
+    "/{org_id}",
+    response_model=OrgMembershipItem,
+    summary="Rename an organization/workspace",
+    description=(
+        "EP-21.3 onboarding Step 2 — renames the workspace's display name. "
+        "The slug is not editable here and never changes as a side effect."
+    ),
+)
+async def update_organization(
+    org_id: uuid.UUID,
+    body: UpdateOrganizationRequest,
+    db: DbDep,
+    caller: Annotated[Membership, RequirePermission(Permission.ORG_WRITE)],
+) -> OrgMembershipItem:
+    repo = OrganizationRepository(db)
+    org = await repo.get(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    updated = await repo.update(org, name=body.name)
+    return OrgMembershipItem(
+        id=str(updated.id),
+        name=updated.name,
+        slug=updated.slug,
+        role=caller.role.value,
     )
 
 

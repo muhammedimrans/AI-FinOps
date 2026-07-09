@@ -59,6 +59,7 @@ export interface UserPublic {
   display_name: string;
   status: string;
   email_verified: boolean;
+  onboarding_completed: boolean;
 }
 
 export interface WorkspacePublic {

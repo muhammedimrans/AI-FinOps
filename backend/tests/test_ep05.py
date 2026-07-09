@@ -381,6 +381,7 @@ class TestAuthSchemas:
             display_name="X",
             status="active",
             email_verified=True,
+            onboarding_completed=False,
         )
         assert up.email_verified is True
 

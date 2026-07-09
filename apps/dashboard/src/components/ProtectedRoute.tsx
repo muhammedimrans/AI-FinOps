@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import { getMe } from "../services/api";
 
 interface Props {
   children: ReactNode;
@@ -9,7 +10,8 @@ interface Props {
 // Attempts to obtain a valid access token silently using the persisted refresh token.
 // Shows nothing while the check is in progress to avoid a flash of the login redirect.
 export default function ProtectedRoute({ children }: Props) {
-  const { accessToken, refreshToken, setLogin, clearAuth, user } = useAuthStore();
+  const { accessToken, refreshToken, setLogin, updateUser, clearAuth, user } = useAuthStore();
+  const location = useLocation();
   const [checking, setChecking] = useState(!accessToken && !!refreshToken);
 
   useEffect(() => {
@@ -42,6 +44,17 @@ export default function ProtectedRoute({ children }: Props) {
         };
         // user is still in persisted store; only tokens change
         setLogin(data.access_token, data.refresh_token, user!);
+
+        // EP-21.3: refresh runs on every reload, so this is also the cheapest
+        // place to heal a persisted user object that predates
+        // onboarding_completed (or any other field added after the session
+        // was created) — best-effort, a failure here shouldn't block access.
+        try {
+          const me = await getMe();
+          updateUser({ onboarding_completed: me.onboarding_completed });
+        } catch {
+          // ignore — stale field self-heals on the next successful refresh
+        }
       } catch {
         clearAuth();
       } finally {
@@ -58,6 +71,16 @@ export default function ProtectedRoute({ children }: Props) {
 
   if (!accessToken) {
     return <Navigate to="/login" replace />;
+  }
+
+  // EP-21.3: onboarding must run once, right after auth, regardless of entry
+  // point (website registration handoff, website login handoff, or the
+  // dashboard's own /login) — enforced here rather than at each call site so
+  // there is exactly one place this rule can be gotten wrong. `undefined`
+  // (unknown — e.g. a session persisted before this field existed) is not
+  // forced into onboarding; it self-heals via the refresh-time sync above.
+  if (user?.onboarding_completed === false && location.pathname !== "/onboarding") {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return <>{children}</>;

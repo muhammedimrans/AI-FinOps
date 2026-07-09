@@ -358,6 +358,9 @@ importers:
       vite:
         specifier: ^8.0.16
         version: 8.1.4(@types/node@22.20.1)(esbuild@0.25.12)(jiti@1.21.7)
+      vitest:
+        specifier: ^2.1.1
+        version: 2.1.9(@types/node@22.20.1)(jsdom@25.0.1)(lightningcss@1.32.0)
 
   packages/api-contracts:
     dependencies:

@@ -407,7 +407,16 @@ export async function deleteProject(organizationId: string, projectId: string): 
   return del<void>(`/v1/organizations/${organizationId}/projects/${projectId}`);
 }
 
-// ── Provider Connections CRUD (EP-22) ──────────────────────────────────────────
+// ── Provider Connections CRUD + credentials (EP-22) ─────────────────────────────
+
+export type ProviderValidationStatus =
+  | "healthy"
+  | "invalid_api_key"
+  | "unauthorized"
+  | "quota_exceeded"
+  | "network_failure"
+  | "timeout"
+  | "provider_unavailable";
 
 export interface ProviderConnectionRecord {
   id: string;
@@ -415,7 +424,12 @@ export interface ProviderConnectionRecord {
   display_name: string;
   project_id: string | null;
   is_active: boolean;
+  has_credential: boolean;
+  masked_api_key: string | null; // e.g. "sk-********************************AbC" — never the real key
+  base_url: string | null;
   health_status: "unknown" | "healthy" | "warning" | "critical" | "recovering";
+  last_validation_status: ProviderValidationStatus | null;
+  last_error: string | null;
   last_failure_at: string | null;
   last_recovery_at: string | null;
   consecutive_failure_count: number;
@@ -438,7 +452,13 @@ export async function listProviderConnections(
 
 export async function createProviderConnection(
   organizationId: string,
-  body: { provider_type: string; display_name: string; project_id?: string },
+  body: {
+    provider_type: string;
+    display_name: string;
+    api_key?: string;
+    base_url?: string;
+    project_id?: string;
+  },
 ): Promise<ProviderConnectionRecord> {
   return post<ProviderConnectionRecord>(
     `/v1/organizations/${organizationId}/provider-connections`,
@@ -449,7 +469,12 @@ export async function createProviderConnection(
 export async function updateProviderConnection(
   organizationId: string,
   connectionId: string,
-  body: { display_name?: string; project_id?: string | null; is_active?: boolean },
+  body: {
+    display_name?: string;
+    base_url?: string;
+    project_id?: string | null;
+    is_active?: boolean;
+  },
 ): Promise<ProviderConnectionRecord> {
   return patch<ProviderConnectionRecord>(
     `/v1/organizations/${organizationId}/provider-connections/${connectionId}`,
@@ -468,6 +493,7 @@ export interface TestProviderConnectionResult {
   connection_id: string;
   provider_type: string;
   health_status: string;
+  last_validation_status: ProviderValidationStatus;
   tested: boolean;
   detail: string;
 }
@@ -479,6 +505,17 @@ export async function testProviderConnectionById(
   return post<TestProviderConnectionResult>(
     `/v1/organizations/${organizationId}/provider-connections/${connectionId}/test`,
     {},
+  );
+}
+
+export async function rotateProviderConnectionKey(
+  organizationId: string,
+  connectionId: string,
+  apiKey: string,
+): Promise<ProviderConnectionRecord> {
+  return post<ProviderConnectionRecord>(
+    `/v1/organizations/${organizationId}/provider-connections/${connectionId}/rotate`,
+    { api_key: apiKey },
   );
 }
 

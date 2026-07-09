@@ -6,11 +6,15 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  Eye,
+  EyeOff,
+  KeyRound,
   Loader2,
   Pencil,
   Plug,
   PlugZap,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -29,6 +33,7 @@ import {
   updateProviderConnection,
   deleteProviderConnection,
   testProviderConnectionById,
+  rotateProviderConnectionKey,
   ApiError,
   type TestConnectionResponse,
   type ProviderConnectionRecord,
@@ -296,6 +301,69 @@ function HealthBadge({ status }: { status: string }) {
   return <span className={cn("badge text-[10px]", cfg.className)}>{cfg.label}</span>;
 }
 
+// EP-22 Part 3 — normalized validation-outcome vocabulary, one label per
+// ProviderValidationStatus value. Never derived from raw provider error text.
+const VALIDATION_LABELS: Record<string, string> = {
+  healthy: "Connection healthy",
+  invalid_api_key: "Invalid API key",
+  unauthorized: "Not authorized",
+  quota_exceeded: "Quota exceeded",
+  network_failure: "Network error",
+  timeout: "Timed out",
+  provider_unavailable: "Provider unavailable",
+};
+
+function formatValidatedAt(iso: string | null): string | null {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return null;
+  }
+}
+
+/** EP-22 Part 6 — masked-by-default API key input with a reveal toggle. */
+function ApiKeyInput({
+  value,
+  onChange,
+  disabled,
+  placeholder,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  disabled?: boolean;
+  placeholder: string;
+  autoFocus?: boolean;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        type={revealed ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        autoComplete="off"
+        spellCheck={false}
+        className="w-full rounded-lg border border-border-subtle bg-app-bg px-3 py-2 pr-9 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60 font-mono"
+      />
+      <button
+        type="button"
+        onClick={() => setRevealed((r) => !r)}
+        disabled={disabled}
+        className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-muted hover:text-tx-primary disabled:opacity-60"
+        aria-label={revealed ? "Hide API key" : "Reveal API key"}
+        tabIndex={-1}
+      >
+        {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
+  );
+}
+
 function AddConnectionForm({
   organizationId,
   onDone,
@@ -306,16 +374,31 @@ function AddConnectionForm({
   const queryClient = useQueryClient();
   const [providerType, setProviderType] = useState(CONNECTABLE_PROVIDERS[0]!.value);
   const [displayName, setDisplayName] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+
+  const requiresBaseUrl = providerType === "azure_openai";
 
   const create = useMutation({
     mutationFn: () =>
       createProviderConnection(organizationId, {
         provider_type: providerType,
         display_name: displayName.trim(),
+        ...(apiKey.trim() && { api_key: apiKey.trim() }),
+        ...(baseUrl.trim() && { base_url: baseUrl.trim() }),
       }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
-      toast.success("Connection added", `${displayName.trim()} is ready to use.`);
+      if (created.last_validation_status === "healthy") {
+        toast.success("Connection added", `${created.display_name} is verified and ready.`);
+      } else if (created.last_validation_status) {
+        toast.warning(
+          "Connection added — validation failed",
+          created.last_error ?? "The credential could not be verified.",
+        );
+      } else {
+        toast.success("Connection added", `${created.display_name} was saved.`);
+      }
       onDone();
     },
     onError: (err: unknown) => {
@@ -331,37 +414,68 @@ function AddConnectionForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (displayName.trim().length === 0) return;
+        if (requiresBaseUrl && baseUrl.trim().length === 0) return;
         create.mutate();
       }}
-      className="flex flex-col sm:flex-row gap-2 rounded-xl border border-border-subtle bg-app-muted p-3"
+      className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-app-muted p-3"
     >
-      <select
-        value={providerType}
-        onChange={(e) => setProviderType(e.target.value)}
-        disabled={create.isPending}
-        className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
-      >
-        {CONNECTABLE_PROVIDERS.map((p) => (
-          <option key={p.value} value={p.value}>
-            {p.label}
-          </option>
-        ))}
-      </select>
-      <input
-        value={displayName}
-        onChange={(e) => setDisplayName(e.target.value)}
-        placeholder="Connection name (e.g. Production OpenAI)"
-        disabled={create.isPending}
-        autoFocus
-        className="flex-1 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
-      />
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
+        <select
+          value={providerType}
+          onChange={(e) => setProviderType(e.target.value)}
+          disabled={create.isPending}
+          className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+        >
+          {CONNECTABLE_PROVIDERS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder="Connection name (e.g. Production OpenAI)"
+          disabled={create.isPending}
+          autoFocus
+          className="flex-1 min-w-0 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+        />
+      </div>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <ApiKeyInput
+          value={apiKey}
+          onChange={setApiKey}
+          disabled={create.isPending}
+          placeholder={
+            providerType === "ollama" ? "API key (not required for Ollama)" : "API key (sk-...)"
+          }
+        />
+        <input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder={
+            requiresBaseUrl ? "Resource endpoint (required, e.g. https://my-resource.openai.azure.com)" : "Base URL (optional)"
+          }
+          disabled={create.isPending}
+          className="flex-1 min-w-0 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+        />
+      </div>
+      <p className="text-[11px] text-tx-muted">
+        The key is encrypted immediately and validated live against {connectableLabel(providerType)} on save.
+        It is never shown again in full.
+      </p>
+      <div className="flex gap-2 self-end">
         <button
           type="submit"
-          disabled={create.isPending || displayName.trim().length === 0}
-          className="btn-primary h-9 px-4 text-xs disabled:opacity-60"
+          disabled={
+            create.isPending ||
+            displayName.trim().length === 0 ||
+            (requiresBaseUrl && baseUrl.trim().length === 0)
+          }
+          className="btn-primary h-9 px-4 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
         >
-          {create.isPending ? "Adding…" : "Add"}
+          {create.isPending && <Loader2 size={13} className="animate-spin" />}
+          {create.isPending ? "Adding & validating…" : "Add"}
         </button>
         <button type="button" onClick={onDone} className="btn-ghost h-9 px-3 text-xs">
           Cancel
@@ -382,6 +496,8 @@ function ConnectionRow({
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(connection.display_name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [rotating, setRotating] = useState(false);
+  const [newKey, setNewKey] = useState("");
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
@@ -424,6 +540,29 @@ function ConnectionRow({
     onError: () => toast.error("Test failed", "Unexpected error while testing the connection."),
   });
 
+  const rotate = useMutation({
+    mutationFn: () => rotateProviderConnectionKey(organizationId, connection.id, newKey.trim()),
+    onSuccess: (updated) => {
+      void invalidate();
+      setRotating(false);
+      setNewKey("");
+      if (updated.last_validation_status === "healthy") {
+        toast.success("Key rotated", "The new key was validated successfully.");
+      } else {
+        toast.warning(
+          "Key rotated — validation failed",
+          updated.last_error ?? "The new credential could not be verified.",
+        );
+      }
+    },
+    onError: (err: unknown) => {
+      toast.error(
+        "Couldn't rotate key",
+        err instanceof ApiError ? err.message : "Please try again.",
+      );
+    },
+  });
+
   const remove = useMutation({
     mutationFn: () => deleteProviderConnection(organizationId, connection.id),
     onSuccess: () => {
@@ -434,86 +573,154 @@ function ConnectionRow({
   });
 
   const color = CONNECTABLE_PROVIDERS.find((p) => p.value === connection.provider_type)?.color ?? "#888";
+  const lastValidatedAt = connection.last_recovery_at ?? connection.last_failure_at;
+  const lastValidatedLabel = formatValidatedAt(lastValidatedAt);
 
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-xl border border-border-subtle bg-app-muted p-3">
-      <div className="flex items-center gap-2.5 min-w-0 flex-1">
-        <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
-        {editing ? (
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={rename.isPending}
-            autoFocus
-            className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-app-bg px-2 py-1 text-sm text-tx-primary outline-none focus:border-brand"
-          />
-        ) : (
-          <div className="min-w-0">
-            <p className="text-sm text-tx-primary truncate">{connection.display_name}</p>
-            <p className="text-[11px] text-tx-muted">{connectableLabel(connection.provider_type)}</p>
-          </div>
-        )}
+    <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-app-muted p-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
+          {editing ? (
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={rename.isPending}
+              autoFocus
+              className="min-w-0 flex-1 rounded-lg border border-border-subtle bg-app-bg px-2 py-1 text-sm text-tx-primary outline-none focus:border-brand"
+            />
+          ) : (
+            <div className="min-w-0">
+              <p className="text-sm text-tx-primary truncate">{connection.display_name}</p>
+              <p className="text-[11px] text-tx-muted">
+                {connectableLabel(connection.provider_type)}
+                {connection.masked_api_key && (
+                  <span className="ml-1.5 font-mono text-tx-secondary">{connection.masked_api_key}</span>
+                )}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <HealthBadge status={connection.health_status} />
+          <span className={cn("badge text-[10px]", connection.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
+            {connection.is_active ? "Active" : "Inactive"}
+          </span>
+
+          {editing ? (
+            <>
+              <button
+                onClick={() => rename.mutate()}
+                disabled={rename.isPending || name.trim().length === 0}
+                className="btn-primary h-7 px-2 text-[11px] disabled:opacity-60"
+              >
+                Save
+              </button>
+              <button
+                onClick={() => {
+                  setEditing(false);
+                  setName(connection.display_name);
+                }}
+                className="btn-ghost h-7 px-2 text-[11px]"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => test.mutate()}
+                disabled={test.isPending}
+                className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1"
+              >
+                {test.isPending ? <Loader2 size={11} className="animate-spin" /> : <Activity size={11} />}
+                Test
+              </button>
+              <button
+                onClick={() => setRotating((r) => !r)}
+                className="btn-ghost h-7 px-2 text-[11px] inline-flex items-center gap-1"
+                aria-expanded={rotating}
+              >
+                <RefreshCw size={11} /> Rotate key
+              </button>
+              <button
+                onClick={() => toggleActive.mutate()}
+                disabled={toggleActive.isPending}
+                className="btn-ghost h-7 px-2 text-[11px]"
+              >
+                {connection.is_active ? "Deactivate" : "Activate"}
+              </button>
+              <button
+                onClick={() => setEditing(true)}
+                className="text-tx-muted hover:text-tx-primary"
+                aria-label="Rename connection"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                className="text-tx-muted hover:text-danger"
+                aria-label="Delete connection"
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap">
-        <HealthBadge status={connection.health_status} />
-        <span className={cn("badge text-[10px]", connection.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
-          {connection.is_active ? "Active" : "Inactive"}
-        </span>
+      {/* EP-22 Part 6 — health badge, last validation timestamp, error message */}
+      {(connection.last_validation_status || lastValidatedLabel) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tx-muted pl-5">
+          {connection.last_validation_status && (
+            <span className={connection.last_validation_status === "healthy" ? "text-success" : "text-danger"}>
+              {VALIDATION_LABELS[connection.last_validation_status] ?? connection.last_validation_status}
+            </span>
+          )}
+          {lastValidatedLabel && <span>Last checked {lastValidatedLabel}</span>}
+          {connection.last_error && <span className="text-danger">{connection.last_error}</span>}
+        </div>
+      )}
 
-        {editing ? (
-          <>
+      {rotating && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (newKey.trim().length === 0) return;
+            rotate.mutate();
+          }}
+          className="flex flex-col sm:flex-row gap-2 rounded-lg border border-border-subtle bg-app-bg p-2.5 ml-5"
+        >
+          <ApiKeyInput
+            value={newKey}
+            onChange={setNewKey}
+            disabled={rotate.isPending}
+            placeholder="New API key"
+            autoFocus
+          />
+          <div className="flex gap-2">
             <button
-              onClick={() => rename.mutate()}
-              disabled={rename.isPending || name.trim().length === 0}
-              className="btn-primary h-7 px-2 text-[11px] disabled:opacity-60"
+              type="submit"
+              disabled={rotate.isPending || newKey.trim().length === 0}
+              className="btn-primary h-9 px-3 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
             >
-              Save
+              {rotate.isPending ? <Loader2 size={12} className="animate-spin" /> : <KeyRound size={12} />}
+              {rotate.isPending ? "Rotating…" : "Save & validate"}
             </button>
             <button
+              type="button"
               onClick={() => {
-                setEditing(false);
-                setName(connection.display_name);
+                setRotating(false);
+                setNewKey("");
               }}
-              className="btn-ghost h-7 px-2 text-[11px]"
+              className="btn-ghost h-9 px-3 text-xs"
             >
               Cancel
             </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={() => test.mutate()}
-              disabled={test.isPending}
-              className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1"
-            >
-              {test.isPending ? <Loader2 size={11} className="animate-spin" /> : <Activity size={11} />}
-              Test
-            </button>
-            <button
-              onClick={() => toggleActive.mutate()}
-              disabled={toggleActive.isPending}
-              className="btn-ghost h-7 px-2 text-[11px]"
-            >
-              {connection.is_active ? "Deactivate" : "Activate"}
-            </button>
-            <button
-              onClick={() => setEditing(true)}
-              className="text-tx-muted hover:text-tx-primary"
-              aria-label="Rename connection"
-            >
-              <Pencil size={13} />
-            </button>
-            <button
-              onClick={() => setConfirmingDelete(true)}
-              className="text-tx-muted hover:text-danger"
-              aria-label="Delete connection"
-            >
-              <Trash2 size={13} />
-            </button>
-          </>
-        )}
-      </div>
+          </div>
+        </form>
+      )}
 
       <ConfirmDialog
         open={confirmingDelete}

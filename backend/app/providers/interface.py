@@ -98,3 +98,13 @@ class AIProvider(HealthCheckInterface):
     @property
     def display_name(self) -> str:
         return self._config.display_name
+
+    async def aclose(self) -> None:
+        """Release any resources (HTTP connection pool, etc). Default no-op.
+
+        Every production adapter with a live connection pool overrides this;
+        declaring the default here (rather than leaving it adapter-specific)
+        lets generic callers like ``ProviderValidator`` always
+        ``await adapter.aclose()`` without an ``isinstance``/``hasattr`` check.
+        """
+        return None

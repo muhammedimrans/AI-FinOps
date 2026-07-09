@@ -33,6 +33,15 @@ class SecretResolver:
     @staticmethod
     def resolve(ref: SecretReference, *, provider_type: str) -> str:
         """Return the secret value for *ref* or raise AuthenticationError."""
+        if ref.secret_store == SecretStoreType.INLINE:
+            # EP-22: already-decrypted value, constructed only by
+            # ProviderValidator for the lifetime of a single validation call.
+            if not ref.lookup_key:
+                raise AuthenticationError(
+                    "No credential provided for validation.", provider_type=provider_type
+                )
+            return ref.lookup_key
+
         if ref.secret_store == SecretStoreType.ENV:
             value = os.environ.get(ref.lookup_key, "")
             if not value:
@@ -73,6 +82,23 @@ class CredentialValidator:
     _ANTHROPIC_PREFIX = "sk-ant-"
     _ANTHROPIC_MIN_LEN = 20
 
+    # Grok (xAI) keys: "xai-..."
+    _GROK_PREFIX = "xai-"
+    _GROK_MIN_LEN = 16
+
+    # OpenRouter keys: "sk-or-v1-..."
+    _OPENROUTER_PREFIX = "sk-or-"
+    _OPENROUTER_MIN_LEN = 16
+
+    # Google Gemini API keys have no single stable prefix across key types
+    # (AI Studio keys are "AIza..." but service-account/OAuth flows differ) —
+    # length is the only format check we can make without false-rejecting
+    # valid keys.
+    _GOOGLE_MIN_LEN = 20
+
+    # Azure OpenAI resource keys are opaque 32-character hex strings, no prefix.
+    _AZURE_MIN_LEN = 20
+
     @classmethod
     def validate_openai_key(cls, key: str) -> None:
         """Raise InvalidRequestError if *key* does not look like an OpenAI key."""
@@ -99,4 +125,50 @@ class CredentialValidator:
             raise InvalidRequestError(
                 "Invalid Anthropic API key — key is too short",
                 provider_type="anthropic",
+            )
+
+    @classmethod
+    def validate_grok_key(cls, key: str) -> None:
+        """Raise InvalidRequestError if *key* does not look like a Grok (xAI) key."""
+        if not key.startswith(cls._GROK_PREFIX):
+            raise InvalidRequestError(
+                "Invalid Grok API key format — key must start with 'xai-'",
+                provider_type="grok",
+            )
+        if len(key) < cls._GROK_MIN_LEN:
+            raise InvalidRequestError(
+                "Invalid Grok API key — key is too short",
+                provider_type="grok",
+            )
+
+    @classmethod
+    def validate_openrouter_key(cls, key: str) -> None:
+        """Raise InvalidRequestError if *key* does not look like an OpenRouter key."""
+        if not key.startswith(cls._OPENROUTER_PREFIX):
+            raise InvalidRequestError(
+                "Invalid OpenRouter API key format — key must start with 'sk-or-'",
+                provider_type="openrouter",
+            )
+        if len(key) < cls._OPENROUTER_MIN_LEN:
+            raise InvalidRequestError(
+                "Invalid OpenRouter API key — key is too short",
+                provider_type="openrouter",
+            )
+
+    @classmethod
+    def validate_google_key(cls, key: str) -> None:
+        """Raise InvalidRequestError if *key* is too short to be a Google API key."""
+        if len(key) < cls._GOOGLE_MIN_LEN:
+            raise InvalidRequestError(
+                "Invalid Google API key — key is too short",
+                provider_type="google",
+            )
+
+    @classmethod
+    def validate_azure_key(cls, key: str) -> None:
+        """Raise InvalidRequestError if *key* is too short to be an Azure OpenAI key."""
+        if len(key) < cls._AZURE_MIN_LEN:
+            raise InvalidRequestError(
+                "Invalid Azure OpenAI API key — key is too short",
+                provider_type="azure_openai",
             )

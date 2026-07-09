@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC
 
+import httpx
 import pytest
 
 from app.models.provider_connection import ProviderType
@@ -772,8 +773,10 @@ class TestGrokProvider:
             await self._make().complete(ProviderRequest(model_id="grok-2-1212", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_verify_auth_without_key_raises_authentication_error(self) -> None:
+        # EP-22: verify_auth is now real; with no api_key_ref configured it
+        # raises AuthenticationError before attempting any network call.
+        with pytest.raises(AuthenticationError):
             await self._make().verify_auth()
 
 
@@ -803,8 +806,8 @@ class TestGoogleProvider:
             await self._make().complete(ProviderRequest(model_id="gemini-1.5-pro", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_verify_auth_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().verify_auth()
 
 
@@ -836,8 +839,8 @@ class TestAzureOpenAIProvider:
             await self._make().complete(ProviderRequest(model_id="gpt-4o", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_verify_auth_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().verify_auth()
 
 
@@ -866,8 +869,8 @@ class TestOpenRouterProvider:
             await self._make().complete(ProviderRequest(model_id="openai/gpt-4o", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_verify_auth_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().verify_auth()
 
 
@@ -875,9 +878,9 @@ class TestOpenRouterProvider:
 
 
 class TestOllamaProvider:
-    def _make(self) -> OllamaProvider:
+    def _make(self, *, http_transport: object = None) -> OllamaProvider:
         cfg = OllamaConfig(display_name="Ollama Test")
-        return OllamaProvider(cfg)
+        return OllamaProvider(cfg, http_transport=http_transport)
 
     def test_provider_type(self) -> None:
         assert self._make().provider_type == ProviderType.OLLAMA
@@ -889,8 +892,13 @@ class TestOllamaProvider:
         assert caps.supports_usage_api is False
 
     @pytest.mark.asyncio
-    async def test_list_models(self) -> None:
-        models = await self._make().list_models()
+    async def test_list_models_falls_back_to_static_catalog_when_unreachable(self) -> None:
+        # No server reachable — list_models() catches the failure and falls
+        # back to the static catalog rather than raising (EP-22).
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        models = await self._make(http_transport=httpx.MockTransport(handler=handler)).list_models()
         assert len(models) >= 1
         ids = [m.id for m in models]
         assert any(mid in ("llama3.2", "llama3.1", "mistral") for mid in ids)
@@ -901,9 +909,14 @@ class TestOllamaProvider:
             await self._make().complete(ProviderRequest(model_id="llama3.2", messages=[]))
 
     @pytest.mark.asyncio
-    async def test_verify_auth_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            await self._make().verify_auth()
+    async def test_verify_auth_unreachable_raises_network_error(self) -> None:
+        # EP-22: verify_auth is now real (GET /api/tags); when the server is
+        # unreachable it raises NetworkError rather than NotImplementedError.
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        with pytest.raises(NetworkError):
+            await self._make(http_transport=httpx.MockTransport(handler=handler)).verify_auth()
 
 
 # ── Retry models ──────────────────────────────────────────────────────────────
@@ -1372,18 +1385,13 @@ class TestHealthInterface:
             assert p.is_healthy is False
 
     @pytest.mark.asyncio
-    async def test_all_adapters_check_capability_not_implemented(self) -> None:
-        # OpenAI and Anthropic implement check_capability in EP-07; other
-        # adapters still raise NotImplementedError until their own EP.
-        ep07_adapters = (OpenAIProvider, AnthropicProvider)
+    async def test_all_adapters_check_capability_implemented(self) -> None:
+        # EP-22: every adapter now implements check_capability (previously
+        # only OpenAI/Anthropic did, from EP-07).
         for cls, cfg in self._ALL_PROVIDERS:
             p = cls(cfg)
-            if isinstance(p, ep07_adapters):
-                result = await p.check_capability("streaming")
-                assert isinstance(result, bool)
-            else:
-                with pytest.raises(NotImplementedError):
-                    await p.check_capability("streaming")
+            result = await p.check_capability("streaming")
+            assert isinstance(result, bool)
 
     def test_all_adapters_satisfy_health_interface(self) -> None:
         from app.providers.health import HealthCheckInterface

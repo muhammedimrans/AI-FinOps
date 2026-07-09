@@ -987,3 +987,152 @@ Every `RequirePermission(...)`/`RequireMembershipOrApiKeyPermission(...)` annota
 1. **Frontend permission-awareness** (see "Known limitations") — the single highest-value follow-up: a shared `useHasPermission()` hook so buttons reflect what a role can actually do, rather than relying entirely on 403-after-click.
 2. **`deleted_by` consistency** — thread `current_user.id` through every `soft_delete()` call site that doesn't already pass it, for complete audit trails.
 3. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this audit and remains true: wiring `ProviderConnection.encrypted_api_key` into real usage collection, and transactional email (§17).
+
+---
+
+## 19. EP-23.3 — AI Usage Synchronization Engine
+
+**Status: complete.** Closes the loop every prior EP since §13 has flagged as "the next real blocker": a validated, encrypted `ProviderConnection` credential (EP-22) now actually pulls usage data, not just proves reachability. No dashboard analytics were added or changed by this EP — that is explicitly out of scope, reserved for a future EP built on top of the data this engine now writes.
+
+### Why this needed almost no new infrastructure
+
+Auditing the existing codebase first (per this EP's own instruction) found that EP-08 had already built the entire usage-collection pipeline — `UsageCollectionService` (pagination, checkpointing, normalization, persistence), `UsageCollectionRun`/`UsageCollectionCheckpoint` models and repositories, retry-on-transient-failure via `ProviderHttpClient`/`ExponentialRetryPolicy` — but wired it only to server-side environment-variable credentials, never a customer's own connected, encrypted credential. Building a second collection pipeline for customer credentials would have been exactly the kind of duplicated business logic this EP was explicitly told not to write. Instead, `UsageCollectionService.collect()` gained one optional parameter (`config: ProviderConfig | None`) so a caller can inject an already-built, connection-derived `ProviderConfig` instead of the function's original env-var lookup — every other line of pagination/checkpoint/normalization/persistence logic is untouched and still shared by both the env-var-keyed ops path (`app/api/v1/usage.py`, unchanged) and the new customer-credential path below.
+
+### Architecture
+
+```
+ProviderConnection (encrypted_api_key, EP-22)
+        │
+        ▼
+ProviderCredentialService.decrypt()      — same EP-22 service; decrypts only
+        │                                   in memory, for this one call
+        ▼
+build_provider_config()                  — app/providers/validation.py,
+        │                                   promoted from private _build_config
+        │                                   to a public function EP-22's
+        │                                   ProviderValidator and this EP's
+        │                                   ProviderSyncService both call —
+        │                                   one place builds a ProviderConfig
+        │                                   from a decrypted key, not two
+        ▼
+UsageCollectionService.collect(config=…) — EP-08, unchanged except for the
+        │                                   optional config parameter above;
+        │                                   still owns pagination, the
+        │                                   provider adapter's retry-capable
+        │                                   HTTP client, normalization
+        │                                   (NormalizerRegistry), dedup
+        │                                   upsert, and checkpoint advance
+        ▼
+UsageCollectionRun (+ UsageCollectionCheckpoint, UsageEvent, UsageCostRecord)
+        │
+        ▼
+ProviderSyncService.get_sync_status()    — derives "sync status" fields
+                                            entirely from the rows above;
+                                            nothing new is persisted for
+                                            status tracking
+```
+
+`ProviderSyncService` (`app/services/provider_sync_service.py`, new) is the thin orchestration layer requested by this EP's "reusable synchronization service" requirement — it does not reimplement anything EP-08 or EP-22 already does; it composes them.
+
+### Sequence diagram — manual sync of one connection
+
+```
+Frontend            API router              ProviderSyncService        ProviderCredentialService   UsageCollectionService        Provider
+   │  POST .../sync     │                          │                          │                          │                      │
+   ├───────────────────►│                          │                          │                          │                      │
+   │                    │  sync_connection(conn)   │                          │                          │                      │
+   │                    ├─────────────────────────►│                          │                          │                      │
+   │                    │                          │  decrypt(encrypted_key)  │                          │                      │
+   │                    │                          ├─────────────────────────►│                          │                      │
+   │                    │                          │◄─────────────────────────┤ plaintext (memory only)  │                      │
+   │                    │                          │  build_provider_config() │                          │                      │
+   │                    │                          │  collect(config=cfg)     │                          │                      │
+   │                    │                          ├──────────────────────────┼─────────────────────────►│  get_usage() (paged) │
+   │                    │                          │                          │                          ├─────────────────────►│
+   │                    │                          │                          │                          │◄─────────────────────┤
+   │                    │                          │                          │                          │  normalize + upsert  │
+   │                    │                          │                          │                          │  advance checkpoint  │
+   │                    │                          │◄─────────────────────────┼──────────────────────────┤  UsageCollectionRun  │
+   │                    │  get_sync_status(conn)    │  (COMPLETED or FAILED)  │                          │                      │
+   │                    │◄─────────────────────────┤                          │                          │                      │
+   │◄───────────────────┤  TriggerSyncResponse      │                          │                          │                      │
+```
+
+A failed provider call never reaches the frontend as a 500: `UsageCollectionService.collect()` persists a `FAILED` `UsageCollectionRun` (existing EP-08 behavior) and re-raises; `ProviderSyncService.sync_connection()` catches that specific exception, re-fetches the just-persisted `FAILED` run via the new `UsageCollectionRunRepository.get_latest_for_connection()`, and returns it as a normal terminal result. Only a genuinely unexpected exception (e.g. a database error) propagates past this layer.
+
+### `ProviderSyncService` (`app/services/provider_sync_service.py`, new)
+
+- **`sync_connection(organization_id, connection, triggered_by=MANUAL, lookback_days=30)`** — syncs one connection. Always returns a terminal `UsageCollectionRun` (`COMPLETED` or `FAILED`), never raises for a provider-side failure.
+- **`sync_all_connections(organization_id, ...)`** — syncs every active connection in an org (via the pre-existing `ProviderConnectionRepository.list_active_by_org`). One connection's failure never stops the others — each is awaited in turn and every outcome is included in the returned list.
+- **`get_sync_status(organization_id, connection)`** — read-only, no side effects. Returns a `SyncStatus` dataclass derived from: the latest `UsageCollectionRun` (any status, for "last sync started/completed" and "last error"), the latest `COMPLETED` run (for "last successful sync"), the `UsageCollectionCheckpoint` (for "last imported timestamp"), and new all-time aggregate queries on `UsageEvent`/`UsageCostRecord` (for records/tokens/cost imported).
+- **Manual vs. incremental**: every call is "manual" in the sense that this EP wires no scheduler (see "Known limitations"), but the *date range* requested from the provider is always incremental — `_effective_start()` resumes from `UsageCollectionCheckpoint.last_collected_at` when one exists and is within the lookback window, otherwise falls back to a bounded `DEFAULT_LOOKBACK_DAYS = 30` window rather than requesting a provider's entire history on every call.
+- **Unsupported providers are honest, not faked.** Only `openai` and `anthropic` have a real `get_usage()` implementation as of this EP (`_PRODUCTION_USAGE_PROVIDERS`, mirroring §13's `_PRODUCTION_PROVIDERS`/`_PRODUCTION_USAGE_PROVIDERS` distinction for the other 5 named providers). Syncing one of the other 5 records an honest, zero-events `COMPLETED` run with an explanatory `error_message` — never a fabricated import, never a hard error the user can't act on. `SyncStatus.supports_usage_sync` surfaces this to the frontend so the UI can disable "Sync now" with an explanation instead of letting the user retry a call that can never succeed.
+
+### Retry strategy — reused, not rebuilt
+
+This EP's retry requirements (retry transient failures, never retry authentication failures) were already fully satisfied by EP-06/EP-07's `ProviderHttpClient` (`app/http/client.py`) and `ExponentialRetryPolicy` (`app/http/retry.py`), which retry every individual provider HTTP request based on `ProviderError.retryable` flags (`app/providers/errors.py`):
+
+| Exception | `retryable` | Retried? |
+|---|---|---|
+| `RateLimitError` | `True` | Yes |
+| `NetworkError` | `True` | Yes |
+| `InternalProviderError` | `True` | Yes |
+| `AuthenticationError` | `False` | No |
+| `QuotaExceededError` | `False` | No |
+| `InvalidRequestError` | `False` | No |
+
+No new retry code was written. A whole *sync run* that still fails after those per-request retries is simply left in `FAILED` status with the normalized error captured — the user's own "Sync Now" click (or a future scheduled retry, which is just "call sync again") naturally resumes from the last checkpoint. A separate retry-scheduling subsystem was deliberately not built, since nothing in this EP's scope requires unattended background retries (see "Known limitations" on scheduling).
+
+### Database — no migration
+
+Every "sync status" field this EP's spec requested (Last Sync Started, Last Sync Completed, Last Successful Sync, Last Error, Last Imported Timestamp, Sync Status) is derived entirely from existing rows: `UsageCollectionRun` (EP-08) already records `started_at`/`completed_at`/`status`/`error_message`/`events_collected`/`events_failed`; `UsageCollectionCheckpoint` (EP-08) already records `last_collected_at`. Two new **read** methods were added, no new columns and no migration:
+
+- `UsageCollectionRunRepository.get_latest_for_connection(org_id, connection_id, status=None)` — the connection-scoped counterpart to the existing provider-scoped `get_latest_for_provider`.
+- `UsageEventRepository.get_totals_by_connection(connection_id)` — all-time record/token counts, counted from `UsageEvent` (created for every collected event) rather than `UsageCostRecord` (created only when a price match exists) so the total is never undercounted by a missing price.
+- `UsageCostRecordRepository.get_totals_by_connection(connection_id)` — all-time cost totals grouped by currency (mirrors the existing `get_totals_by_org`'s currency-grouping pattern, but lifetime rather than period-scoped).
+
+### API — 3 new endpoints, all on the existing EP-22 router
+
+No new router file. `app/api/v1/provider_connections.py` (EP-22) gained three endpoints, reusing its existing `_get_owned_connection` helper and `PROVIDER_READ`/`PROVIDER_WRITE` permissions verbatim — no RBAC changes:
+
+| Method | Path | Permission | Purpose |
+|---|---|---|---|
+| GET | `/v1/organizations/{org_id}/provider-connections/{id}/sync-status` | `PROVIDER_READ` | Read-only derived sync status |
+| POST | `/v1/organizations/{org_id}/provider-connections/{id}/sync` | `PROVIDER_WRITE` | Manually sync one connection |
+| POST | `/v1/organizations/{org_id}/provider-connections/sync` | `PROVIDER_WRITE` | Manually sync every active connection in the org |
+
+`PROVIDER_WRITE` is ADMIN+OWNER only (unchanged from EP-22, §13) — a MEMBER can view sync status but not trigger a sync, matching the existing test/rotate endpoints' authorization boundary exactly.
+
+New schemas (`app/schemas/provider_connections.py`): `SyncStatusResponse`, `SyncRunResponse`, `TriggerSyncResponse`, `SyncAllResponse`, `CostImportedItem`. `estimated_cost_imported` costs are serialized as strings (not floats) to avoid float-precision loss across the API boundary, matching how monetary values are handled elsewhere in this codebase.
+
+### Security
+
+Identical guarantees to EP-22's credential handling (§13 Part 7), because this EP calls the same `ProviderCredentialService.decrypt()` and never introduces a second decryption path: the plaintext key exists only as a Python local for the duration of one `sync_connection()` call, is never logged (structlog calls in `provider_sync_service.py` bind only `provider`/`organization_id`/`connection_id`/timing/counts — never the exception message itself, which is logged only as `error_type=type(exc).__name__`), never returned in any API response, and never persisted anywhere in plaintext. `SyncRunResponse.error_message` and `SyncStatusResponse.last_error` both come from `UsageCollectionRun.error_message`, which EP-08's own exception handling already populates from `str(exc)` on the *provider adapter's* exception hierarchy — the same hierarchy EP-22's `ProviderValidator` already established never interpolates credential material into its messages.
+
+### Frontend (`apps/dashboard/src/features/Connections.tsx`)
+
+Each connection row (`ConnectionRow`) gained a new `SyncStatusPanel` subsection, and the section header gained a "Sync all" action:
+
+- **Sync status badge** — one of Never synced / Pending / Syncing… / Synced / Sync failed (`SYNC_STATUS_BADGE`, mirrors the existing `HEALTH_BADGE`/`VALIDATION_LABELS` pattern already used for EP-22's validation status).
+- **Last sync timestamp**, **records imported**, **tokens imported**, **estimated cost imported** (formatted per-currency via `Intl`-backed `toLocaleString`), and **last error** — all sourced from `GET .../sync-status`, fetched via its own React Query key (`["provider-connection-sync-status", organizationId, connectionId]`) so it caches and invalidates independently of the connection list itself.
+- **"Sync now"** — calls `POST .../sync`, writes the response's `sync_status` directly into the query cache (`queryClient.setQueryData`) so the panel updates immediately without a second round-trip, and toasts success/failure with the records-imported count or the normalized error. Disabled (with an inline explanation) when `supports_usage_sync` is `false`.
+- **"Refresh status"** — refetches `GET .../sync-status` on demand, satisfying this EP's explicit "Refresh Status" button requirement independent of triggering a new sync.
+- **"Sync all"** (section-level, next to "Add provider") — calls `POST .../sync`, invalidates both the connections list and every connection's sync-status query, and toasts a summary (`"Synced N of M connections"` or a warning if some failed). Hidden when the org has no connections yet, matching the page's existing empty-state convention.
+
+New API client functions in `apps/dashboard/src/services/api.ts`: `getProviderConnectionSyncStatus`, `syncProviderConnection`, `syncAllProviderConnections`, plus the `SyncStatusResponse`/`SyncRunResponse`/`TriggerSyncResponse`/`SyncAllResponse`/`CostImportedItem` types mirroring the new backend schemas exactly.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep23_3_usage_sync.py`, 22 new tests): `ProviderSyncService.sync_connection` (unsupported-provider honest zero-events run, supported-provider success path with decrypted-config verification, Ollama's no-credential path never calling `decrypt()`, failure re-fetches the persisted `FAILED` run instead of raising, failure re-raises when no run can be found at all, and 4 `_effective_start` incremental-date-range cases: no checkpoint, recent checkpoint, stale checkpoint beyond the lookback window, and a checkpoint in the future); `sync_all_connections` (one failure doesn't stop others, empty org returns an empty list); `get_sync_status` (never-synced, full derivation with totals, unsupported-provider flag); API-level tests for all 3 new endpoints covering 200/401/403/404 and the RBAC boundary (VIEWER can read but not sync, MEMBER can read but not sync — `PROVIDER_WRITE` is ADMIN+OWNER only — ADMIN can sync), plus an explicit assertion that no ciphertext ever appears in a sync response body. Full backend suite: **1582 passed** (1560 + 22), ruff/black/mypy clean.
+- **Frontend** (`apps/dashboard/src/__tests__/ManageConnectionsSection.test.tsx`, extended with 8 new tests in a new `describe` block): never-synced display, full success-state display (status badge, records/tokens/cost imported), failed-sync display with the last error message, "Sync now" triggering `syncProviderConnection` and updating the panel from the response, "Sync now" disabled with an explanation for a provider that doesn't support usage sync yet, "Refresh status" re-fetching sync status, "Sync all" triggering `syncAllProviderConnections`, and "Sync all" not rendering when the org has no connections. The pre-existing 9 EP-22 tests in this file were updated only to add a default `getProviderConnectionSyncStatus` mock (since every connection row now mounts a `SyncStatusPanel`) — no existing assertion changed. Full dashboard suite: **184 passed** (176 + 8), lint clean, typecheck clean (`tsc -b`), build clean.
+
+### Known limitations
+
+- **No scheduler.** This EP builds the synchronization *engine* and its manual trigger, exactly as scoped ("Implement endpoint(s) allowing users to trigger synchronization... manually") — it does not wire a cron/background scheduler to call `sync_all_connections` automatically. `app/usage/background.py`'s `BackgroundCollectionFramework` (EP-08) remains dormant and unwired, as it has been since EP-08 — using it would require new app-lifecycle/session-factory plumbing beyond this EP's stated scope ("Only implement the synchronization engine"). Automatic/scheduled sync is the natural next step once this engine has been exercised manually.
+- **Execution is synchronous, within the HTTP request.** `POST .../sync` runs the full provider fetch inline and returns once it completes, matching the existing "Test Connection"/"Rotate Key" precedent (EP-22, §13) rather than returning an immediate "202 Accepted" and polling for completion. For the 30-day, single-connection lookback window this EP defaults to, this is an acceptable latency tradeoff consistent with the rest of this router; a long-history backfill or very large orgs calling "Sync all" across many connections would be the trigger to revisit this as a background job (see "No scheduler" above — the same missing piece would resolve both).
+- **Only 2 of 7 named providers (OpenAI, Anthropic) have a real `get_usage()`** — unchanged from EP-06/EP-07/§13; syncing the other 5 is honest and zero-cost (a fast, correct `COMPLETED` run) but imports nothing. Extending a provider's usage sync support requires only implementing that provider's adapter `get_usage()` (EP-06/EP-07's existing per-provider extension point) and adding it to `_PRODUCTION_USAGE_PROVIDERS` — no change to `ProviderSyncService`, the API, or the frontend.
+- **No live, continuous browser test of a real end-to-end sync** — same caveat as every prior EP in this document: verified in pieces (backend unit/API tests with mocked HTTP transports, frontend component tests, both full builds), not as one continuous browser session against a live provider, since this sandbox has no way to drive a real browser against a live deployment or hold a real provider credential.
+
+### Next milestone recommendation
+
+With the synchronization engine now real, the two natural follow-ups are: (1) a **scheduler** (cron-triggered `sync_all_connections` across every organization, likely reusing `app/usage/background.py`'s dormant framework or a simpler periodic-task runner) so usage data flows without a user manually clicking "Sync now" — this is what would finally make §17's `GettingStartedBanner`/`DashboardStateHero` state-3-to-state-4 transition ("Everything is ready. Waiting for your applications to send AI requests.") happen automatically for a connected, validated provider; and (2) **dashboard analytics on top of the newly-flowing data** — explicitly out of scope for this EP by its own instruction, but now unblocked now that `UsageEvent`/`UsageCostRecord` rows exist for customer-connected providers, not just env-var-keyed ops usage.

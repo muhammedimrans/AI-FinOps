@@ -567,6 +567,88 @@ export async function rotateProviderConnectionKey(
   );
 }
 
+// ── Usage synchronization (EP-23.3) ──────────────────────────────────────────
+
+export type SyncRunStatus =
+  | "never_synced"
+  | "pending"
+  | "running"
+  | "success"
+  | "failed";
+
+export interface CostImportedItem {
+  currency: string;
+  total_cost: string;
+  record_count: number;
+}
+
+export interface SyncStatusResponse {
+  connection_id: string;
+  provider_type: string;
+  sync_status: SyncRunStatus;
+  last_sync_started_at: string | null;
+  last_sync_completed_at: string | null;
+  last_successful_sync_at: string | null;
+  last_error: string | null;
+  last_imported_at: string | null;
+  records_imported: number;
+  tokens_imported: number;
+  estimated_cost_imported: CostImportedItem[];
+  supports_usage_sync: boolean;
+}
+
+export interface SyncRunResponse {
+  run_id: string;
+  connection_id: string;
+  provider_type: string;
+  status: string;
+  started_at: string;
+  completed_at: string | null;
+  records_imported: number;
+  records_failed: number;
+  error_message: string | null;
+}
+
+export interface TriggerSyncResponse {
+  run: SyncRunResponse;
+  sync_status: SyncStatusResponse;
+}
+
+export interface SyncAllResponse {
+  runs: SyncRunResponse[];
+  total: number;
+  succeeded: number;
+  failed: number;
+}
+
+export async function getProviderConnectionSyncStatus(
+  organizationId: string,
+  connectionId: string,
+): Promise<SyncStatusResponse> {
+  return get<SyncStatusResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/${connectionId}/sync-status`,
+  );
+}
+
+export async function syncProviderConnection(
+  organizationId: string,
+  connectionId: string,
+): Promise<TriggerSyncResponse> {
+  return post<TriggerSyncResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/${connectionId}/sync`,
+    {},
+  );
+}
+
+export async function syncAllProviderConnections(
+  organizationId: string,
+): Promise<SyncAllResponse> {
+  return post<SyncAllResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/sync`,
+    {},
+  );
+}
+
 // ── Provider connection intelligence (EP-07) ─────────────────────────────────
 
 export interface ProviderConnectionStatus {

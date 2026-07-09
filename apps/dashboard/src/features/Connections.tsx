@@ -6,6 +6,7 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  Download,
   Eye,
   EyeOff,
   KeyRound,
@@ -15,6 +16,7 @@ import {
   PlugZap,
   Plus,
   RefreshCw,
+  RotateCw,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -34,9 +36,13 @@ import {
   deleteProviderConnection,
   testProviderConnectionById,
   rotateProviderConnectionKey,
+  getProviderConnectionSyncStatus,
+  syncProviderConnection,
+  syncAllProviderConnections,
   ApiError,
   type TestConnectionResponse,
   type ProviderConnectionRecord,
+  type SyncStatusResponse,
 } from "../services/api";
 import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, connectableLabel } from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
@@ -302,6 +308,108 @@ function formatValidatedAt(iso: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+// EP-23.3 — one badge per SyncRunStatus value.
+const SYNC_STATUS_BADGE: Record<string, { className: string; label: string }> = {
+  never_synced: { className: "bg-app-muted text-tx-muted", label: "Never synced" },
+  pending: { className: "bg-app-muted text-tx-muted", label: "Pending" },
+  running: { className: "bg-warning-dim text-warning", label: "Syncing…" },
+  success: { className: "bg-success-dim text-success", label: "Synced" },
+  failed: { className: "bg-danger-dim text-danger", label: "Sync failed" },
+};
+
+function formatCostImported(items: SyncStatusResponse["estimated_cost_imported"]): string | null {
+  if (items.length === 0) return null;
+  return items
+    .map((item) => `${Number(item.total_cost).toLocaleString(undefined, { style: "currency", currency: item.currency })}`)
+    .join(" + ");
+}
+
+/** EP-23.3 — per-connection sync status + Sync Now / Refresh Status controls. */
+function SyncStatusPanel({
+  organizationId,
+  connection,
+}: {
+  organizationId: string;
+  connection: ProviderConnectionRecord;
+}) {
+  const queryClient = useQueryClient();
+
+  const status = useQuery({
+    queryKey: ["provider-connection-sync-status", organizationId, connection.id],
+    queryFn: () => getProviderConnectionSyncStatus(organizationId, connection.id),
+  });
+
+  const sync = useMutation({
+    mutationFn: () => syncProviderConnection(organizationId, connection.id),
+    onSuccess: (result) => {
+      queryClient.setQueryData(
+        ["provider-connection-sync-status", organizationId, connection.id],
+        result.sync_status,
+      );
+      if (result.run.status === "completed") {
+        toast.success(
+          "Sync complete",
+          `Imported ${formatNumber(result.run.records_imported)} record${result.run.records_imported === 1 ? "" : "s"}.`,
+        );
+      } else {
+        toast.error("Sync failed", result.run.error_message ?? "Please try again.");
+      }
+    },
+    onError: (err: unknown) => {
+      toast.error("Couldn't sync", err instanceof ApiError ? err.message : "Please try again.");
+    },
+  });
+
+  const data = status.data;
+  const badge = SYNC_STATUS_BADGE[data?.sync_status ?? "never_synced"] ?? SYNC_STATUS_BADGE["never_synced"]!;
+  const lastSyncLabel = formatValidatedAt(data?.last_sync_completed_at ?? null);
+  const costLabel = data ? formatCostImported(data.estimated_cost_imported) : null;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-app-bg p-2.5 ml-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={cn("badge text-[10px]", badge.className)}>{badge.label}</span>
+        {status.isLoading && <Loader2 size={11} className="animate-spin text-tx-muted" />}
+        {lastSyncLabel && <span className="text-[11px] text-tx-muted">Last sync {lastSyncLabel}</span>}
+        {data && !data.supports_usage_sync && (
+          <span className="text-[11px] text-tx-muted">
+            Usage synchronization isn't available for this provider yet.
+          </span>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => void status.refetch()}
+            disabled={status.isFetching}
+            className="btn-ghost h-7 px-2 text-[11px] inline-flex items-center gap-1"
+          >
+            <RotateCw size={11} className={status.isFetching ? "animate-spin" : undefined} />
+            Refresh status
+          </button>
+          <button
+            onClick={() => sync.mutate()}
+            disabled={sync.isPending || (data ? !data.supports_usage_sync : false)}
+            className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-60"
+          >
+            {sync.isPending ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+            {sync.isPending ? "Syncing…" : "Sync now"}
+          </button>
+        </div>
+      </div>
+
+      {data && data.sync_status !== "never_synced" && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tx-muted">
+          <span>{formatNumber(data.records_imported)} records imported</span>
+          <span>{formatNumber(data.tokens_imported)} tokens imported</span>
+          {costLabel && <span>{costLabel} estimated cost imported</span>}
+        </div>
+      )}
+
+      {data?.last_error && <p className="text-[11px] text-danger">{data.last_error}</p>}
+    </div>
+  );
 }
 
 /** EP-22 Part 6 — masked-by-default API key input with a reveal toggle. */
@@ -665,6 +773,8 @@ function ConnectionRow({
         </div>
       )}
 
+      <SyncStatusPanel organizationId={organizationId} connection={connection} />
+
       {rotating && (
         <form
           onSubmit={(e) => {
@@ -721,6 +831,7 @@ function ConnectionRow({
 
 function ManageConnectionsSection() {
   const organizationId = useOrgStore((s) => s.organizationId);
+  const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
 
   const connections = useQuery({
@@ -731,17 +842,52 @@ function ManageConnectionsSection() {
 
   const list = connections.data?.connections ?? [];
 
+  const syncAll = useMutation({
+    mutationFn: () => syncAllProviderConnections(organizationId!),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
+      void queryClient.invalidateQueries({
+        queryKey: ["provider-connection-sync-status", organizationId],
+      });
+      if (result.total === 0) {
+        toast.info("Nothing to sync", "No active provider connections yet.");
+      } else if (result.failed === 0) {
+        toast.success("Sync complete", `Synced ${result.succeeded} of ${result.total} connections.`);
+      } else {
+        toast.warning(
+          "Sync finished with errors",
+          `${result.succeeded} of ${result.total} connections synced successfully.`,
+        );
+      }
+    },
+    onError: (err: unknown) => {
+      toast.error("Couldn't sync connections", err instanceof ApiError ? err.message : "Please try again.");
+    },
+  });
+
   return (
     <Section
       title="Your provider connections"
       description="Persisted connections you manage — add, rename, activate/deactivate, test, or remove."
       icon={Plug}
       actions={
-        !adding && (
-          <button onClick={() => setAdding(true)} className="btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5">
-            <Plus size={13} /> Add provider
-          </button>
-        )
+        <div className="flex items-center gap-2">
+          {list.length > 0 && (
+            <button
+              onClick={() => syncAll.mutate()}
+              disabled={syncAll.isPending}
+              className="btn-outline h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
+            >
+              {syncAll.isPending ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+              Sync all
+            </button>
+          )}
+          {!adding && (
+            <button onClick={() => setAdding(true)} className="btn-primary h-8 px-3 text-xs inline-flex items-center gap-1.5">
+              <Plus size={13} /> Add provider
+            </button>
+          )}
+        </div>
       }
     >
       <div className="space-y-3">

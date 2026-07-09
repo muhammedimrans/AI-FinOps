@@ -38,6 +38,7 @@ from app.models.usage_event import UsageEvent
 from app.providers.config import (
     AnthropicConfig,
     OpenAIConfig,
+    ProviderConfig,
     SecretReference,
     SecretStoreType,
 )
@@ -122,8 +123,19 @@ class UsageCollectionService:
         provider_connection_id: uuid.UUID | None = None,
         project_id: uuid.UUID | None = None,
         triggered_by: CollectionTrigger = CollectionTrigger.MANUAL,
+        config: ProviderConfig | None = None,
     ) -> UsageCollectionRun:
         """Run a full collection pass for the given provider and date range.
+
+        ``config``, when supplied, is used to build the provider adapter
+        instead of the default env-var-keyed lookup (``_build_config``) —
+        this is how ``app.services.provider_sync_service.ProviderSyncService``
+        (EP-23.3) drives collection from a customer's own encrypted
+        ``ProviderConnection`` credential without duplicating any of the
+        pagination/checkpoint/normalization/persistence logic below. Every
+        other caller (the ops-style env-var-keyed endpoints in
+        ``app.api.v1.usage``) is unaffected — omitting ``config`` preserves
+        the original EP-08 behavior exactly.
 
         Returns the completed (or failed) ``UsageCollectionRun`` record.
         The caller must commit the session after this method returns.
@@ -174,57 +186,63 @@ class UsageCollectionService:
             cursor: str | None = checkpoint.cursor if checkpoint else None
 
             # ── 3. Build adapter ───────────────────────────────────────────────
-            config = _build_config(provider)
-            adapter = ProviderFactory(self._registry).create(config)
+            effective_config = config or _build_config(provider)
+            adapter = ProviderFactory(self._registry).create(effective_config)
 
             # ── 4. Paginate ────────────────────────────────────────────────────
             total_events = 0
             total_failed = 0
             pages = 0
 
-            while True:
-                page: UsagePage = await adapter.get_usage(
-                    effective_start,
-                    end_date,
-                    cursor=cursor,
-                    limit=self._page_limit,
-                )
-                pages += 1
+            try:
+                while True:
+                    page: UsagePage = await adapter.get_usage(
+                        effective_start,
+                        end_date,
+                        cursor=cursor,
+                        limit=self._page_limit,
+                    )
+                    pages += 1
 
-                # ── 5. Validate + upsert events ────────────────────────────────
-                created, failed = await self._process_page(
-                    page.events,
-                    organization_id=organization_id,
-                    project_id=project_id,
-                    provider_connection_id=provider_connection_id,
-                    collection_run_id=run.id,
-                    event_repo=event_repo,
-                )
-                total_events += created
-                total_failed += failed
+                    # ── 5. Validate + upsert events ────────────────────────────
+                    created, failed = await self._process_page(
+                        page.events,
+                        organization_id=organization_id,
+                        project_id=project_id,
+                        provider_connection_id=provider_connection_id,
+                        collection_run_id=run.id,
+                        event_repo=event_repo,
+                    )
+                    total_events += created
+                    total_failed += failed
 
-                # ── 6. Update checkpoint ───────────────────────────────────────
-                new_cursor = page.next_cursor if page.has_more else None
-                checkpoint = await checkpoint_repo.upsert(
-                    organization_id=organization_id,
-                    provider=provider,
-                    provider_connection_id=provider_connection_id,
-                    last_collected_at=end_date if not page.has_more else effective_start,
-                    cursor=new_cursor,
-                    last_run_id=run.id,
-                )
+                    # ── 6. Update checkpoint ───────────────────────────────────
+                    new_cursor = page.next_cursor if page.has_more else None
+                    checkpoint = await checkpoint_repo.upsert(
+                        organization_id=organization_id,
+                        provider=provider,
+                        provider_connection_id=provider_connection_id,
+                        last_collected_at=end_date if not page.has_more else effective_start,
+                        cursor=new_cursor,
+                        last_run_id=run.id,
+                    )
 
-                logger.info(
-                    "usage_page_processed",
-                    page=pages,
-                    events_created=created,
-                    events_failed=failed,
-                    has_more=page.has_more,
-                )
+                    logger.info(
+                        "usage_page_processed",
+                        page=pages,
+                        events_created=created,
+                        events_failed=failed,
+                        has_more=page.has_more,
+                    )
 
-                if not page.has_more:
-                    break
-                cursor = page.next_cursor
+                    if not page.has_more:
+                        break
+                    cursor = page.next_cursor
+            finally:
+                # Close the adapter's underlying HTTP client on every path
+                # (success, validation failure, provider error) — a sync run
+                # must never leak an open connection.
+                await adapter.aclose()
 
             # ── 7. Mark completed ──────────────────────────────────────────────
             run = await run_repo.update(

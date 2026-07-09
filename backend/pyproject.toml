@@ -27,6 +27,10 @@ dependencies = [
     "PyJWT>=2.7.0",
     "argon2-cffi>=23.1.0",
     "email-validator>=2.2.0",
+    # Encryption at rest — app.security.encryption.EncryptionService (EP-22
+    # provider-credential storage). >=44.0.0 is the first release line with
+    # official Python 3.13 wheels.
+    "cryptography>=44.0.0",
     # HTTP client (provider integrations)
     "httpx>=0.27.0",
     # Real-time metrics (EP-19.1)

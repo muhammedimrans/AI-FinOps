@@ -697,3 +697,39 @@ No provider CRUD logic — request building, encryption, validation dispatch, er
 ### Next milestone recommendation
 
 Both items §13 already flagged as EP-22's own next milestone are still the highest-value work remaining and are unaffected by this EP: (1) **Settings.tsx wiring** (Priority 3, open since §12), and (2) **wiring `ProviderConnection.encrypted_api_key` into actual usage collection** so a validated connection also becomes the credential Costorah's ingestion path uses to pull real cost data — until that lands, `GettingStartedBanner` (this EP) will keep prompting even a fully-connected org, since "provider connected" and "usage data flowing" remain two different signals. That gap is worth calling out explicitly as this EP's most direct dependency on the next one.
+
+---
+
+## 15. EP-22.1 — Deployment Fix: Missing `cryptography` Runtime Dependency
+
+**Status: complete.** A production deploy on Render broke after EP-22 with `ModuleNotFoundError: No module named 'cryptography'`. This is a one-line dependency-declaration fix — no application code changed.
+
+### Root cause
+
+EP-22 (§13) added `app/security/encryption.py`, which does `from cryptography.fernet import Fernet, InvalidToken` to implement `EncryptionService`. `cryptography` was never added to `backend/pyproject.toml`'s `[project] dependencies` list. It happened to be *installed* in this project's own dev sandbox venv only as an indirect pull-in of the dev-only `types-pyOpenSSL` stub package (confirmed via `pip show cryptography` → `Required-by: types-pyOpenSSL`), which is why the gap wasn't caught by local `pytest`/CI runs — those install `.[dev]`, which happens to transitively vendor it in by accident. A production install (`pip install -e "."`, no `dev` extras — what Render's build actually runs) never had `cryptography` at all. None of the declared production dependencies (`fastapi`, `uvicorn`, `argon2-cffi`, `PyJWT`, `httpx`, `sqlalchemy`, `alembic`, `redis`) require it either directly or transitively.
+
+Confirmed via the deployment investigation immediately preceding this fix: `migrations/env.py` (what `alembic upgrade head` imports) never touches `cryptography`, so Alembic always succeeded regardless of this bug — only the subsequent `uvicorn app.main:app` step (which imports the provider-connections router → `ProviderCredentialService` → `EncryptionService` → `cryptography.fernet`) failed.
+
+### Fix
+
+`backend/pyproject.toml` — added one line to `[project] dependencies`:
+
+```toml
+# Encryption at rest — app.security.encryption.EncryptionService (EP-22
+# provider-credential storage). >=44.0.0 is the first release line with
+# official Python 3.13 wheels.
+"cryptography>=44.0.0",
+```
+
+Placed alongside the existing Authentication group (`PyJWT`, `argon2-cffi`, `email-validator`) since it serves the same "protect user/customer secrets" purpose. `>=44.0.0` was chosen because that's the first `cryptography` release line with official prebuilt wheels for Python 3.13 (this project's `requires-python = ">=3.13"`) — an older floor would risk a source build on install. No duplicate entry existed anywhere else in `pyproject.toml` (verified by grep before and after the change — exactly one occurrence).
+
+No application code changed — `app/security/encryption.py`'s import statement was already correct; it just needed its dependency declared.
+
+### Testing
+
+Reinstalled the package (`pip install -e ".[dev]"`) to pick up the new declared dependency, then re-ran the full backend gate: **1509 tests passed** (unchanged — this fix has no behavioral surface, so it couldn't and didn't change test outcomes), `ruff check` clean, `black --check` clean, `mypy app/` clean (177 source files).
+
+### Known limitations
+
+- This fix only corrects the dependency **declaration**. It does not, by itself, prove Render's next deploy will succeed — that also depends on Render actually building from a commit that includes this change (see the deployment investigation immediately preceding this entry for the separate, still-open question of which commit/branch Render's failing deploy was actually running).
+- No dependency-completeness check (e.g. `pip check`, or a CI step that installs production-only dependencies and imports `app.main`) exists yet to catch a future "works in dev, missing in prod" gap like this one before it reaches a live deploy. Worth adding as a CI job that does `pip install -e "."` (no `dev` extra) followed by `python -c "import app.main"`.

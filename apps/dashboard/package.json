@@ -20,6 +20,7 @@
   "dependencies": {
     "@costorah/api-contracts": "workspace:*",
     "@costorah/shared-types": "workspace:*",
+    "@costorah/shared-ui": "workspace:*",
     "@costorah/error-codes": "workspace:*",
     "@tanstack/react-query": "^5.56.0",
     "@tanstack/react-query-devtools": "^5.56.0",

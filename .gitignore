@@ -14,6 +14,7 @@ lib/
 lib64/
 # Frontend source lib/ must not be caught by the lib/ pattern above
 !apps/dashboard/src/lib/
+!apps/website/src/lib/
 parts/
 sdist/
 var/

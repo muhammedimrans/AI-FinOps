@@ -1,9 +1,7 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+// cn() lives in @costorah/shared-ui, re-exported here so existing
+// "@/utils" import sites in this app don't all need touching. See
+// packages/shared-ui/src/cn.ts for the implementation.
+export { cn } from "@costorah/shared-ui";
 
 // ── Number formatting ─────────────────────────────────────────────────────────
 

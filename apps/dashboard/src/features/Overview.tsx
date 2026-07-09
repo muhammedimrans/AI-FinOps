@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart,
   Area,
@@ -16,18 +15,30 @@ import {
   Bar,
 } from "recharts";
 import { motion, AnimatePresence } from "framer-motion";
-import { DollarSign, Activity, Layers, Zap, Download, Radio, PlugZap, FolderPlus } from "lucide-react";
+import {
+  DollarSign,
+  Activity,
+  Layers,
+  Zap,
+  Download,
+  Radio,
+  PlugZap,
+  ShieldCheck,
+  Sparkles,
+  CheckCircle2,
+  Circle,
+  BarChart3,
+} from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import LiveActivityFeed from "../components/LiveActivityFeed";
 import CriticalAlertBanner from "../components/CriticalAlertBanner";
-import { PROVIDER_COLORS } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import { useOverview, useTimeSeries, useProviders, useModels } from "../hooks/useDashboard";
+import { useDashboardState, type DashboardSetupState } from "../hooks/useDashboardState";
 import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
-import { listProviderConnections, listProjectsCrud } from "../services/api";
-import { useOrgStore } from "../stores/org";
 import {
   formatCost,
   formatDate,
@@ -42,29 +53,41 @@ import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import type { Granularity } from "../types/api";
 
-// EP-21.3 — replaces blank analytics with an actionable prompt for a
-// brand-new organization that has neither a provider connection nor a
-// project yet, reusing the same queries (and query keys — see
-// features/Connections.tsx / Projects.tsx) the Connections and Projects
-// pages already use, so this never drifts out of sync with their counts.
+// EP-22.3 — Intelligent Dashboard Empty States & Guided First Experience.
+//
+// Supersedes the EP-21.3 two-item version of this component (connect a
+// provider / create a project) with the full 5-step checklist the product
+// spec names. Reuses the exact same `useDashboardState()` signals the
+// dashboard-state-machine hero below reads — one source of truth for
+// "what has this organization actually done," computed from existing
+// endpoints only (provider connections, projects, dashboard overview),
+// never a second, parallel piece of progress state.
+interface ChecklistItem {
+  label: string;
+  done: boolean;
+  to: string;
+}
+
 export function GettingStartedBanner() {
-  const organizationId = useOrgStore((s) => s.organizationId);
+  const progress = useDashboardState();
+  if (progress.isLoading) return null;
 
-  const connections = useQuery({
-    queryKey: ["provider-connections", organizationId],
-    queryFn: () => listProviderConnections(organizationId!),
-    enabled: !!organizationId,
-  });
-  const projects = useQuery({
-    queryKey: ["projects-crud", organizationId],
-    queryFn: () => listProjectsCrud(organizationId!),
-    enabled: !!organizationId,
-  });
+  const { hasConnections, hasValidatedConnection, hasProjects, hasUsage } = progress;
+  const allDone = hasConnections && hasValidatedConnection && hasProjects && hasUsage;
+  if (allDone) return null;
 
-  if (connections.isLoading || projects.isLoading) return null;
-  const hasConnections = (connections.data?.total ?? 0) > 0;
-  const hasProjects = (projects.data?.total ?? 0) > 0;
-  if (hasConnections && hasProjects) return null;
+  const items: ChecklistItem[] = [
+    { label: "Connect Provider", done: hasConnections, to: "/connections" },
+    { label: "Validate Provider", done: hasValidatedConnection, to: "/connections" },
+    { label: "Create Project", done: hasProjects, to: "/projects" },
+    { label: "Generate AI Usage", done: hasUsage, to: "/api-keys" },
+    // "View Analytics" tracks the same signal as "Generate AI Usage" —
+    // this page *is* the analytics view, so once usage exists there is
+    // nothing further to detect; no separate "has visited" flag is
+    // introduced (would be duplicate state the spec explicitly forbids).
+    { label: "View Analytics", done: hasUsage, to: "/analytics" },
+  ];
+  const doneCount = items.filter((i) => i.done).length;
 
   return (
     <motion.div
@@ -72,27 +95,217 @@ export function GettingStartedBanner() {
       animate={{ opacity: 1, y: 0 }}
       className="glass-card rounded-card-lg border border-border-subtle p-5 sm:p-6"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-tx-primary mb-1">Get set up to see real numbers here</h3>
-          <p className="text-xs text-tx-muted leading-relaxed">
-            Costs and usage appear as soon as a provider is connected and data starts flowing in.
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-tx-primary">Getting Started</h3>
+          <p className="text-xs text-tx-muted mt-0.5">
+            {doneCount} of {items.length} steps complete
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
-          {!hasConnections && (
-            <Link to="/connections" className="btn-primary h-9 px-4 text-xs inline-flex items-center gap-1.5">
-              <PlugZap size={14} /> Connect your first provider
-            </Link>
-          )}
-          {!hasProjects && (
-            <Link to="/projects" className="btn-outline h-9 px-4 text-xs inline-flex items-center gap-1.5">
-              <FolderPlus size={14} /> Create your first project
-            </Link>
-          )}
+        <div className="w-24 h-1.5 rounded-full bg-app-muted overflow-hidden flex-shrink-0" aria-hidden="true">
+          <div
+            className="h-full bg-brand rounded-full transition-all duration-500"
+            style={{ width: `${(doneCount / items.length) * 100}%` }}
+          />
         </div>
       </div>
+      <ul className="space-y-2">
+        {items.map((item) => (
+          <li
+            key={item.label}
+            className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 -mx-2.5 hover:bg-app-hover/40 transition-colors duration-fast"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {item.done ? (
+                <CheckCircle2 size={16} className="text-success flex-shrink-0" />
+              ) : (
+                <Circle size={16} className="text-tx-muted flex-shrink-0" />
+              )}
+              <span
+                className={cn(
+                  "text-sm truncate",
+                  item.done ? "text-tx-muted line-through" : "text-tx-primary font-medium",
+                )}
+              >
+                {item.label}
+              </span>
+            </div>
+            {!item.done && (
+              <Link
+                to={item.to}
+                className="btn-outline h-7 px-3 text-[11px] flex-shrink-0 whitespace-nowrap"
+              >
+                Go
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
     </motion.div>
+  );
+}
+
+// EP-22.3 — Dashboard State Machine hero. Renders in place of "everything
+// looks empty" for states 1-3; returns null once usage exists (state 4),
+// letting the full KPI/chart dashboard below carry the page on its own.
+export function DashboardStateHero({ state }: { state: DashboardSetupState }) {
+  if (state === 4) return null;
+
+  if (state === 1) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle p-6 sm:p-10 text-center"
+      >
+        <div className="w-14 h-14 rounded-2xl bg-brand-subtle flex items-center justify-center mx-auto mb-4">
+          <PlugZap size={24} className="text-brand" />
+        </div>
+        <h2 className="font-display text-xl sm:text-2xl font-bold text-tx-primary mb-2">
+          Welcome to Costorah
+        </h2>
+        <p className="text-sm text-tx-muted max-w-md mx-auto leading-relaxed mb-6">
+          You&apos;re one step away from tracking AI costs. Connect your first provider to begin
+          monitoring AI usage.
+        </p>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+          <Link to="/connections" className="btn-primary h-10 px-5 text-sm">
+            Connect Provider
+          </Link>
+          <a
+            href="https://costorah.com/features"
+            target="_blank"
+            rel="noreferrer"
+            className="btn-outline h-10 px-5 text-sm"
+          >
+            Learn More
+          </a>
+        </div>
+      </motion.div>
+    );
+  }
+
+  if (state === 2) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle p-6 sm:p-10 text-center"
+      >
+        <div className="w-14 h-14 rounded-2xl bg-warning-dim flex items-center justify-center mx-auto mb-4">
+          <ShieldCheck size={24} className="text-warning" />
+        </div>
+        <h2 className="font-display text-xl sm:text-2xl font-bold text-tx-primary mb-2">
+          Provider connected
+        </h2>
+        <p className="text-sm text-tx-muted max-w-md mx-auto leading-relaxed mb-6">
+          Validate your API credentials to begin collecting usage.
+        </p>
+        <Link to="/connections" className="btn-primary h-10 px-5 text-sm inline-flex">
+          Validate Connection
+        </Link>
+      </motion.div>
+    );
+  }
+
+  // state === 3
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card rounded-card-lg border border-border-subtle p-6 sm:p-10 text-center"
+    >
+      <div className="w-14 h-14 rounded-2xl bg-success-dim flex items-center justify-center mx-auto mb-4">
+        <Sparkles size={24} className="text-success" />
+      </div>
+      <h2 className="font-display text-xl sm:text-2xl font-bold text-tx-primary mb-2">
+        Everything is ready.
+      </h2>
+      <p className="text-sm text-tx-muted max-w-md mx-auto leading-relaxed mb-4">
+        Waiting for your applications to send AI requests. Costorah will automatically begin
+        collecting:
+      </p>
+      <ul className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs text-tx-secondary mb-6 max-w-md mx-auto">
+        {["Token usage", "Model usage", "Request count", "Spending", "Trends"].map((label) => (
+          <li key={label} className="flex items-center gap-1.5">
+            <span className="w-1 h-1 rounded-full bg-brand" aria-hidden="true" />
+            {label}
+          </li>
+        ))}
+      </ul>
+      <Link to="/connections" className="btn-primary h-10 px-5 text-sm inline-flex">
+        View Providers
+      </Link>
+    </motion.div>
+  );
+}
+
+// EP-22.3 — contextual replacements for ChartCard's generic "No data for
+// this period" empty state, matched to the dashboard state machine so a
+// brand-new org sees guidance instead of a dead end.
+function SpendTrendEmpty({ state }: { state: DashboardSetupState }) {
+  if (state === 1) {
+    return (
+      <div className="flex flex-col items-center text-center px-6">
+        <div className="w-10 h-10 rounded-xl bg-brand-subtle flex items-center justify-center mb-3">
+          <DollarSign size={18} className="text-brand" />
+        </div>
+        <p className="text-sm font-medium text-tx-primary mb-0.5">Start tracking AI spend.</p>
+        <p className="text-xs text-tx-muted mb-4">Connect your first provider.</p>
+        <Link to="/connections" className="btn-primary h-8 px-3.5 text-xs">
+          Connect Provider
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center text-center px-6">
+      <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+        <Radio size={18} className="text-tx-muted" />
+      </div>
+      <p className="text-sm font-medium text-tx-primary mb-0.5">Waiting for AI usage.</p>
+      <p className="text-xs text-tx-muted max-w-xs leading-relaxed">
+        Charts will automatically appear after your applications begin sending requests.
+      </p>
+    </div>
+  );
+}
+
+function ProviderDistributionEmpty() {
+  return (
+    <div className="flex flex-col items-center text-center px-6">
+      <div className="w-10 h-10 rounded-xl bg-brand-subtle flex items-center justify-center mb-3">
+        <PlugZap size={18} className="text-brand" />
+      </div>
+      <p className="text-sm font-medium text-tx-primary mb-2">No providers connected.</p>
+      <p className="text-[11px] text-tx-muted uppercase tracking-wide mb-1.5">Supported</p>
+      <div className="flex flex-wrap items-center justify-center gap-1.5 mb-4 max-w-xs">
+        {CONNECTABLE_PROVIDERS.map((p) => (
+          <span
+            key={p.value}
+            className="text-[11px] px-2 py-0.5 rounded-full bg-app-muted text-tx-secondary"
+          >
+            {p.label}
+          </span>
+        ))}
+      </div>
+      <Link to="/connections" className="btn-primary h-8 px-3.5 text-xs">
+        Add Provider
+      </Link>
+    </div>
+  );
+}
+
+function TopModelsEmpty() {
+  return (
+    <div className="flex flex-col items-center text-center px-6">
+      <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+        <BarChart3 size={18} className="text-tx-muted" />
+      </div>
+      <p className="text-xs text-tx-muted leading-relaxed max-w-xs">
+        Your highest-cost AI models will appear here automatically once requests are recorded.
+      </p>
+    </div>
   );
 }
 
@@ -169,6 +382,7 @@ export default function Overview() {
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const liveMetrics = useLiveMetrics();
   const connection = useConnectionStatus();
+  const dashboardState = useDashboardState();
 
   const overview = useOverview();
   const timeSeries = useTimeSeries();
@@ -272,6 +486,8 @@ export default function Overview() {
 
       <GettingStartedBanner />
 
+      {!dashboardState.isLoading && <DashboardStateHero state={dashboardState.state} />}
+
       {/* Live-update strip — appears once a usage.created event has landed
           since the socket connected; the KPI numbers below refresh via the
           normal query-invalidation path (see realtime/queryBridge.ts), this
@@ -364,6 +580,9 @@ export default function Overview() {
         loading={timeSeries.isLoading}
         error={timeSeries.error ? "Failed to load" : null}
         empty={chartData.length === 0}
+        emptyContent={
+          chartData.length === 0 ? <SpendTrendEmpty state={dashboardState.state} /> : undefined
+        }
         actions={
           <GranularityTabs
             value={granularity}
@@ -422,6 +641,11 @@ export default function Overview() {
           subtitle="Cost share by provider"
           loading={providers.isLoading}
           empty={pieData.length === 0}
+          emptyContent={
+            pieData.length === 0 && !dashboardState.hasConnections ? (
+              <ProviderDistributionEmpty />
+            ) : undefined
+          }
           minHeight={260}
           bodyClassName="flex flex-col sm:flex-row items-center gap-2"
         >
@@ -501,6 +725,7 @@ export default function Overview() {
           subtitle="Highest cost AI models"
           loading={models.isLoading}
           empty={topModels.length === 0}
+          emptyContent={topModels.length === 0 ? <TopModelsEmpty /> : undefined}
           minHeight={260}
         >
           <ResponsiveContainer width="100%" height={260}>
@@ -591,39 +816,45 @@ export default function Overview() {
         </ResponsiveContainer>
       </ChartCard>
 
-      {/* Per-provider quick stats */}
-      <Section title="Provider Snapshot" description={`${formatNumber(kpi?.total_requests ?? 0)} total requests in the current period`}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-6">
-          {providers.isLoading
-            ? Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="rounded-xl border border-border-subtle p-3 h-[72px] skeleton" />
-              ))
-            : providerList.map((p) => (
-                <motion.div
-                  key={p.provider}
-                  whileHover={{ y: -2 }}
-                  className="rounded-xl border border-border-subtle bg-app-bg p-3 transition-shadow duration-base hover:shadow-card"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-2 h-2 rounded-full flex-shrink-0"
-                      style={{ background: PROVIDER_COLORS[p.provider] ?? chrome.primary }}
-                    />
-                    <span className="truncate text-xs font-medium text-tx-secondary">
-                      {providerDisplayName(p.provider)}
-                    </span>
-                  </div>
-                  <p className="mt-2 font-display text-base font-semibold text-tx-primary tabular-nums">
-                    {formatNumber(p.request_count, true)}
-                  </p>
-                  <p className="text-[10px] text-tx-muted">{p.cost_share_pct}% of spend</p>
-                </motion.div>
-              ))}
-        </div>
-      </Section>
+      {/* Per-provider quick stats — only meaningful once usage exists; in
+          states 1-3 the DashboardStateHero above already carries the
+          page's guidance, so an empty stats grid would just be visual
+          noise (EP-22.3: "only render charts when meaningful data
+          exists"). */}
+      {dashboardState.state === 4 && (
+        <Section title="Provider Snapshot" description={`${formatNumber(kpi?.total_requests ?? 0)} total requests in the current period`}>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-6">
+            {providers.isLoading
+              ? Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="rounded-xl border border-border-subtle p-3 h-[72px] skeleton" />
+                ))
+              : providerList.map((p) => (
+                  <motion.div
+                    key={p.provider}
+                    whileHover={{ y: -2 }}
+                    className="rounded-xl border border-border-subtle bg-app-bg p-3 transition-shadow duration-base hover:shadow-card"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0"
+                        style={{ background: PROVIDER_COLORS[p.provider] ?? chrome.primary }}
+                      />
+                      <span className="truncate text-xs font-medium text-tx-secondary">
+                        {providerDisplayName(p.provider)}
+                      </span>
+                    </div>
+                    <p className="mt-2 font-display text-base font-semibold text-tx-primary tabular-nums">
+                      {formatNumber(p.request_count, true)}
+                    </p>
+                    <p className="text-[10px] text-tx-muted">{p.cost_share_pct}% of spend</p>
+                  </motion.div>
+                ))}
+          </div>
+        </Section>
+      )}
 
       {/* Recent Activity — live over WebSocket, falls back to polling */}
-      <LiveActivityFeed limit={10} />
+      {dashboardState.state === 4 && <LiveActivityFeed limit={10} />}
     </div>
   );
 }

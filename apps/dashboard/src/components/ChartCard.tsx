@@ -14,6 +14,10 @@ interface ChartCardProps {
   /** True when the query succeeded but returned no rows for the period. */
   empty?: boolean;
   emptyMessage?: string;
+  /** EP-22.3 — replaces the default "No data for this period" empty state
+   * entirely with contextual, actionable guidance (e.g. "Connect Provider")
+   * when provided. Falls back to the generic ChartEmpty when omitted. */
+  emptyContent?: ReactNode;
   className?: string;
   bodyClassName?: string;
   minHeight?: number;
@@ -57,6 +61,7 @@ export default function ChartCard({
   error,
   empty = false,
   emptyMessage = "Try a wider date range, or check back once usage has been recorded.",
+  emptyContent,
   className,
   bodyClassName,
   minHeight = 280,
@@ -97,7 +102,13 @@ export default function ChartCard({
             <span className="text-danger mr-1">⚠</span> Failed to load chart data
           </div>
         ) : empty ? (
-          <ChartEmpty height={minHeight} message={emptyMessage} />
+          emptyContent ? (
+            <div className="flex items-center justify-center" style={{ height: minHeight }}>
+              {emptyContent}
+            </div>
+          ) : (
+            <ChartEmpty height={minHeight} message={emptyMessage} />
+          )
         ) : (
           children
         )}

@@ -16,6 +16,7 @@ from app.realtime.connection_manager import ConnectionManager
 from app.realtime.event_bus import EventBus
 from app.realtime.metrics import events_dispatched_total, events_dropped_total
 from app.realtime.rate_limit import ConnectionRateLimiter
+from app.services.usage_sync_scheduler import UsageSyncScheduler
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +36,9 @@ class AppContainer:
     event_bus: EventBus
     connection_manager: ConnectionManager
     realtime_rate_limiter: ConnectionRateLimiter
+    # Optional so pre-EP-23.4 call sites that build AppContainer directly
+    # (see tests/test_ep19_1.py's _mock_container) keep working unmodified.
+    usage_sync_scheduler: UsageSyncScheduler | None = None
 
     @classmethod
     async def create(cls, settings: Settings) -> AppContainer:
@@ -71,6 +75,14 @@ class AppContainer:
         connection_manager.start()
         realtime_rate_limiter = ConnectionRateLimiter(redis=redis)
 
+        usage_sync_scheduler = UsageSyncScheduler(
+            session_factory,
+            redis=redis,
+            tick_interval_seconds=settings.scheduler_tick_interval_seconds,
+        )
+        if settings.scheduler_enabled:
+            await usage_sync_scheduler.start()
+
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
         logger.info("container_ready", startup_ms=elapsed_ms)
 
@@ -82,11 +94,14 @@ class AppContainer:
             event_bus=event_bus,
             connection_manager=connection_manager,
             realtime_rate_limiter=realtime_rate_limiter,
+            usage_sync_scheduler=usage_sync_scheduler,
         )
 
     async def close(self) -> None:
         """Release all resources gracefully."""
         logger.info("container_closing")
+        if self.usage_sync_scheduler is not None:
+            await self.usage_sync_scheduler.stop()
         await self.connection_manager.stop()
         await self.engine.dispose()
         await self.redis.close()

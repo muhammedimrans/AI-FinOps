@@ -7,6 +7,12 @@ Endpoints:
   DELETE /v1/organizations/{org_id}/provider-connections/{conn_id}       — soft-delete
   POST   /v1/organizations/{org_id}/provider-connections/{conn_id}/test  — re-run validation
   POST   /v1/organizations/{org_id}/provider-connections/{conn_id}/rotate — replace the API key
+  GET    /v1/organizations/{org_id}/provider-connections/{conn_id}/sync-status — EP-23.3
+  POST   /v1/organizations/{org_id}/provider-connections/{conn_id}/sync        — EP-23.3
+  POST   /v1/organizations/{org_id}/provider-connections/sync                  — EP-23.3
+  GET    /v1/organizations/{org_id}/provider-connections/scheduler/status      — EP-23.4
+  PATCH  /v1/organizations/{org_id}/provider-connections/scheduler/settings    — EP-23.4
+  GET    /v1/organizations/{org_id}/provider-connections/scheduler/jobs        — EP-23.4
 
 Authorization: PROVIDER_READ / PROVIDER_WRITE / PROVIDER_DELETE — all
 already defined in app.auth.rbac (EP-13), no changes needed.
@@ -23,17 +29,19 @@ serializes the decrypted key — see ``_to_response``'s use of
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.deps import DbDep
+from app.api.deps import DbDep, SchedulerDep
 from app.auth.dependencies import RequirePermission
 from app.auth.rbac import Permission
 from app.db.mixins import uuid7
 from app.models.membership import Membership
+from app.models.organization import Organization
 from app.models.provider_connection import ProviderConnection, ProviderType
 from app.models.usage_collection_run import UsageCollectionRun
+from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
 from app.schemas.provider_connections import (
     CostImportedItem,
@@ -41,16 +49,27 @@ from app.schemas.provider_connections import (
     ProviderConnectionResponse,
     ProviderConnectionsListResponse,
     RotateProviderConnectionKeyRequest,
+    SchedulerJobItem,
+    SchedulerJobsResponse,
+    SchedulerMonitoringSnapshot,
+    SchedulerStatusResponse,
     SyncAllResponse,
     SyncRunResponse,
     SyncStatusResponse,
     TestProviderConnectionResponse,
     TriggerSyncResponse,
     UpdateProviderConnectionRequest,
+    UpdateSchedulerSettingsRequest,
 )
 from app.services.provider_credential_service import ProviderCredentialService
 from app.services.provider_health_service import ProviderHealthService
 from app.services.provider_sync_service import ProviderSyncService, SyncStatus
+from app.services.usage_sync_scheduler import (
+    INTERVAL_PRESETS,
+    SchedulerJobRecord,
+    SchedulerOrgStatus,
+    interval_label_for,
+)
 
 router = APIRouter(
     prefix="/organizations/{org_id}/provider-connections", tags=["provider-connections"]
@@ -392,3 +411,142 @@ async def sync_all_provider_connections(
         succeeded=succeeded,
         failed=len(responses) - succeeded,
     )
+
+
+# ── Background scheduler (EP-23.4) ──────────────────────────────────────────
+
+
+def _to_job_item(record: SchedulerJobRecord) -> SchedulerJobItem:
+    return SchedulerJobItem(
+        job_id=str(record.job_id),
+        organization_id=str(record.organization_id),
+        status=record.status.value,
+        queued_at=record.queued_at,
+        started_at=record.started_at,
+        completed_at=record.completed_at,
+        connections_synced=record.connections_synced,
+        connections_failed=record.connections_failed,
+        records_imported=record.records_imported,
+        retry_count=record.retry_count,
+        duration_seconds=record.duration_seconds,
+        error=record.error,
+    )
+
+
+def _scheduler_health(org_status: SchedulerOrgStatus, *, scheduler_is_running: bool) -> str:
+    if not org_status.auto_sync_enabled:
+        return "disabled"
+    if not scheduler_is_running:
+        return "not_running"
+    if org_status.last_sync_status == "failed":
+        return "degraded"
+    return "healthy"
+
+
+def _to_scheduler_status_response(
+    org_id: uuid.UUID, org_status: SchedulerOrgStatus, monitoring: dict[str, Any]
+) -> SchedulerStatusResponse:
+    return SchedulerStatusResponse(
+        organization_id=str(org_id),
+        auto_sync_enabled=org_status.auto_sync_enabled,
+        interval=interval_label_for(org_status.interval_seconds),
+        interval_seconds=org_status.interval_seconds,
+        last_sync_at=org_status.last_sync_at,
+        last_sync_status=org_status.last_sync_status,
+        next_sync_at=org_status.next_sync_at,
+        current_job=_to_job_item(org_status.current_job) if org_status.current_job else None,
+        scheduler_health=_scheduler_health(
+            org_status, scheduler_is_running=bool(monitoring["is_running"])
+        ),
+        monitoring=SchedulerMonitoringSnapshot(**monitoring),
+    )
+
+
+async def _get_org(db: DbDep, org_id: uuid.UUID) -> Organization:
+    org = await OrganizationRepository(db).get(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    return org
+
+
+@router.get(
+    "/scheduler/status",
+    response_model=SchedulerStatusResponse,
+    summary="Get the organization's background sync scheduler status",
+    description=(
+        "Auto-sync configuration (enabled, interval), last/next sync, and "
+        "process-wide scheduler health/monitoring counters — everything the "
+        "Connections and Settings pages need in one call. Read-only, no side "
+        "effects."
+    ),
+)
+async def get_scheduler_status(
+    org_id: uuid.UUID,
+    db: DbDep,
+    scheduler: SchedulerDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_READ)],
+) -> SchedulerStatusResponse:
+    org = await _get_org(db, org_id)
+    org_status = await scheduler.get_org_status(org_id, org.sync_settings)
+    monitoring = scheduler.monitoring_snapshot()
+    return _to_scheduler_status_response(org_id, org_status, monitoring)
+
+
+@router.patch(
+    "/scheduler/settings",
+    response_model=SchedulerStatusResponse,
+    summary="Configure the organization's background sync scheduler",
+    description=(
+        "Enable/disable automatic sync and set its interval (5m/15m/1h/6h/24h). "
+        "Stored as a shallow-merged JSON bag on the organization "
+        "(organizations.sync_settings, EP-23.4) — the same 'avoid a dedicated "
+        "table' pattern EP-22.2 used for users.preferences."
+    ),
+)
+async def update_scheduler_settings(
+    org_id: uuid.UUID,
+    body: UpdateSchedulerSettingsRequest,
+    db: DbDep,
+    scheduler: SchedulerDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_WRITE)],
+) -> SchedulerStatusResponse:
+    org = await _get_org(db, org_id)
+    org_repo = OrganizationRepository(db)
+
+    patch: dict[str, object] = {}
+    if body.auto_sync_enabled is not None:
+        patch["auto_sync_enabled"] = body.auto_sync_enabled
+    if body.interval is not None:
+        patch["interval_seconds"] = INTERVAL_PRESETS[body.interval]
+
+    if patch:
+        merged = {**org.sync_settings, **patch}
+        org = await org_repo.update(org, sync_settings=merged)
+
+    org_status = await scheduler.get_org_status(org_id, org.sync_settings)
+    monitoring = scheduler.monitoring_snapshot()
+    return _to_scheduler_status_response(org_id, org_status, monitoring)
+
+
+@router.get(
+    "/scheduler/jobs",
+    response_model=SchedulerJobsResponse,
+    summary="Recent background sync jobs for this organization",
+    description=(
+        "In-memory job history for this scheduler process (queued/running/"
+        "completed/failed, duration, records imported, retry count) — see "
+        "CLAUDE.md's EP-23.4 section for why this is process-scoped rather "
+        "than a persisted table."
+    ),
+)
+async def list_scheduler_jobs(
+    org_id: uuid.UUID,
+    db: DbDep,
+    scheduler: SchedulerDep,
+    _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_READ)],
+    limit: int = 20,
+) -> SchedulerJobsResponse:
+    await _get_org(db, org_id)
+    jobs = scheduler.jobs_for(org_id, limit=limit)
+    items = [_to_job_item(j) for j in jobs]
+    return SchedulerJobsResponse(jobs=items, total=len(items))

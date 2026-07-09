@@ -7,11 +7,13 @@ import {
   Bell,
   Building2,
   CheckCircle,
+  Clock,
   KeyRound,
   Loader2,
   Palette,
   Save,
   Shield,
+  Timer,
   Trash2,
   Triangle,
   User,
@@ -32,9 +34,12 @@ import {
   deleteAccount,
   deleteOrganization,
   getOrganizations,
+  getSchedulerStatus,
   updateOrganization,
   updatePreferences,
   updateProfile,
+  updateSchedulerSettings,
+  type SchedulerInterval,
 } from "../services/api";
 import type { Currency } from "../types/api";
 
@@ -159,6 +164,118 @@ function SectionCard({
       </div>
       <div className="space-y-5">{children}</div>
     </motion.div>
+  );
+}
+
+const SCHEDULER_INTERVAL_OPTIONS: { value: SchedulerInterval; label: string }[] = [
+  { value: "5m", label: "Every 5 minutes" },
+  { value: "15m", label: "Every 15 minutes" },
+  { value: "1h", label: "Every hour" },
+  { value: "6h", label: "Every 6 hours" },
+  { value: "24h", label: "Daily" },
+];
+
+const SCHEDULER_HEALTH_LABEL: Record<string, string> = {
+  healthy: "Healthy",
+  degraded: "Degraded — last sync failed",
+  disabled: "Disabled",
+  not_running: "Scheduler not running",
+};
+
+/** EP-23.4 — organization-level automatic sync configuration. Lives on the
+ * Workspace tab (not Preferences, which is per-user) since auto-sync is an
+ * organization setting shared by every member, exactly like the workspace
+ * name/description above it. */
+function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
+  const queryClient = useQueryClient();
+
+  const schedulerQuery = useQuery({
+    queryKey: ["scheduler-status", organizationId],
+    queryFn: () => getSchedulerStatus(organizationId),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (body: { auto_sync_enabled?: boolean; interval?: SchedulerInterval }) =>
+      updateSchedulerSettings(organizationId, body),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["scheduler-status", organizationId], data);
+      toast.success("Automatic sync updated");
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Please try again.");
+      toast.error(title, description);
+    },
+  });
+
+  const data = schedulerQuery.data;
+
+  return (
+    <SectionCard title="Automatic Sync" description="Keep provider usage data up to date without manually clicking Sync." icon={Timer}>
+      {schedulerQuery.isLoading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-9 skeleton rounded-lg" />)}
+        </div>
+      ) : !data ? (
+        <p className="text-xs text-tx-muted">Couldn't load scheduler settings.</p>
+      ) : (
+        <>
+          <SettingRow label="Auto Sync" description="Automatically sync usage from every connected provider in the background.">
+            <button
+              role="switch"
+              aria-checked={data.auto_sync_enabled}
+              onClick={() =>
+                updateMutation.mutate({ auto_sync_enabled: !data.auto_sync_enabled })
+              }
+              disabled={updateMutation.isPending}
+              className={cn(
+                "relative h-6 w-11 rounded-full transition-colors disabled:opacity-60",
+                data.auto_sync_enabled ? "bg-brand" : "bg-app-muted",
+              )}
+            >
+              <span
+                className={cn(
+                  "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform",
+                  data.auto_sync_enabled ? "translate-x-5" : "translate-x-0.5",
+                )}
+              />
+            </button>
+          </SettingRow>
+
+          {data.auto_sync_enabled && (
+            <SettingRow label="Interval" description="How often the scheduler checks for new usage.">
+              <select
+                value={data.interval}
+                onChange={(e) =>
+                  updateMutation.mutate({ interval: e.target.value as SchedulerInterval })
+                }
+                disabled={updateMutation.isPending}
+                className="bg-app-bg border border-border rounded-lg px-3 py-1.5 text-sm text-tx-primary focus:outline-none focus:border-brand disabled:opacity-60"
+              >
+                {SCHEDULER_INTERVAL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </SettingRow>
+          )}
+
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-tx-muted pt-1 border-t border-border-subtle">
+            <span className="inline-flex items-center gap-1.5">
+              <Clock size={12} />
+              Last sync: {data.last_sync_at ? formatDateTime(data.last_sync_at) : "never"}
+            </span>
+            {data.auto_sync_enabled && (
+              <span className="inline-flex items-center gap-1.5">
+                <Clock size={12} />
+                Next sync: {data.next_sync_at ? formatDateTime(data.next_sync_at) : "—"}
+              </span>
+            )}
+            <span>Scheduler: {SCHEDULER_HEALTH_LABEL[data.scheduler_health] ?? data.scheduler_health}</span>
+          </div>
+        </>
+      )}
+    </SectionCard>
   );
 }
 
@@ -692,6 +809,8 @@ export default function Settings() {
               </SectionCard>
             </form>
           )}
+
+          {active === "workspace" && currentOrg && <AutomaticSyncCard organizationId={currentOrg.id} />}
 
           {active === "password" && (
             <form onSubmit={(e) => { void handlePasswordSubmit(onSavePassword)(e); }}>

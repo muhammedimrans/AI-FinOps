@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,6 +6,7 @@ import {
   BookOpen,
   CheckCircle2,
   ChevronDown,
+  Clock,
   Download,
   Eye,
   EyeOff,
@@ -18,6 +19,7 @@ import {
   RefreshCw,
   RotateCw,
   ShieldCheck,
+  Timer,
   Trash2,
   Wrench,
   XCircle,
@@ -39,6 +41,7 @@ import {
   getProviderConnectionSyncStatus,
   syncProviderConnection,
   syncAllProviderConnections,
+  getSchedulerStatus,
   ApiError,
   type TestConnectionResponse,
   type ProviderConnectionRecord,
@@ -829,6 +832,108 @@ function ConnectionRow({
   );
 }
 
+// EP-23.4 — scheduler health/job-status badge colors, mirrors HEALTH_BADGE/
+// SYNC_STATUS_BADGE's existing vocabulary rather than inventing a new one.
+const SCHEDULER_HEALTH_BADGE: Record<string, { className: string; label: string }> = {
+  healthy: { className: "bg-success-dim text-success", label: "Healthy" },
+  degraded: { className: "bg-danger-dim text-danger", label: "Degraded" },
+  disabled: { className: "bg-app-muted text-tx-muted", label: "Disabled" },
+  not_running: { className: "bg-warning-dim text-warning", label: "Not running" },
+};
+
+const JOB_STATUS_BADGE: Record<string, { className: string; label: string }> = {
+  queued: { className: "bg-app-muted text-tx-muted", label: "Queued" },
+  running: { className: "bg-warning-dim text-warning", label: "Running" },
+  completed: { className: "bg-success-dim text-success", label: "Completed" },
+  failed: { className: "bg-danger-dim text-danger", label: "Failed" },
+};
+
+/** EP-23.4 — read-only auto-sync status for the Connections page. The
+ * ON/OFF toggle and interval picker live on the Settings page; this panel
+ * surfaces what the scheduler is actually doing so users don't have to
+ * leave Connections to see whether background sync is working. */
+function AutoSyncStatusSection() {
+  const organizationId = useOrgStore((s) => s.organizationId);
+  const queryClient = useQueryClient();
+
+  const status = useQuery({
+    queryKey: ["scheduler-status", organizationId],
+    queryFn: () => getSchedulerStatus(organizationId!),
+    enabled: !!organizationId,
+    // Dashboard refresh requirement (EP-23.4) — poll so a background sync
+    // that completes without the user clicking anything is reflected
+    // automatically, and refresh the connection list/sync-status queries
+    // whenever a job finishes so ConnectionRow/SyncStatusPanel update too.
+    refetchInterval: 20_000,
+  });
+
+  const [lastSeenJobId, setLastSeenJobId] = useState<string | null>(null);
+  const currentJob = status.data?.current_job ?? null;
+  useEffect(() => {
+    if (!currentJob) return;
+    const finished = currentJob.status === "completed" || currentJob.status === "failed";
+    if (!finished || currentJob.job_id === lastSeenJobId) return;
+    setLastSeenJobId(currentJob.job_id);
+    void queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
+    void queryClient.invalidateQueries({
+      queryKey: ["provider-connection-sync-status", organizationId],
+    });
+  }, [currentJob, lastSeenJobId, organizationId, queryClient]);
+
+  if (!status.data) return null;
+  const data = status.data;
+  const healthBadge =
+    SCHEDULER_HEALTH_BADGE[data.scheduler_health] ?? SCHEDULER_HEALTH_BADGE["disabled"]!;
+
+  return (
+    <Section title="Automatic sync" description="Background synchronization, configured in Settings." icon={Timer}>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs">
+        <div className="flex items-center gap-1.5">
+          <span className={cn("badge text-[10px]", data.auto_sync_enabled ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
+            {data.auto_sync_enabled ? "Enabled" : "Disabled"}
+          </span>
+          {data.auto_sync_enabled && <span className="text-tx-muted">every {data.interval}</span>}
+        </div>
+
+        <span className={cn("badge text-[10px]", healthBadge.className)}>
+          Scheduler {healthBadge.label.toLowerCase()}
+        </span>
+
+        <span className="text-tx-muted inline-flex items-center gap-1">
+          <Clock size={12} />
+          Last sync {formatValidatedAt(data.last_sync_at) ?? "never"}
+        </span>
+
+        {data.auto_sync_enabled && (
+          <span className="text-tx-muted inline-flex items-center gap-1">
+            <Clock size={12} />
+            Next sync {formatValidatedAt(data.next_sync_at) ?? "—"}
+          </span>
+        )}
+
+        {data.current_job && (
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "badge text-[10px]",
+                JOB_STATUS_BADGE[data.current_job.status]?.className ?? "bg-app-muted text-tx-muted",
+              )}
+            >
+              {JOB_STATUS_BADGE[data.current_job.status]?.label ?? data.current_job.status}
+            </span>
+            <span className="text-tx-muted">
+              {formatNumber(data.current_job.records_imported)} records
+              {data.current_job.duration_seconds != null &&
+                ` · ${data.current_job.duration_seconds.toFixed(1)}s`}
+              {data.current_job.retry_count > 0 && ` · retry ${data.current_job.retry_count}`}
+            </span>
+          </div>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function ManageConnectionsSection() {
   const organizationId = useOrgStore((s) => s.organizationId);
   const queryClient = useQueryClient();
@@ -931,6 +1036,8 @@ export default function Connections() {
         title="Provider Connections"
         description="Manage persisted connections, verify credentials, and browse live model lists for each adapter."
       />
+
+      <AutoSyncStatusSection />
 
       <ManageConnectionsSection />
 

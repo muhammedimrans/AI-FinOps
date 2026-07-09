@@ -9,6 +9,7 @@ import type {
   ProviderConnectionRecord,
   ProviderConnectionsListResponse,
   ProviderInfoResponse,
+  SchedulerStatusResponse,
   SyncStatusResponse,
 } from "../services/api";
 
@@ -26,6 +27,7 @@ vi.mock("../services/api", async (importOriginal) => {
     getProviderConnectionSyncStatus: vi.fn(),
     syncProviderConnection: vi.fn(),
     syncAllProviderConnections: vi.fn(),
+    getSchedulerStatus: vi.fn(),
   };
 });
 
@@ -82,6 +84,27 @@ const NEVER_SYNCED_STATUS: SyncStatusResponse = {
   supports_usage_sync: true,
 };
 
+const DISABLED_SCHEDULER_STATUS: SchedulerStatusResponse = {
+  organization_id: "org_1",
+  auto_sync_enabled: false,
+  interval: "1h",
+  interval_seconds: 3600,
+  last_sync_at: null,
+  last_sync_status: null,
+  next_sync_at: null,
+  current_job: null,
+  scheduler_health: "disabled",
+  monitoring: {
+    is_running: true,
+    active_jobs: 0,
+    queued_jobs: 0,
+    completed_jobs: 0,
+    failed_jobs: 0,
+    average_duration_seconds: null,
+    last_execution: null,
+  },
+};
+
 function renderPage() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -99,6 +122,7 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
     mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+    mockedApi.getSchedulerStatus.mockResolvedValue(DISABLED_SCHEDULER_STATUS);
   });
 
   it("shows the empty state when there are no connections", async () => {
@@ -276,6 +300,7 @@ describe("Connections page — usage synchronization (EP-23.3)", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
+    mockedApi.getSchedulerStatus.mockResolvedValue(DISABLED_SCHEDULER_STATUS);
   });
 
   it("shows 'never synced' for a connection that has not been synced yet", async () => {
@@ -436,5 +461,92 @@ describe("Connections page — usage synchronization (EP-23.3)", () => {
     renderPage();
     await screen.findByText(/No provider connections yet/i);
     expect(screen.queryByRole("button", { name: /sync all/i })).toBeNull();
+  });
+});
+
+describe("Connections page — automatic sync status (EP-23.4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
+    mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
+  });
+
+  it("shows disabled state when auto sync is off", async () => {
+    mockedApi.getSchedulerStatus.mockResolvedValue(DISABLED_SCHEDULER_STATUS);
+    renderPage();
+    expect(await screen.findByText("Disabled")).toBeTruthy();
+    expect(screen.getByText(/last sync never/i)).toBeTruthy();
+  });
+
+  it("shows enabled state with interval, next sync, and scheduler health", async () => {
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "15m",
+      interval_seconds: 900,
+      last_sync_at: "2026-07-01T00:00:00Z",
+      last_sync_status: "completed",
+      next_sync_at: "2026-07-01T00:15:00Z",
+      current_job: null,
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 5,
+        failed_jobs: 0,
+        average_duration_seconds: 2.5,
+        last_execution: "2026-07-01T00:00:00Z",
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText("Enabled")).toBeTruthy();
+    expect(screen.getByText(/every 15m/i)).toBeTruthy();
+    expect(screen.getByText(/next sync/i)).toBeTruthy();
+    expect(screen.getByText(/scheduler healthy/i)).toBeTruthy();
+  });
+
+  it("shows the current job's status, records imported, and duration", async () => {
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: "2026-07-01T01:00:00Z",
+      current_job: {
+        job_id: "job_1",
+        organization_id: "org_1",
+        status: "running",
+        queued_at: "2026-07-01T00:00:00Z",
+        started_at: "2026-07-01T00:00:01Z",
+        completed_at: null,
+        connections_synced: 0,
+        connections_failed: 0,
+        records_imported: 12,
+        retry_count: 1,
+        duration_seconds: 3.4,
+        error: null,
+      },
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 1,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+    renderPage();
+
+    expect(await screen.findByText("Running")).toBeTruthy();
+    expect(screen.getByText(/12 records/)).toBeTruthy();
+    expect(screen.getByText(/3\.4s/)).toBeTruthy();
+    expect(screen.getByText(/retry 1/)).toBeTruthy();
   });
 });

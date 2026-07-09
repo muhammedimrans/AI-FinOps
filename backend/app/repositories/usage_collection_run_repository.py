@@ -7,7 +7,11 @@ import uuid
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.usage_collection_run import CollectionRunStatus, UsageCollectionRun
+from app.models.usage_collection_run import (
+    CollectionRunStatus,
+    CollectionTrigger,
+    UsageCollectionRun,
+)
 from app.repositories.base_repository import BaseRepository, CursorPage
 
 
@@ -97,6 +101,32 @@ class UsageCollectionRunRepository(BaseRepository[UsageCollectionRun]):
             UsageCollectionRun.organization_id == organization_id,
             UsageCollectionRun.provider_connection_id == provider_connection_id,
         ]
+        if status is not None:
+            filters.append(UsageCollectionRun.status == status)
+        page = await self.list_page(
+            limit=1,
+            order="desc",
+            extra_filters=and_(*filters),
+        )
+        return page.items[0] if page.items else None
+
+    async def get_latest_for_org(
+        self,
+        organization_id: uuid.UUID,
+        *,
+        triggered_by: CollectionTrigger | None = None,
+        status: CollectionRunStatus | None = None,
+    ) -> UsageCollectionRun | None:
+        """Most recent run across every connection in an org (EP-23.4).
+
+        Used by the scheduler/status endpoint to answer "when did this org's
+        background sync last run" without needing to know which connection
+        it ran against — a org can have many connections, only one of which
+        may have had usage to import on the last tick.
+        """
+        filters = [UsageCollectionRun.organization_id == organization_id]
+        if triggered_by is not None:
+            filters.append(UsageCollectionRun.triggered_by == triggered_by)
         if status is not None:
             filters.append(UsageCollectionRun.status == status)
         page = await self.list_page(

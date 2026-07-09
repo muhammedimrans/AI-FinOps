@@ -1136,3 +1136,200 @@ New API client functions in `apps/dashboard/src/services/api.ts`: `getProviderCo
 ### Next milestone recommendation
 
 With the synchronization engine now real, the two natural follow-ups are: (1) a **scheduler** (cron-triggered `sync_all_connections` across every organization, likely reusing `app/usage/background.py`'s dormant framework or a simpler periodic-task runner) so usage data flows without a user manually clicking "Sync now" — this is what would finally make §17's `GettingStartedBanner`/`DashboardStateHero` state-3-to-state-4 transition ("Everything is ready. Waiting for your applications to send AI requests.") happen automatically for a connected, validated provider; and (2) **dashboard analytics on top of the newly-flowing data** — explicitly out of scope for this EP by its own instruction, but now unblocked now that `UsageEvent`/`UsageCostRecord` rows exist for customer-connected providers, not just env-var-keyed ops usage.
+
+---
+
+## 20. EP-23.4 — Background Usage Synchronization Scheduler
+
+**Status: complete.** Closes §19's own "next milestone recommendation" #1: usage now flows into the dashboard without any user clicking "Sync now" — a per-organization background scheduler periodically calls the exact same `ProviderSyncService` EP-23.3 built, on a configurable interval (5m/15m/1h/6h/24h). No dashboard analytics were added by this EP either — still deliberately out of scope, per §19's #2.
+
+### Why this is a new, thin component rather than an extension of an existing one
+
+This EP's own instruction was "use the existing background framework if already present; extend it; if none exists, implement the minimum necessary." Auditing `app/usage/background.py`'s `BackgroundCollectionFramework` (EP-08) found it *looks* like the obvious thing to extend but isn't actually a scheduler: it has no notion of an interval or "check what's due" — it only exposes `submit()` for one explicit, caller-triggered collection run, tracked in an in-memory task registry. Two more specific problems ruled out wrapping it rather than just not using it:
+
+1. **Session factory signature mismatch.** `BackgroundCollectionFramework.__init__` expects `session_factory: Callable[[], Awaitable[AsyncSession]]` — an async callable that directly returns an open session (`session = await self._session_factory()`). Every other non-request call site in this codebase, including `app.api.deps.get_db` and `AppContainer.session_factory` itself, uses the opposite shape: `async_sessionmaker[AsyncSession]`, called synchronously and used via `async with session_factory() as session:`. `AppContainer.session_factory` cannot be passed to `BackgroundCollectionFramework` as-is — it was never actually wired to the container this session confirmed (§19 and earlier already flagged it as "dormant, unwired").
+2. **Wrong call path.** `BackgroundCollectionFramework._run_task` calls `UsageCollectionService` directly with an env-var-keyed config — it has no idea `ProviderSyncService` (EP-23.3) or per-connection encrypted credentials exist. Making it credential-aware would mean rewriting its one method, at which point it would no longer be "the existing framework," just a class with the same name.
+
+So `BackgroundCollectionFramework` is left exactly as EP-08/EP-23.3 documented it — dormant, untouched, a plain manual-task tracker still available for a future one-off use. The new `UsageSyncScheduler` (`app/services/usage_sync_scheduler.py`) is the "minimum necessary" scheduler: it owns *when* to sync (interval math, concurrency, locking) and delegates *how* entirely to `ProviderSyncService.sync_all_connections()` — one new call site, zero duplicated collection/retry/provider logic.
+
+### Architecture
+
+```
+UsageSyncScheduler                — WHEN: tick loop, per-org interval, concurrency/locking (new, EP-23.4)
+        │
+        ▼
+ProviderSyncService.sync_all_connections()   — WHICH connections, credential decrypt (EP-23.3, reused unchanged)
+        │
+        ▼
+UsageCollectionService.collect()  — HOW: pagination/normalization/persistence/checkpoint (EP-08, reused unchanged)
+        │
+        ▼
+ProviderHttpClient + ExponentialRetryPolicy  — per-request retry of transient failures (EP-06/EP-07, reused unchanged)
+        │
+        ▼
+UsageCollectionRun (+ UsageCollectionCheckpoint, UsageEvent, UsageCostRecord)  — persisted, unchanged schema
+```
+
+### Scheduler lifecycle
+
+`UsageSyncScheduler` is constructed once in `AppContainer.create()` (`app/core/container.py`), alongside the engine/session-factory/Redis/event-bus/connection-manager it already builds, and started automatically (`settings.scheduler_enabled`, default `True`) right after `connection_manager.start()`. `AppContainer.close()` stops it before disposing the engine/Redis. A new `SettingsDep`-style dependency, `SchedulerDep` (`app/api/deps.py`'s `get_usage_sync_scheduler`), exposes it to routers the same way `EventBusDep`/`ConnectionManagerDep` already do; it raises 503 rather than crashing if a container was ever built without one (only `tests/test_ep19_1.py`'s hand-built `_mock_container()` does this, since `AppContainer.usage_sync_scheduler` is an `Optional` field precisely so that pre-EP-23.4 test helper didn't need updating).
+
+```
+AppContainer.create()
+        │
+        ├─ engine, session_factory, redis  (unchanged)
+        ├─ connection_manager.start()       (unchanged)
+        │
+        ├─ usage_sync_scheduler = UsageSyncScheduler(session_factory, redis=redis,
+        │       tick_interval_seconds=settings.scheduler_tick_interval_seconds)
+        └─ if settings.scheduler_enabled: await usage_sync_scheduler.start()
+                        │
+                        ▼
+                asyncio.create_task(_run_loop())
+                        │
+              ┌─────────┴─────────┐
+              │  loop forever:     │
+              │  await tick()      │
+              │  await sleep(N)    │   N = scheduler_tick_interval_seconds (default 60s;
+              └────────────────────┘       SCHEDULER_TICK_INTERVAL_SECONDS env var, 10–3600s)
+```
+
+`tick()` never runs organization-specific work itself — it discovers due organizations and fires off `_run_job()` as an independent `asyncio.create_task` per organization, so one organization's slow provider doesn't delay the next tick's discovery pass or another organization's dispatch.
+
+### Sequence diagram — one tick, one due organization
+
+```
+Scheduler loop          UsageSyncScheduler         Redis            ProviderSyncService        UsageCollectionRun table
+     │  sleep elapses          │                     │                      │                          │
+     ├─────────────────────────►  tick()             │                      │                          │
+     │                         │  OrganizationRepository.list_auto_sync_enabled()                        │
+     │                         │  (orgs.sync_settings->>'auto_sync_enabled' = 'true')                    │
+     │                         │  for each org:       │                      │                          │
+     │                         │  UsageCollectionRunRepository.get_latest_for_org(org, SCHEDULED)         │
+     │                         │◄─────────────────────┼──────────────────────┼──────────────────────────┤
+     │                         │  due = now >= last_run.completed_at + interval  (or True if never run)  │
+     │                         │  skip if org already in _running_org_ids (in-process guard)              │
+     │                         │  SET scheduler:lock:org:{id} NX EX ttl                                   │
+     │                         ├─────────────────────►│                      │                          │
+     │                         │◄─────────────────────┤ OK / already-locked  │                          │
+     │                         │  (skip if lock not acquired)                │                          │
+     │                         │  asyncio.create_task(_run_job(job))         │                          │
+     │                         │           │           │                      │                          │
+     │                         │           ▼           │                      │                          │
+     │                         │  job.status = RUNNING │                      │                          │
+     │                         │  sync_all_connections(org, triggered_by=SCHEDULED)                       │
+     │                         │           ├──────────────────────────────────►                          │
+     │                         │           │           │            decrypt + build_provider_config       │
+     │                         │           │           │            + UsageCollectionService.collect()    │
+     │                         │           │           │            (per connection, EP-23.3 unchanged)   │
+     │                         │           │           │                      ├──────────────────────────►│
+     │                         │           │◄──────────┼──────────────────────┤ [UsageCollectionRun, ...] │
+     │                         │  job.status = COMPLETED / FAILED (any connection FAILED -> job FAILED)   │
+     │                         │  DEL scheduler:lock:org:{id}                 │                          │
+     │                         ├─────────────────────►│                      │                          │
+```
+
+### Concurrency model
+
+Two independent, layered guards — the same "defense in depth, degrade gracefully" pattern this codebase already uses for login rate limiting (`app.auth.rate_limit`):
+
+1. **In-process** (`UsageSyncScheduler._running_org_ids: set[UUID]`) — checked before any I/O, for free. Covers the common single-worker deployment and prevents a slow-running org from being re-dispatched by the next tick before it finishes.
+2. **Cross-process** (Redis `SET scheduler:lock:org:{org_id} NX EX <ttl>`, `ttl = clamp(interval_seconds, 60, 86400)`) — reuses the exact same `redis.asyncio.Redis` client already on `AppContainer`, no new infrastructure. If Redis is unreachable, `_acquire_lock` catches the exception and returns `True` (allowed) rather than blocking sync — a Redis outage narrows the safety net to the in-process guard only, it never stops background sync from running. This mirrors `app.auth.rate_limit._RedisBackend`'s own documented fallback philosophy verbatim.
+
+A `max_concurrent_orgs` `asyncio.Semaphore` (default 5) additionally bounds how many organizations sync *simultaneously within one process* — a large backlog of simultaneously-due organizations queues (`SchedulerJobStatus.QUEUED` until the semaphore admits it) rather than firing every job at once.
+
+**What this does not claim to be**: a distributed job queue with exactly-once delivery guarantees across an arbitrary number of workers. It is "safe" in the sense the spec asked for — duplicate synchronization is prevented, not merely made unlikely — but it is a lock, not a queue; a worker that dies mid-job holds its Redis lock until the TTL (bounded by the org's own sync interval) expires, at which point the next tick's `_is_due` check (driven by the *persisted* last-run timestamp, not the lock) picks it back up. See "Known limitations" for the corresponding startup-storm caveat.
+
+### Checkpoint / due-detection flow
+
+**No new checkpoint logic** — `UsageSyncScheduler` never touches `UsageCollectionCheckpoint` directly; that remains entirely `UsageCollectionService`'s responsibility (EP-08), reused unchanged via `ProviderSyncService`. What the scheduler *does* own is "due detection," and it is deliberately stateless across restarts:
+
+```
+_is_due(org_id, interval_seconds):
+    latest = UsageCollectionRunRepository.get_latest_for_org(org_id, triggered_by=SCHEDULED)
+    if latest is None:            → due = True   (initial sync)
+    else:
+        next_run = latest.completed_at + interval_seconds
+        due = now >= next_run     → (incremental sync, resume after interruption,
+                                      recovery after deployment restart — all the
+                                      same code path, because "due" is always
+                                      recomputed from the database, never from
+                                      in-memory state that a restart would lose)
+```
+
+Because every tick re-derives "when did this org last run" from the `UsageCollectionRun` table rather than from any process-local timestamp, a deployment restart (the scheduler's in-memory `_jobs`/`_running_org_ids` reset to empty) does not cause organizations to be silently skipped or double-synced on the first post-restart tick — it just re-evaluates the same due-check against the same durable data it always would have.
+
+### Retry flow — fully reused, zero new retry code
+
+Identical to EP-23.3's own retry section (§19), because this EP calls the same `ProviderSyncService.sync_connection()`/`sync_all_connections()` and introduces no second retry path: `ProviderHttpClient` + `ExponentialRetryPolicy` (EP-06/EP-07) retry each individual provider HTTP request based on `ProviderError.retryable`:
+
+| Failure | Retried by the existing HTTP layer? |
+|---|---|
+| Timeout / `NetworkError` | Yes |
+| 429 / `RateLimitError` | Yes |
+| Temporary provider outage / `InternalProviderError` | Yes |
+| Invalid API key / `AuthenticationError` | No |
+| Unsupported provider | N/A — `ProviderSyncService` records an honest zero-events `COMPLETED` run, never attempts the call (EP-23.3) |
+| Revoked credentials → `AuthenticationError` | No |
+
+The scheduler's own `retry_count` field (surfaced in the API/UI, see below) is **not** an HTTP retry counter — threading a per-request retry count out of `ProviderHttpClient` up through `UsageCollectionService`/`ProviderSyncService` into the scheduler would mean modifying an internal that this EP was explicitly told not to touch. Instead it counts **consecutive scheduler-job failures for that organization**, derived from the scheduler's own in-memory job history (`_consecutive_failure_streak`) — "this org's background sync has failed N ticks in a row," a genuinely different and equally useful signal, disclosed as such in both the API response and this doc rather than conflated with HTTP-level retries.
+
+### Database — one new column, no new tables
+
+Per this EP's "avoid new tables whenever possible; only add minimal schema if scheduler settings require persistence" instruction: `organizations.sync_settings` (migration `e8f1a2b3c4d5`, chained off EP-22.2's `d3f6a9c8b2e4`) — a single `JSONB NOT NULL DEFAULT '{}'` column, the exact same "minimal JSON bag, no dedicated table" pattern EP-22.2 established for `users.preferences` (§16). Holds exactly two keys: `{"auto_sync_enabled": bool, "interval_seconds": int}`. A missing key means "not configured" (auto sync off, default interval) — not a stored `false`/default — so every pre-existing organization needs no backfill and is correctly treated as opted-out.
+
+- `OrganizationRepository.list_auto_sync_enabled(limit, cursor)` (new) — cursor-paginated query filtering `status = ACTIVE AND sync_settings->>'auto_sync_enabled' = 'true'` directly in SQL (JSONB `.astext` comparison), not loaded-then-filtered in Python.
+- `UsageCollectionRunRepository.get_latest_for_org(org_id, triggered_by=None, status=None)` (new) — the org-wide counterpart to EP-23.3's connection-scoped `get_latest_for_connection`; an org can have many connections, and the scheduler needs "when did *any* connection in this org last get a SCHEDULED run," not a per-connection answer.
+
+`UsageCollectionRun`/`UsageCollectionCheckpoint` themselves are completely unchanged — every "sync status" field the scheduler surfaces (last sync, next sync, records imported) is derived the same way EP-23.3's `SyncStatusResponse` already was, just aggregated at the organization level instead of per-connection.
+
+### API — 3 new endpoints, still on the existing EP-22/EP-23.3 router
+
+No new router file; no duplicate of the EP-23.3 sync endpoints. `app/api/v1/provider_connections.py` gained:
+
+| Method | Path | Permission | Purpose |
+|---|---|---|---|
+| GET | `/v1/organizations/{org_id}/provider-connections/scheduler/status` | `PROVIDER_READ` | Auto-sync config + last/next sync + process-wide monitoring counters, in one call |
+| PATCH | `/v1/organizations/{org_id}/provider-connections/scheduler/settings` | `PROVIDER_WRITE` | Enable/disable auto-sync, set interval (partial update, `exclude_unset`-equivalent — only supplied fields change) |
+| GET | `/v1/organizations/{org_id}/provider-connections/scheduler/jobs` | `PROVIDER_READ` | Recent scheduler job history for this org (queued/running/completed/failed, duration, records imported, retry count) |
+
+`PROVIDER_WRITE` is ADMIN+OWNER only (unchanged RBAC boundary from EP-22/EP-23.3) — a MEMBER can see whether auto-sync is on and watch it run, but cannot turn it on or change the interval, matching every other provider-connection mutation in this router. These three literal path segments (`/scheduler/status`, `/scheduler/settings`, `/scheduler/jobs`) coexist without ambiguity alongside the existing `/{connection_id}/...` parametrized routes — verified via the app's own generated OpenAPI schema (`app.openapi()["paths"]`), not just by inspection, since Starlette route matching is order- and arity-sensitive and this was worth confirming directly rather than assuming.
+
+New schemas (`app/schemas/provider_connections.py`): `SchedulerStatusResponse`, `SchedulerJobItem`, `SchedulerJobsResponse`, `SchedulerMonitoringSnapshot`, `UpdateSchedulerSettingsRequest` (accepts the interval as one of the 5 literal labels — `"5m"|"15m"|"1h"|"6h"|"24h"` — never a raw second count, so an invalid interval can never be persisted via the API even though the scheduler's own `interval_seconds_for()` also clamps defensively at read time).
+
+### Security
+
+Identical guarantees to EP-22 (§13 Part 7) and EP-23.3 (§19): the scheduler never introduces a second decryption path — `ProviderSyncService.sync_connection()` (unchanged) is the only place a plaintext key is ever produced, and only in memory, for the duration of one connection's sync. `UsageSyncScheduler`'s own structlog calls bind only `job_id`/`organization_id`/timing/counts — a job failure is logged as `error_type=type(exc).__name__`, never `str(exc)`, matching `ProviderSyncService`'s existing convention exactly. No scheduler API response includes credential material (`SchedulerStatusResponse`/`SchedulerJobItem` carry no connection-level fields at all — that's still `SyncStatusResponse`'s job, EP-23.3). Redis lock keys (`scheduler:lock:org:{org_id}`) contain only a UUID, never a credential or org name.
+
+### Performance
+
+- `list_auto_sync_enabled` filters `auto_sync_enabled`/`status` in the SQL `WHERE` clause, not in Python — orgs that haven't opted in are never loaded.
+- `_is_due` is one indexed query per organization per tick (`UsageCollectionRun` is already indexed on `organization_id` + `started_at`, EP-08) — no N+1 across connections, since due-detection is org-level, not per-connection.
+- No duplicate provider authentication: `ProviderSyncService.sync_all_connections()` already decrypts and authenticates once per connection per sync (EP-23.3, unchanged) — the scheduler adds no additional auth round-trip on top of that.
+- Redis lock acquire/release is two round-trips (`SET NX EX`, `DEL`) per dispatched job, not per tick — organizations that aren't due this tick never touch Redis at all.
+- The scheduler's own tick cadence (`scheduler_tick_interval_seconds`, default 60s) is independent of any org's configured sync interval, so a fleet of orgs all set to "daily" doesn't mean 1440 idle due-checks between real work — each due-check is a cheap indexed query, not a source of meaningful load at the scale this product operates at today.
+
+### Frontend
+
+**Connections page** (`apps/dashboard/src/features/Connections.tsx`) — new `AutoSyncStatusSection`, rendered above the existing "Your provider connections" section: Auto Sync Enabled/Disabled badge + configured interval, a scheduler-health badge (Healthy/Degraded/Disabled/Not running — `SCHEDULER_HEALTH_BADGE`, mirrors the existing `HEALTH_BADGE`/`SYNC_STATUS_BADGE` vocabulary rather than inventing a new one), "Last sync"/"Next sync" timestamps, and — when a job is in flight or just finished — its status/records-imported/duration/retry-count. Polls `GET .../scheduler/status` every 20s (`refetchInterval`) so a background sync that completes without any user action is reflected without a manual page refresh (the "dashboard refresh" requirement); when the polled `current_job` transitions to `completed`/`failed`, a `useEffect` invalidates the existing `["provider-connections", ...]` and `["provider-connection-sync-status", ...]` query keys — **reusing** EP-23.3's own query-invalidation, not introducing a parallel refresh mechanism. Manual "Sync now"/"Sync all" buttons (EP-23.3) are untouched and still present.
+
+**Settings page** (`apps/dashboard/src/features/Settings.tsx`) — new `AutomaticSyncCard`, added to the **Workspace** tab (not Preferences, which is per-user `users.preferences` — auto-sync is an organization-wide setting shared by every member, exactly like the workspace name/description already on that tab). An ON/OFF switch and a 5-option interval `<select>` (5m/15m/1h/6h/24h), each firing `PATCH .../scheduler/settings` immediately on change (no separate Save button, matching how the pre-existing theme/notification toggles in this same file already behave), plus read-only "Last sync"/"Next sync"/"Scheduler: {health}" text.
+
+New API client functions/types in `apps/dashboard/src/services/api.ts`: `getSchedulerStatus`, `updateSchedulerSettings`, `getSchedulerJobs`, plus `SchedulerStatusResponse`/`SchedulerJobItem`/`SchedulerJobsResponse`/`SchedulerMonitoringSnapshot`/`SchedulerInterval` types mirroring the new backend schemas exactly.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep23_4_scheduler.py`, 34 new tests): pure-function interval helpers (clamping, label round-trip); `tick()`/`_maybe_dispatch` (dispatches a due org and calls `sync_all_connections` with `triggered_by=SCHEDULED`, skips a not-yet-due org, skips orgs `list_auto_sync_enabled` itself already filtered out, skips an org already in `_running_org_ids`, skips when the Redis lock is held elsewhere, degrades to "allowed" when Redis raises, always allows when no Redis is configured); job execution (`_run_job` success and failure paths, a partial per-connection failure still marks the whole job FAILED, `retry_count` reflects the consecutive-failure streak and resets after a success); due-detection (never-synced is always due, a recent run is not due, a stale run beyond the interval is due — the deployment-restart-recovery case); `get_org_status`/`monitoring_snapshot` derivation; `start()`/`stop()` lifecycle (idempotent, no leaked task); API-level tests for all 3 new endpoints (200/401/403/404, the ADMIN-can/VIEWER-and-MEMBER-cannot `PROVIDER_WRITE` boundary on the settings PATCH). `tests/conftest.py`'s `_make_mock_container` and `make_org` factories extended (a real, unstarted `UsageSyncScheduler` on the mock container; `sync_settings` on the org factory) — same "transient ORM object needs every field the code now reads" precedent EP-22.2 already established for `preferences`/`description`/`is_personal`. Full backend suite: **1616 passed** (1582 + 34), ruff/black/mypy clean.
+- **Frontend**: `ManageConnectionsSection.test.tsx` gained a new `describe` block (3 tests: disabled state, enabled state with interval/next-sync/health, in-flight job status/records/duration/retry-count) plus a default `getSchedulerStatus` mock added to its two existing `describe` blocks' `beforeEach` (since `AutoSyncStatusSection` now mounts on every render of the Connections page — the pre-existing 17 EP-22/EP-23.3 tests needed no assertion changes, only the added mock so they don't hit real `fetch`). `Settings.test.tsx` gained a new `describe` block (4 tests: disabled state hides the interval picker, enabled state shows interval/next-sync/health, toggling the switch calls `updateSchedulerSettings` with `{auto_sync_enabled: true}`, changing the select calls it with `{interval: "6h"}`) plus a default `getSchedulerStatus` mock in the pre-existing suite's `beforeEach`. Full dashboard suite: **191 passed** (184 + 7), lint clean, typecheck clean (`tsc -b`), build clean.
+
+### Known limitations
+
+- **Lock TTL, not lease renewal.** The Redis lock's TTL is set once at acquisition (`clamp(interval_seconds, 60, 86400)`) and never extended while a job runs. A sync that takes longer than the org's own configured interval (unusual, but possible for a very short 5-minute interval against a slow provider) could have its lock expire before the job finishes, allowing the *next* tick to dispatch a second, overlapping job for the same org — the in-process guard (`_running_org_ids`) still prevents this within one worker, so this is only a real risk across multiple horizontally-scaled workers with a short interval and an unusually slow provider. A lease-renewal heartbeat would close this gap; not built here to keep the locking mechanism the "smallest possible, production-quality change" the task asked for.
+- **`SchedulerJobRecord` history is in-memory and per-process.** Restarting the API process (or running multiple workers) means `GET .../scheduler/jobs` and the monitoring counters only reflect *that process's* recent activity, not a global history — by design (see the architecture section's rationale), but worth restating: the durable record of what actually synced is always `UsageCollectionRun`, never this job history.
+- **No startup-storm smoothing.** On a fresh deploy (or after `scheduler_enabled` is flipped on for the first time), every organization with auto-sync on and no prior `SCHEDULED` run is immediately "due," so the first tick can dispatch many organizations at once — bounded by `max_concurrent_orgs` (default 5) so they queue rather than all running simultaneously, but there is no jitter/stagger added across organizations' *first* sync. Acceptable at this product's current scale; would be the first thing to revisit if the organization count grows large enough for a synchronized first-tick burst to matter.
+- **`retry_count` is scheduler-job-level, not HTTP-request-level** (see "Retry flow" above) — disclosed there, repeated here because it's the one field in this EP most likely to be misread as "how many times did the HTTP client retry."
+- **No live, continuous browser test of a real multi-tick scheduler run** — same caveat as every prior EP in this document: verified in pieces (backend unit tests calling `tick()`/`_run_job()` directly rather than running the real sleep loop, frontend component tests, both full builds), not as one continuous browser session watching real background ticks fire over real wall-clock time, since this sandbox has no way to drive a real browser against a live deployment or wait out real intervals.
+
+### Next EP recommendation
+
+With both manual (EP-23.3) and automatic (EP-23.4) usage synchronization now real, the two items §19 already named as the standing next blockers are unaffected by this EP and remain the highest-value work: (1) **dashboard analytics on top of the newly-flowing data** — now doubly unblocked, since `UsageEvent`/`UsageCostRecord` rows can arrive without any user action at all; and (2) the lease-renewal/startup-jitter hardening named above, if and when this product's organization count or per-org sync frequency grows enough to make either a real concern rather than a theoretical one.

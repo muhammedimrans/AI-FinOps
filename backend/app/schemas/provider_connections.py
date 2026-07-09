@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -156,3 +157,75 @@ class SyncAllResponse(BaseModel):
     total: int
     succeeded: int
     failed: int
+
+
+# ── Background scheduler (EP-23.4) ──────────────────────────────────────────
+
+
+class UpdateSchedulerSettingsRequest(BaseModel):
+    """Configure the organization's background sync scheduler.
+
+    Both fields optional — only supplied fields change, matching every other
+    partial-update request in this codebase (``exclude_unset``).
+    ``interval`` is one of the 5 presets the product spec names; the
+    scheduler stores/derives whole seconds internally
+    (``app.services.usage_sync_scheduler.INTERVAL_PRESETS``) but the API
+    only ever accepts the label, never a raw second count, so an invalid
+    interval can't be persisted.
+    """
+
+    auto_sync_enabled: bool | None = None
+    interval: Literal["5m", "15m", "1h", "6h", "24h"] | None = None
+
+
+class SchedulerJobItem(BaseModel):
+    """One scheduler-dispatched sync job (queued/running/completed/failed)."""
+
+    job_id: str
+    organization_id: str
+    status: str  # SchedulerJobStatus value
+    queued_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    connections_synced: int
+    connections_failed: int
+    records_imported: int
+    retry_count: int
+    duration_seconds: float | None
+    error: str | None
+
+
+class SchedulerMonitoringSnapshot(BaseModel):
+    """Process-wide scheduler counters — see ``UsageSyncScheduler.monitoring_snapshot``."""
+
+    is_running: bool
+    active_jobs: int
+    queued_jobs: int
+    completed_jobs: int
+    failed_jobs: int
+    average_duration_seconds: float | None
+    last_execution: datetime | None
+
+
+class SchedulerStatusResponse(BaseModel):
+    """Auto-sync configuration + state for one organization, plus
+    process-wide scheduler health — everything the Connections and Settings
+    pages need in a single call."""
+
+    organization_id: str
+    auto_sync_enabled: bool
+    interval: str  # "5m" | "15m" | "1h" | "6h" | "24h"
+    interval_seconds: int
+    last_sync_at: datetime | None
+    last_sync_status: str | None  # CollectionRunStatus value, or None if never synced
+    next_sync_at: datetime | None
+    current_job: SchedulerJobItem | None
+    scheduler_health: str  # "healthy" | "degraded" | "disabled" | "not_running"
+    monitoring: SchedulerMonitoringSnapshot
+
+
+class SchedulerJobsResponse(BaseModel):
+    """Recent scheduler job history for one organization."""
+
+    jobs: list[SchedulerJobItem]
+    total: int

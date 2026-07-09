@@ -40,6 +40,7 @@ from app.models.user import User, UserStatus
 from app.realtime.connection_manager import ConnectionManager
 from app.realtime.event_bus import EventBus
 from app.realtime.rate_limit import ConnectionRateLimiter
+from app.services.usage_sync_scheduler import UsageSyncScheduler
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 
@@ -146,6 +147,12 @@ def _make_mock_container(
         # it and starting it requires a running event loop at fixture time.
         connection_manager=ConnectionManager(event_bus),
         realtime_rate_limiter=ConnectionRateLimiter(redis=mock_redis),
+        # Same rationale as connection_manager above — constructed (so
+        # SchedulerDep/status endpoints have something real to call) but
+        # never .start()ed, since that requires a running event loop at
+        # fixture-construction time and no test in this suite needs the
+        # tick loop actually firing in the background.
+        usage_sync_scheduler=UsageSyncScheduler(mock_session_factory, redis=mock_redis),
     )
     return container
 
@@ -282,6 +289,7 @@ def make_org(
     status: OrganizationStatus = OrganizationStatus.ACTIVE,
     description: str | None = None,
     is_personal: bool = False,
+    sync_settings: dict[str, Any] | None = None,
 ) -> Organization:
     """Return a transient Organization instance with a generated UUIDv7 id."""
     obj = Organization()
@@ -291,6 +299,7 @@ def make_org(
     obj.status = status
     obj.description = description
     obj.is_personal = is_personal
+    obj.sync_settings = sync_settings if sync_settings is not None else {}
     obj.created_at = datetime.now(UTC)
     obj.updated_at = obj.created_at
     return obj

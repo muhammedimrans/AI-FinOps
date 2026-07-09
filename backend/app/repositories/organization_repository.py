@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import exists, literal, select
+from sqlalchemy import and_, exists, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organization import Organization, OrganizationStatus
@@ -65,4 +65,28 @@ class OrganizationRepository(BaseRepository[Organization]):
             cursor=cursor,
             order=order,
             extra_filters=Organization.status == status,
+        )
+
+    async def list_auto_sync_enabled(
+        self, *, limit: int = 100, cursor: str | None = None
+    ) -> CursorPage[Organization]:
+        """Active organizations with the background sync scheduler turned on (EP-23.4).
+
+        Reads ``sync_settings->>'auto_sync_enabled'`` directly rather than
+        loading every organization and filtering in Python — a missing key
+        (the default for every pre-existing org) is correctly excluded,
+        since ``.astext`` on an absent JSONB key is SQL NULL, not ``"true"``.
+        Cursor-paginated like every other listing in this repository
+        (``list_page`` caps ``limit`` at 100) — the scheduler tick walks
+        every page via ``next_cursor`` rather than assuming one page covers
+        every organization.
+        """
+        return await self.list_page(
+            limit=limit,
+            cursor=cursor,
+            order="asc",
+            extra_filters=and_(
+                Organization.status == OrganizationStatus.ACTIVE,
+                Organization.sync_settings["auto_sync_enabled"].astext == "true",
+            ),
         )

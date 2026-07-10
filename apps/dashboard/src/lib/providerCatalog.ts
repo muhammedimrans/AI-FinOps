@@ -67,3 +67,13 @@ export const CONNECTABLE_PROVIDERS: { value: string; label: string; color: strin
 export function connectableLabel(providerType: string): string {
   return CONNECTABLE_PROVIDERS.find((p) => p.value === providerType)?.label ?? providerType;
 }
+
+// EP-24.3 — mirrors the backend's ProviderSyncService._KNOWN_USAGE_API_PROVIDERS
+// exactly: purely informational (which providers have a real bulk
+// usage-history API today), never a gate on whether sync can run — every
+// connectable provider syncs through the identical pipeline regardless.
+export const KNOWN_USAGE_API_PROVIDERS = new Set(["openai", "anthropic"]);
+
+export function hasKnownUsageApi(providerType: string): boolean {
+  return KNOWN_USAGE_API_PROVIDERS.has(providerType);
+}

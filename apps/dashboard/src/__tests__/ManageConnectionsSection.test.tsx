@@ -396,7 +396,10 @@ describe("Connections page — usage synchronization (EP-23.3)", () => {
     expect(screen.getByText(/10 records imported/)).toBeTruthy();
   });
 
-  it("disables 'Sync now' for a provider that does not support usage sync yet", async () => {
+  it("still allows 'Sync now' for a provider with no bulk usage API, with an honest explanation", async () => {
+    // EP-24.3: supports_usage_sync is informational only — every provider
+    // goes through the same real sync pipeline now, so the button must
+    // never be disabled by this flag. Only the explanatory copy changes.
     mockedApi.listProviderConnections.mockResolvedValue({
       connections: [SAMPLE_CONNECTION],
       total: 1,
@@ -408,10 +411,10 @@ describe("Connections page — usage synchronization (EP-23.3)", () => {
 
     renderPage();
     await screen.findByText("Production OpenAI");
-    await screen.findByText(/isn't available for this provider yet/i);
+    await screen.findByText(/will import 0 records until one exists/i);
 
     const syncButton = screen.getByRole("button", { name: /sync now/i });
-    expect(syncButton).toBeDisabled();
+    expect(syncButton).not.toBeDisabled();
   });
 
   it("refreshes sync status via 'Refresh status'", async () => {

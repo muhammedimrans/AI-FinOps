@@ -252,6 +252,13 @@ class OllamaProvider(AIProvider):
         cursor: str | None = None,
         limit: int = 100,
     ) -> UsagePage:
+        """Ollama is a local/self-hosted, free inference server — it has no
+        concept of billing or a usage-history API at all (matching this
+        adapter's ``requires_api_key=False``). An empty page is the
+        canonical, correct result here, not a gap to close; see
+        ``AIProvider.get_usage``'s own docstring, which names Ollama as
+        the example of this exact case.
+        """
         from app.providers.models import UsagePage
 
         return UsagePage()

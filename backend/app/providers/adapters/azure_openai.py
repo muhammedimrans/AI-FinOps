@@ -240,6 +240,18 @@ class AzureOpenAIProvider(AIProvider):
         cursor: str | None = None,
         limit: int = 100,
     ) -> UsagePage:
+        """No bulk usage-history endpoint exists for an Azure OpenAI resource
+        key. Cost/usage data for an Azure resource lives in Azure Cost
+        Management (an ARM/subscription-level API requiring a service
+        principal or management-plane credential), not the data-plane
+        ``api-key`` this connection stores for inference calls — there is no
+        usage call this adapter's credential is authorized to make. An
+        honest empty page (not fabricated events) is returned; see
+        CLAUDE.md's EP-24.3 section for the full per-provider accounting.
+        The sync pipeline itself (checkpoint, retry, scheduler) still runs
+        normally — this is the correct, honest 0-record outcome, not a
+        skipped/unsupported provider.
+        """
         from app.providers.models import UsagePage
 
         return UsagePage()

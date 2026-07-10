@@ -214,6 +214,14 @@ class GrokProvider(AIProvider):
         cursor: str | None = None,
         limit: int = 100,
     ) -> UsagePage:
+        """xAI does not publish a bulk usage-history API for third-party
+        integrations as of this EP — there is no ``GET .../usage`` endpoint
+        this adapter's API key can call to retrieve historical per-request
+        token/cost data. An honest empty page is returned rather than
+        fabricating events; see CLAUDE.md's EP-24.3 section for the full
+        per-provider accounting. The sync pipeline (checkpoint, retry,
+        scheduler) still runs normally for this provider.
+        """
         from app.providers.models import UsagePage
 
         return UsagePage()

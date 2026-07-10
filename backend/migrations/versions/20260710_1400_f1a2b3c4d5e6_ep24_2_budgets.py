@@ -28,11 +28,23 @@ depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # create_type=False here is required, not cosmetic: these ENUM objects
+    # are also used as the column type below in op.create_table(). With
+    # create_type=True (the default), SQLAlchemy attaches a *second*,
+    # independent "before_create" DDL hook to the table itself that
+    # re-issues CREATE TYPE when the table is created — and that second
+    # emission does not honor checkfirst (Alembic's op.create_table() always
+    # calls the underlying Table.create() with checkfirst=False), so it
+    # unconditionally re-runs CREATE TYPE immediately after the checkfirst
+    # creation below already succeeded, raising DuplicateObjectError. Setting
+    # create_type=False disables that second, table-triggered creation path
+    # entirely; the explicit .create(bind, checkfirst=True) calls below
+    # remain the sole (and safe, idempotent) creators of both types.
     budget_scope_type = postgresql.ENUM(
-        "organization", "project", "provider", "model", name="budget_scope_type", create_type=True
+        "organization", "project", "provider", "model", name="budget_scope_type", create_type=False
     )
     budget_period = postgresql.ENUM(
-        "daily", "weekly", "monthly", "yearly", "custom", name="budget_period", create_type=True
+        "daily", "weekly", "monthly", "yearly", "custom", name="budget_period", create_type=False
     )
     bind = op.get_bind()
     budget_scope_type.create(bind, checkfirst=True)

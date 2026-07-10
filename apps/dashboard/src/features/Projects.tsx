@@ -288,8 +288,10 @@ export default function Projects() {
   const projects = useProjects();
 
   const list = projects.data?.projects ?? [];
-  const overBudget = list.filter((p) => p.budget_utilization_pct > 100);
-  const nearBudget = list.filter((p) => p.budget_utilization_pct >= 80 && p.budget_utilization_pct <= 100);
+  const overBudget = list.filter((p) => (p.budget_utilization_pct ?? 0) > 100);
+  const nearBudget = list.filter(
+    (p) => (p.budget_utilization_pct ?? 0) >= 80 && (p.budget_utilization_pct ?? 0) <= 100,
+  );
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
@@ -356,7 +358,7 @@ export default function Projects() {
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <MetricCard
             label="Total Budget"
-            value={list.reduce((s, p) => s + parseFloat(p.budget), 0)}
+            value={list.reduce((s, p) => s + parseFloat(p.budget ?? "0"), 0)}
             type="currency"
             currency={currency}
             subtitle="allocated"
@@ -394,8 +396,8 @@ export default function Projects() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {list.map((p, i) => {
-            const isOver = p.budget_utilization_pct > 100;
-            const isNear = p.budget_utilization_pct >= 80 && !isOver;
+            const isOver = (p.budget_utilization_pct ?? 0) > 100;
+            const isNear = (p.budget_utilization_pct ?? 0) >= 80 && !isOver;
             const positive = p.cost_trend < 0;
             return (
               <motion.div
@@ -430,8 +432,8 @@ export default function Projects() {
                 <div className="mb-4">
                   <BudgetBar
                     used={p.total_cost}
-                    total={p.budget}
-                    pct={p.budget_utilization_pct}
+                    total={p.budget ?? "0"}
+                    pct={p.budget_utilization_pct ?? 0}
                     currency={currency}
                   />
                 </div>

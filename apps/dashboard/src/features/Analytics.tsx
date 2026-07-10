@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart,
   Area,
@@ -26,22 +27,29 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles, Flame, FolderKanban, X } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge from "../components/ProviderBadge";
-import { PROVIDER_COLORS } from "../lib/providerCatalog";
-import { useTimeSeries, useModels, useProviders } from "../hooks/useDashboard";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
+import { useTimeSeries, useModels, useProviders, useProjects, useHeatmap } from "../hooks/useDashboard";
 import { linearForecast, detectAnomalies } from "../lib/insights";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
-import type { Granularity, ModelSummary } from "../types/api";
+import { getSchedulerStatus } from "../services/api";
+import type { Granularity, ModelSummary, ProjectCost } from "../types/api";
 
 const columnHelper = createColumnHelper<ModelSummary & { rank: number }>();
+const projectColumnHelper = createColumnHelper<ProjectCost & { rank: number }>();
+
+const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+type ExportFormat = "spend" | "providers" | "projects" | "models";
 
 export default function Analytics() {
   const { currency } = useUIStore();
@@ -59,10 +67,63 @@ export default function Analytics() {
   const [search, setSearch] = useState("");
   const [sorting, setSorting] = useState<SortingState>([{ id: "total_cost", desc: true }]);
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("models");
 
-  const timeSeries = useTimeSeries();
-  const models = useModels();
-  const providers = useProviders();
+  // EP-24.1 — dimension filters (Project / Provider / Model). Organization
+  // is already the implicit scope of every query (useOrgStore) and Date
+  // Range is the existing top-bar date picker (useUIStore) — both already
+  // filter every chart on this page; these three add the remaining ones
+  // the spec names, threaded straight through to the now filter-aware
+  // dashboard endpoints.
+  const [projectFilter, setProjectFilter] = useState<string>("");
+  const [providerFilter, setProviderFilter] = useState<string>("");
+  const [modelFilter, setModelFilter] = useState<string>("");
+  const filters = useMemo(() => {
+    const f: { project_id?: string; provider?: string; model?: string } = {};
+    if (projectFilter) f.project_id = projectFilter;
+    if (providerFilter) f.provider = providerFilter;
+    if (modelFilter) f.model = modelFilter;
+    return f;
+  }, [projectFilter, providerFilter, modelFilter]);
+  const hasActiveFilters = !!(projectFilter || providerFilter || modelFilter);
+
+  const timeSeries = useTimeSeries(filters);
+  const models = useModels(filters);
+  const providers = useProviders(filters);
+  const projects = useProjects(filters);
+  const heatmap = useHeatmap(filters);
+  // Unfiltered project list purely to populate the Project filter dropdown
+  // — selecting a provider/model filter shouldn't also shrink which
+  // projects appear as selectable options.
+  const allProjects = useProjects();
+  // Unfiltered model list purely to populate the Model filter dropdown —
+  // same reasoning as allProjects above.
+  const allModelsQuery = useModels();
+
+  // EP-24.1 — Real-Time Updates: reuse the EP-23.4 background scheduler as
+  // the source of fresh data, exactly like Connections.tsx's
+  // AutoSyncStatusSection already does — poll scheduler status and
+  // invalidate this page's queries the moment a background sync
+  // completes, rather than building a second live-update pipeline.
+  const organizationId = useOrgStore((s) => s.organizationId);
+  const queryClient = useQueryClient();
+  const schedulerStatus = useQuery({
+    queryKey: ["scheduler-status", organizationId],
+    queryFn: () => getSchedulerStatus(organizationId!),
+    enabled: !!organizationId,
+    refetchInterval: 20_000,
+  });
+  const [lastSeenJobId, setLastSeenJobId] = useState<string | null>(null);
+  useEffect(() => {
+    const job = schedulerStatus.data?.current_job;
+    if (!job) return;
+    const finished = job.status === "completed" || job.status === "failed";
+    if (!finished || job.job_id === lastSeenJobId) return;
+    setLastSeenJobId(job.job_id);
+    for (const key of ["overview", "time-series", "providers", "models", "projects", "heatmap", "activity-feed"]) {
+      void queryClient.invalidateQueries({ queryKey: [key, organizationId] });
+    }
+  }, [schedulerStatus.data, lastSeenJobId, organizationId, queryClient]);
 
   // Providers present in the time series — derived from the data rather than a
   // hardcoded list so every provider the backend reports gets a chart series.
@@ -101,6 +162,78 @@ export default function Analytics() {
     }
     return weeks;
   }, [timeSeries.data]);
+
+  // EP-24.1 — Token Trend: input/output/total tokens per day, sourced from
+  // the same time-series points whose prompt_tokens/completion_tokens
+  // fields the backend now populates (UsageCostRecordRepository.get_daily_trend).
+  const tokenTrendData = (timeSeries.data?.data ?? []).map((d) => ({
+    date: formatDate(d.date),
+    input: d.input_tokens,
+    output: d.output_tokens,
+    total: d.total_tokens,
+  }));
+
+  // EP-24.1 — Usage Heatmap: hour-of-day (0-23) x day-of-week (0=Sun..6=Sat)
+  // cost-weighted grid, sourced directly from GET /v1/dashboard/heatmap —
+  // no client-side bucketing of raw events.
+  const heatmapCells = useMemo(() => heatmap.data?.cells ?? [], [heatmap.data]);
+  const heatmapMax = Math.max(1, ...heatmapCells.map((c) => parseFloat(c.total_cost)));
+  const heatmapByCell = useMemo(() => {
+    const map = new Map<string, (typeof heatmapCells)[number]>();
+    for (const c of heatmapCells) map.set(`${c.day_of_week}-${c.hour_of_day}`, c);
+    return map;
+  }, [heatmapCells]);
+
+  // EP-24.1 — Project Spend ranking, sourced from the same filter-aware
+  // GET /v1/dashboard/projects endpoint the Projects page's management
+  // section already calls.
+  const projectTableData = useMemo(
+    () =>
+      (projects.data?.projects ?? [])
+        .sort((a, b) => parseFloat(b.total_cost) - parseFloat(a.total_cost))
+        .map((p, i) => ({ ...p, rank: i + 1 })),
+    [projects.data],
+  );
+
+  const projectColumns = useMemo(
+    () => [
+      projectColumnHelper.accessor("rank", {
+        header: "#",
+        size: 40,
+        cell: (info) => <span className="text-tx-muted text-xs">{info.getValue()}</span>,
+      }),
+      projectColumnHelper.accessor("project_name", {
+        header: "Project",
+        cell: (info) => <span className="text-xs font-medium text-tx-primary">{info.getValue()}</span>,
+      }),
+      projectColumnHelper.accessor("total_cost", {
+        header: "Cost",
+        cell: (info) => (
+          <span className="font-semibold text-tx-primary text-xs">
+            {formatCost(info.getValue(), currency, true)}
+          </span>
+        ),
+      }),
+      projectColumnHelper.accessor("request_count", {
+        header: "Requests",
+        cell: (info) => <span className="font-mono text-xs">{formatNumber(info.getValue())}</span>,
+      }),
+      projectColumnHelper.accessor("budget", {
+        header: "Budget",
+        cell: (info) => {
+          const v = info.getValue();
+          return <span className="font-mono text-xs text-tx-muted">{v != null ? formatCost(v, currency, true) : "—"}</span>;
+        },
+      }),
+    ],
+    [currency],
+  );
+
+  const projectTable = useReactTable({
+    data: projectTableData,
+    columns: projectColumns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   // ── In-app spend intelligence (computed from the real daily series) ────────
   const dailySeries = useMemo(
@@ -212,25 +345,126 @@ export default function Analytics() {
     ? Math.max(...allModels.map((m) => parseFloat(m.avg_cost_per_request)))
     : 0;
 
+  // EP-24.1 — CSV export generalized to Spend/Providers/Projects/Models
+  // (was Models-only). Each format reuses data already fetched for the
+  // page's own charts/tables — no separate export-specific query.
   function exportCSV() {
-    if (tableData.length === 0) {
-      toast.warning("Nothing to export", "There is no model data for the current period.");
+    let header: string;
+    let rows: string[];
+    let count: number;
+    let label: string;
+
+    if (exportFormat === "spend") {
+      const points = timeSeries.data?.data ?? [];
+      header = "Date,Total Cost,Total Tokens,Requests";
+      rows = points.map((d) => [d.date, d.total_cost, d.total_tokens, d.total_requests].join(","));
+      count = points.length;
+      label = "daily spend points";
+    } else if (exportFormat === "providers") {
+      const list = providers.data?.providers ?? [];
+      header = "Provider,Total Cost,Requests,Models,Input Tokens,Output Tokens,Cost Share %";
+      rows = list.map((p) =>
+        [
+          p.provider,
+          p.total_cost,
+          p.request_count,
+          p.model_count,
+          p.input_tokens,
+          p.output_tokens,
+          p.cost_share_pct,
+        ].join(","),
+      );
+      count = list.length;
+      label = "providers";
+    } else if (exportFormat === "projects") {
+      header = "Project,Total Cost,Requests,Budget,Budget Utilization %";
+      rows = projectTableData.map((p) =>
+        [p.project_name, p.total_cost, p.request_count, p.budget ?? "", p.budget_utilization_pct ?? ""].join(","),
+      );
+      count = projectTableData.length;
+      label = "projects";
+    } else {
+      header = "Provider,Model,Requests,Input Tokens,Output Tokens,Total Cost";
+      rows = tableData.map((m) =>
+        [m.provider, m.model_id, m.request_count, m.input_tokens, m.output_tokens, m.total_cost].join(","),
+      );
+      count = tableData.length;
+      label = "models";
+    }
+
+    if (count === 0) {
+      toast.warning("Nothing to export", `There is no ${label} data for the current period.`);
       return;
     }
-    const rows = tableData.map((m) =>
-      [m.provider, m.model_id, m.request_count, m.input_tokens, m.output_tokens, m.total_cost].join(","),
-    );
-    const csv = ["Provider,Model,Requests,Input Tokens,Output Tokens,Total Cost", ...rows].join("\n");
+    const csv = [header, ...rows].join("\n");
     const a = document.createElement("a");
     a.href = `data:text/csv;charset=utf-8,${encodeURIComponent(csv)}`;
-    a.download = "ai-finops-analytics.csv";
+    a.download = `costorah-${exportFormat}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
-    toast.success("Export ready", `${tableData.length} models exported to CSV.`);
+    toast.success("Export ready", `${count} ${label} exported to CSV.`);
   }
 
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
       <PageHeader title="Cost Analytics" description="Break down spend trends and model-level cost efficiency." />
+
+      {/* EP-24.1 — Filters: Date Range and Organization are already the
+          page's implicit scope (top-bar date picker + active org); Project/
+          Provider/Model narrow every chart and table below via the same
+          filter-aware endpoints. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          aria-label="Filter by project"
+          className="bg-app-bg border border-border-subtle rounded-lg px-2.5 py-1.5 text-xs text-tx-secondary focus:outline-none focus:border-brand"
+        >
+          <option value="">All projects</option>
+          {(allProjects.data?.projects ?? []).map((p) => (
+            <option key={p.project_id} value={p.project_id}>
+              {p.project_name}
+            </option>
+          ))}
+        </select>
+        <select
+          value={providerFilter}
+          onChange={(e) => setProviderFilter(e.target.value)}
+          aria-label="Filter by provider"
+          className="bg-app-bg border border-border-subtle rounded-lg px-2.5 py-1.5 text-xs text-tx-secondary focus:outline-none focus:border-brand"
+        >
+          <option value="">All providers</option>
+          {CONNECTABLE_PROVIDERS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={modelFilter}
+          onChange={(e) => setModelFilter(e.target.value)}
+          aria-label="Filter by model"
+          className="bg-app-bg border border-border-subtle rounded-lg px-2.5 py-1.5 text-xs text-tx-secondary focus:outline-none focus:border-brand"
+        >
+          <option value="">All models</option>
+          {(allModelsQuery.data?.models ?? []).map((m) => (
+            <option key={m.model_id} value={m.model_id}>
+              {modelDisplayName(m.model_id)}
+            </option>
+          ))}
+        </select>
+        {hasActiveFilters && (
+          <button
+            onClick={() => {
+              setProjectFilter("");
+              setProviderFilter("");
+              setModelFilter("");
+            }}
+            className="btn-ghost h-7 px-2.5 text-[11px] inline-flex items-center gap-1"
+          >
+            <X size={11} /> Clear filters
+          </button>
+        )}
+      </div>
 
       {/* Summary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -409,6 +643,42 @@ export default function Analytics() {
         </ChartCard>
       </div>
 
+      {/* EP-24.1 — Token Trend: input/output/total tokens per day */}
+      <ChartCard
+        title="Token Trend"
+        subtitle="Input, output, and total token usage over time"
+        loading={timeSeries.isLoading}
+        empty={tokenTrendData.length === 0}
+        minHeight={260}
+      >
+        <ResponsiveContainer width="100%" height={260}>
+          <AreaChart data={tokenTrendData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id="inputGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={chrome.brand} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={chrome.brand} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="outputGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={chrome.primary} stopOpacity={0.3} />
+                <stop offset="95%" stopColor={chrome.primary} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke={chrome.grid} vertical={false} />
+            <XAxis dataKey="date" tick={{ fill: chrome.axis, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+            <YAxis tick={{ fill: chrome.axis, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatTokens(v)} width={52} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              itemStyle={{ color: chrome.text }}
+              labelStyle={{ color: chrome.text }}
+              formatter={(v: number, name: string) => [formatTokens(v), name === "input" ? "Input" : name === "output" ? "Output" : "Total"]}
+            />
+            <Legend formatter={(v: string) => <span style={{ color: chrome.axis, fontSize: 12, textTransform: "capitalize" }}>{v}</span>} />
+            <Area type="monotone" dataKey="input" name="input" stackId="tok" stroke={chrome.brand} fill="url(#inputGrad)" strokeWidth={1.5} dot={false} />
+            <Area type="monotone" dataKey="output" name="output" stackId="tok" stroke={chrome.primary} fill="url(#outputGrad)" strokeWidth={1.5} dot={false} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
       {/* Forecast + anomalies — computed in-app from the real daily series */}
       <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
         <ChartCard
@@ -493,6 +763,93 @@ export default function Analytics() {
         </Section>
       </div>
 
+      {/* EP-24.1 — Usage Heatmap: hour-of-day x day-of-week, cost-weighted */}
+      <Section title="Usage Heatmap" description="Spend by hour of day and day of week (UTC)" icon={Flame}>
+        <div className="p-5 pt-0 overflow-x-auto">
+          {heatmap.isLoading ? (
+            <div className="h-48 skeleton rounded-lg" />
+          ) : heatmapCells.length === 0 ? (
+            <p className="text-sm text-tx-muted py-6 text-center">No usage recorded in the selected period.</p>
+          ) : (
+            <div className="min-w-[560px]">
+              <div className="grid gap-1" style={{ gridTemplateColumns: "40px repeat(24, 1fr)" }}>
+                <div />
+                {Array.from({ length: 24 }, (_, h) => (
+                  <div key={h} className="text-center text-[9px] text-tx-muted">
+                    {h % 3 === 0 ? h : ""}
+                  </div>
+                ))}
+                {DAY_LABELS.map((label, day) => (
+                  <div key={label} className="contents">
+                    <div className="text-[10px] text-tx-muted flex items-center">{label}</div>
+                    {Array.from({ length: 24 }, (_, hour) => {
+                      const cell = heatmapByCell.get(`${day}-${hour}`);
+                      const cost = cell ? parseFloat(cell.total_cost) : 0;
+                      const intensity = cost / heatmapMax;
+                      return (
+                        <div
+                          key={hour}
+                          title={`${label} ${hour}:00 — ${formatCost(cost, currency, true)}`}
+                          className="aspect-square rounded-sm"
+                          style={{
+                            background: cost > 0 ? `rgb(var(--color-brand) / ${Math.max(0.08, intensity)})` : "rgb(var(--color-app-muted))",
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-tx-muted mt-3">
+                Darker cells indicate higher spend. Max cell: {formatCost(heatmapMax, currency, true)}.
+              </p>
+            </div>
+          )}
+        </div>
+      </Section>
+
+      {/* EP-24.1 — Project Spend ranking */}
+      <Section title="Project Spend" description={`${projectTableData.length} projects`} icon={FolderKanban}>
+        <div className="overflow-x-auto">
+          <table className="w-full data-table">
+            <thead>
+              {projectTable.getHeaderGroups().map((hg) => (
+                <tr key={hg.id}>
+                  {hg.headers.map((header) => (
+                    <th key={header.id}>{flexRender(header.column.columnDef.header, header.getContext())}</th>
+                  ))}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {projects.isLoading ? (
+                Array.from({ length: 4 }, (_, i) => (
+                  <tr key={i}>
+                    {projectColumns.map((_, j) => (
+                      <td key={j}><div className="h-4 skeleton rounded" /></td>
+                    ))}
+                  </tr>
+                ))
+              ) : projectTableData.length === 0 ? (
+                <tr>
+                  <td colSpan={projectColumns.length} className="text-center text-sm text-tx-muted py-6">
+                    No projects with spend in the selected period.
+                  </td>
+                </tr>
+              ) : (
+                projectTable.getRowModel().rows.map((row) => (
+                  <tr key={row.id}>
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
       {/* Data Table */}
       <Section
         title="Model Breakdown"
@@ -509,6 +866,17 @@ export default function Analytics() {
                   className="w-full bg-app-bg border border-border-subtle rounded-lg pl-8 pr-3 py-1.5 text-xs text-tx-primary placeholder:text-tx-muted focus:border-brand focus:outline-none transition-colors"
                 />
               </div>
+              <select
+                value={exportFormat}
+                onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
+                aria-label="Export format"
+                className="bg-app-bg border border-border-subtle rounded-lg px-2 py-1.5 text-xs text-tx-secondary focus:outline-none flex-shrink-0"
+              >
+                <option value="models">Models</option>
+                <option value="spend">Spend</option>
+                <option value="providers">Providers</option>
+                <option value="projects">Projects</option>
+              </select>
               <button onClick={exportCSV} className="btn-outline h-8 text-xs px-3 flex-shrink-0">
                 <Download size={13} />
                 CSV

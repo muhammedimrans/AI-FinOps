@@ -9,6 +9,8 @@ GET /dashboard/models               — F-063 model cost breakdown
 GET /dashboard/organization         — F-064 composite organization dashboard
 GET /dashboard/projects             — F-065 project cost breakdown
 GET /dashboard/kpis                 — F-066 derived KPIs
+GET /dashboard/heatmap              — EP-24.1 hour-of-day x day-of-week usage heatmap
+GET /dashboard/activity             — EP-24.1 recent activity (imports/syncs/failures)
 
 Authentication
 --------------
@@ -32,6 +34,11 @@ from app.api.deps import DbDep
 from app.auth.dependencies import OrgScopedMembership
 from app.dashboard.service import DashboardService
 from app.schemas.dashboard import (
+    ActivityFailureItem,
+    ActivityResponse,
+    ActivityRunItem,
+    HeatmapCell,
+    HeatmapResponse,
     KPIResponse,
     ModelBreakdownResponse,
     ModelMetrics,
@@ -99,6 +106,17 @@ async def get_overview(
         total_requests=data["total_requests"],
         active_providers=data["active_providers"],
         active_models=data["active_models"],
+        active_projects=data["active_projects"],
+        avg_cost_per_request=str(data["avg_cost_per_request"] or 0),
+        cost_trend_pct=(
+            str(data["cost_trend_pct"]) if data["cost_trend_pct"] is not None else None
+        ),
+        request_trend_pct=(
+            str(data["request_trend_pct"]) if data["request_trend_pct"] is not None else None
+        ),
+        token_trend_pct=(
+            str(data["token_trend_pct"]) if data["token_trend_pct"] is not None else None
+        ),
         collection_status=data["collection_status"],
         last_collection_at=data["last_collection_at"],
         currency=currency,
@@ -128,6 +146,9 @@ async def get_time_series(
         Query(description="Bucket size: daily, weekly, monthly"),
     ] = Granularity.daily,
     currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
 ) -> TimeSeriesResponse:
     """Return time-bucketed cost data for an organization."""
     # RH-01: granularity validated by enum above (FastAPI returns 422 for invalid values)
@@ -139,7 +160,13 @@ async def get_time_series(
         )
     svc = DashboardService(session=db)
     points_data = await svc.get_time_series(
-        organization_id, start_date, end_date, granularity=granularity.value
+        organization_id,
+        start_date,
+        end_date,
+        granularity=granularity.value,
+        project_id=project_id,
+        provider=provider,
+        model=model,
     )
     # RH-02: filter to requested currency before summing
     filtered = [p for p in points_data if p.get("currency", currency) == currency]
@@ -148,6 +175,8 @@ async def get_time_series(
             date=p["date"],
             cost=str(p["cost"]),
             tokens=p["tokens"],
+            prompt_tokens=p["prompt_tokens"],
+            completion_tokens=p["completion_tokens"],
             requests=p["requests"],
             currency=p.get("currency", currency),
         )
@@ -183,6 +212,9 @@ async def get_provider_breakdown(
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
     currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
 ) -> ProviderBreakdownResponse:
     """Return provider-level cost breakdown."""
     # RH-02: date range validation
@@ -192,7 +224,14 @@ async def get_provider_breakdown(
             detail="start_date must be before or equal to end_date",
         )
     svc = DashboardService(session=db)
-    rows = await svc.get_provider_breakdown(organization_id, start_date, end_date)
+    rows = await svc.get_provider_breakdown(
+        organization_id,
+        start_date,
+        end_date,
+        project_id=project_id,
+        provider=provider,
+        model=model,
+    )
     # RH-02 (currency safety): filter to requested currency before summing
     filtered = [r for r in rows if r.get("currency", currency) == currency]
     providers = [
@@ -200,6 +239,9 @@ async def get_provider_breakdown(
             provider=r["provider"],
             total_cost=str(r["total_cost"]),
             total_tokens=r["total_tokens"],
+            input_tokens=r["input_tokens"],
+            output_tokens=r["output_tokens"],
+            model_count=r["model_count"],
             total_requests=r["total_requests"],
             avg_cost_per_request=str(r["avg_cost_per_request"]),
             currency=r.get("currency", currency),
@@ -232,6 +274,9 @@ async def get_model_breakdown(
     end_date: Annotated[date, Query(description="End date (inclusive)")],
     limit: Annotated[int, Query(description="Maximum models to return", ge=1, le=100)] = 20,
     currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
 ) -> ModelBreakdownResponse:
     """Return model-level cost breakdown."""
     # RH-02: date range validation
@@ -241,7 +286,15 @@ async def get_model_breakdown(
             detail="start_date must be before or equal to end_date",
         )
     svc = DashboardService(session=db)
-    rows = await svc.get_model_breakdown(organization_id, start_date, end_date, limit=limit)
+    rows = await svc.get_model_breakdown(
+        organization_id,
+        start_date,
+        end_date,
+        limit=limit,
+        project_id=project_id,
+        provider=provider,
+        model=model,
+    )
     # RH-02 (currency safety): filter to requested currency before summing
     filtered = [r for r in rows if r.get("currency", currency) == currency]
     models = [
@@ -250,6 +303,8 @@ async def get_model_breakdown(
             model=r["model"],
             total_cost=str(r["total_cost"]),
             total_tokens=r["total_tokens"],
+            input_tokens=r["input_tokens"],
+            output_tokens=r["output_tokens"],
             total_requests=r["total_requests"],
             avg_cost_per_request=str(r["avg_cost_per_request"]),
             currency=r.get("currency", currency),
@@ -404,6 +459,9 @@ async def get_project_breakdown(
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
     currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
 ) -> ProjectBreakdownResponse:
     """Return project-level cost breakdown."""
     # RH-02: date range validation
@@ -413,15 +471,29 @@ async def get_project_breakdown(
             detail="start_date must be before or equal to end_date",
         )
     svc = DashboardService(session=db)
-    rows = await svc.get_project_breakdown(organization_id, start_date, end_date)
+    rows = await svc.get_project_breakdown(
+        organization_id,
+        start_date,
+        end_date,
+        project_id=project_id,
+        provider=provider,
+        model=model,
+    )
     # RH-02 (currency safety): filter to requested currency before summing
     filtered = [r for r in rows if r.get("currency", currency) == currency]
     projects = [
         ProjectMetrics(
             project_id=r["project_id"],
+            project_name=r["project_name"],
             total_cost=str(r["total_cost"]),
             total_tokens=r["total_tokens"],
             total_requests=r["total_requests"],
+            budget=str(r["budget"]) if r["budget"] is not None else None,
+            budget_utilization_pct=(
+                str(r["budget_utilization_pct"])
+                if r["budget_utilization_pct"] is not None
+                else None
+            ),
             currency=r.get("currency", currency),
         )
         for r in filtered
@@ -454,6 +526,9 @@ async def get_kpis(
     start_date: Annotated[date, Query(description="Start date (inclusive)")],
     end_date: Annotated[date, Query(description="End date (inclusive)")],
     currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
 ) -> KPIResponse:
     """Return derived KPIs for an organization."""
     # RH-02: date range validation
@@ -463,7 +538,9 @@ async def get_kpis(
             detail="start_date must be before or equal to end_date",
         )
     svc = DashboardService(session=db)
-    data = await svc.get_kpis(organization_id, start_date, end_date)
+    data = await svc.get_kpis(
+        organization_id, start_date, end_date, project_id=project_id, provider=provider, model=model
+    )
     return KPIResponse(
         highest_cost_provider=data["highest_cost_provider"],
         highest_cost_model=data["highest_cost_model"],
@@ -476,4 +553,92 @@ async def get_kpis(
         period_start=start_date.isoformat(),
         period_end=end_date.isoformat(),
         currency=currency,
+    )
+
+
+# ── EP-24.1 Usage Heatmap ────────────────────────────────────────────────────
+
+
+@router.get(
+    "/heatmap",
+    response_model=HeatmapResponse,
+    summary="Usage heatmap (hour-of-day x day-of-week)",
+    description=(
+        "Returns a cost-weighted grid of hour-of-day (0-23, UTC) x day-of-week "
+        "(0=Sunday..6=Saturday) usage, for the Usage Heatmap chart."
+    ),
+)
+async def get_heatmap(
+    db: DbDep,
+    _member: OrgScopedMembership,
+    organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
+    start_date: Annotated[date, Query(description="Start date (inclusive)")],
+    end_date: Annotated[date, Query(description="End date (inclusive)")],
+    currency: Annotated[str, Query(description="Target currency")] = "USD",
+    project_id: Annotated[uuid.UUID | None, Query(description="Filter to one project")] = None,
+    provider: Annotated[str | None, Query(description="Filter to one provider")] = None,
+    model: Annotated[str | None, Query(description="Filter to one model")] = None,
+) -> HeatmapResponse:
+    """Return the hour-of-day x day-of-week usage heatmap."""
+    # RH-02: date range validation
+    if start_date > end_date:
+        raise HTTPException(
+            status_code=422,
+            detail="start_date must be before or equal to end_date",
+        )
+    svc = DashboardService(session=db)
+    rows = await svc.get_heatmap(
+        organization_id,
+        start_date,
+        end_date,
+        project_id=project_id,
+        provider=provider,
+        model=model,
+    )
+    # RH-02 (currency safety): filter to requested currency
+    filtered = [r for r in rows if r.get("currency", currency) == currency]
+    cells = [
+        HeatmapCell(
+            hour_of_day=r["hour_of_day"],
+            day_of_week=r["day_of_week"],
+            total_cost=str(r["total_cost"]),
+            total_tokens=r["total_tokens"],
+            total_requests=r["total_requests"],
+            currency=r.get("currency", currency),
+        )
+        for r in filtered
+    ]
+    return HeatmapResponse(
+        cells=cells,
+        period_start=start_date.isoformat(),
+        period_end=end_date.isoformat(),
+        currency=currency,
+    )
+
+
+# ── EP-24.1 Recent Activity ──────────────────────────────────────────────────
+
+
+@router.get(
+    "/activity",
+    response_model=ActivityResponse,
+    summary="Recent activity feed",
+    description=(
+        "Returns the latest usage-collection imports, the latest background "
+        "syncs, and any provider connections currently in a failed state."
+    ),
+)
+async def get_activity(
+    db: DbDep,
+    _member: OrgScopedMembership,
+    organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
+    limit: Annotated[int, Query(description="Maximum items per section", ge=1, le=100)] = 20,
+) -> ActivityResponse:
+    """Return the recent activity feed for an organization."""
+    svc = DashboardService(session=db)
+    data = await svc.get_recent_activity(organization_id, limit=limit)
+    return ActivityResponse(
+        imports=[ActivityRunItem(**item) for item in data["imports"]],
+        syncs=[ActivityRunItem(**item) for item in data["syncs"]],
+        failures=[ActivityFailureItem(**item) for item in data["failures"]],
     )

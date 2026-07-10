@@ -8,15 +8,18 @@ export type Provider = "openai" | "anthropic" | "google" | "azure" | "bedrock" |
 
 export interface OverviewKPIs {
   total_cost: string;
+  today_cost: string;
+  month_cost: string;
   total_requests: number;
   active_models: number;
   active_providers: number;
+  active_projects: number;
   total_input_tokens: number;
   total_output_tokens: number;
   avg_cost_per_request: string;
-  cost_trend_pct: number;
-  request_trend_pct: number;
-  token_trend_pct: number;
+  cost_trend_pct: number | null;
+  request_trend_pct: number | null;
+  token_trend_pct: number | null;
   currency: Currency;
   period_start: string;
   period_end: string;
@@ -29,6 +32,8 @@ export interface TimeSeriesPoint {
   total_cost: string;
   total_requests: number;
   total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
   provider_breakdown: Record<string, string>;
 }
 
@@ -81,8 +86,8 @@ export interface ProjectCost {
   project_name: string;
   team: string;
   total_cost: string;
-  budget: string;
-  budget_utilization_pct: number;
+  budget: string | null;
+  budget_utilization_pct: number | null;
   request_count: number;
   top_models: string[];
   cost_trend: number;
@@ -152,4 +157,47 @@ export interface UsageEventsResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+// ── Usage Heatmap (EP-24.1) ──────────────────────────────────────────────────
+
+export interface HeatmapCell {
+  hour_of_day: number; // 0-23 (UTC)
+  day_of_week: number; // 0=Sunday .. 6=Saturday
+  total_cost: string;
+  total_tokens: number;
+  total_requests: number;
+}
+
+export interface HeatmapResponse {
+  cells: HeatmapCell[];
+  currency: Currency;
+}
+
+// ── Recent Activity (EP-24.1) ────────────────────────────────────────────────
+
+export interface ActivityRunItem {
+  id: string;
+  provider: string;
+  status: string;
+  triggeredBy: string;
+  startedAt: string;
+  completedAt: string | null;
+  eventsCollected: number;
+  errorMessage: string | null;
+}
+
+export interface ActivityFailureItem {
+  connectionId: string;
+  providerType: string;
+  displayName: string;
+  lastError: string | null;
+  lastFailureAt: string | null;
+  consecutiveFailureCount: number;
+}
+
+export interface ActivityFeed {
+  imports: ActivityRunItem[];
+  syncs: ActivityRunItem[];
+  failures: ActivityFailureItem[];
 }

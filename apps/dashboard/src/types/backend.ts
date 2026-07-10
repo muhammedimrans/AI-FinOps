@@ -55,6 +55,12 @@ export interface BackendOverviewResponse {
   total_requests: number;
   active_providers: number;
   active_models: number;
+  // EP-24.1
+  active_projects: number;
+  avg_cost_per_request: string;
+  cost_trend_pct: string | null;
+  request_trend_pct: string | null;
+  token_trend_pct: string | null;
   collection_status: string | null;
   last_collection_at: string | null;
   currency: BackendCurrency;
@@ -66,6 +72,8 @@ export interface BackendTimeSeriesPoint {
   date: string;
   cost: string;
   tokens: number;
+  prompt_tokens: number; // EP-24.1
+  completion_tokens: number; // EP-24.1
   requests: number;
   currency: BackendCurrency;
 }
@@ -86,6 +94,9 @@ export interface BackendProviderMetrics {
   provider: string;
   total_cost: string;
   total_tokens: number;
+  input_tokens: number; // EP-24.1
+  output_tokens: number; // EP-24.1
+  model_count: number; // EP-24.1
   total_requests: number;
   avg_cost_per_request: string;
   currency: BackendCurrency;
@@ -106,6 +117,8 @@ export interface BackendModelMetrics {
   model: string;
   total_cost: string;
   total_tokens: number;
+  input_tokens: number; // EP-24.1
+  output_tokens: number; // EP-24.1
   total_requests: number;
   avg_cost_per_request: string;
   currency: BackendCurrency;
@@ -180,13 +193,16 @@ export interface BackendOrganizationDashboardResponse {
 }
 
 // ── F-065 Project Breakdown ───────────────────────────────────────────────────
-// NOTE: no project_name, budget, team, top_models, or trend data
+// EP-24.1: project_name and budget are now real; no team/top_models/trend data yet
 
 export interface BackendProjectMetrics {
   project_id: string | null;
+  project_name: string; // EP-24.1
   total_cost: string;
   total_tokens: number;
   total_requests: number;
+  budget: string | null; // EP-24.1
+  budget_utilization_pct: string | null; // EP-24.1
   currency: BackendCurrency;
 }
 
@@ -225,4 +241,50 @@ export interface BackendKPIResponse {
   period_start: string;
   period_end: string;
   currency: BackendCurrency;
+}
+
+// ── EP-24.1 Usage Heatmap ──────────────────────────────────────────────────────
+
+export interface BackendHeatmapCell {
+  hour_of_day: number; // 0-23 (UTC)
+  day_of_week: number; // 0=Sunday .. 6=Saturday
+  total_cost: string;
+  total_tokens: number;
+  total_requests: number;
+  currency: BackendCurrency;
+}
+
+export interface BackendHeatmapResponse {
+  cells: BackendHeatmapCell[];
+  period_start: string;
+  period_end: string;
+  currency: BackendCurrency;
+}
+
+// ── EP-24.1 Recent Activity ─────────────────────────────────────────────────────
+
+export interface BackendActivityRunItem {
+  id: string;
+  provider: string;
+  status: string;
+  triggered_by: string;
+  started_at: string;
+  completed_at: string | null;
+  events_collected: number;
+  error_message: string | null;
+}
+
+export interface BackendActivityFailureItem {
+  connection_id: string;
+  provider_type: string;
+  display_name: string;
+  last_error: string | null;
+  last_failure_at: string | null;
+  consecutive_failure_count: number;
+}
+
+export interface BackendActivityResponse {
+  imports: BackendActivityRunItem[];
+  syncs: BackendActivityRunItem[];
+  failures: BackendActivityFailureItem[];
 }

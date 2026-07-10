@@ -7,6 +7,8 @@ import type {
   OrganizationResponse,
   KPIsResponse,
   UsageEventsResponse,
+  HeatmapResponse,
+  ActivityFeed,
   Currency,
   Granularity,
 } from "../types/api";
@@ -18,6 +20,8 @@ import type {
   BackendProjectBreakdownResponse,
   BackendOrganizationDashboardResponse,
   BackendKPIResponse,
+  BackendHeatmapResponse,
+  BackendActivityResponse,
   BackendLoginResponse,
   BackendTokenResponse,
   BackendOrganizationsResponse,
@@ -32,6 +36,8 @@ import {
   mapProjects,
   mapOrganization,
   mapKPIs,
+  mapHeatmap,
+  mapActivity,
 } from "../lib/mappers";
 import {
   getMockOverview,
@@ -42,6 +48,8 @@ import {
   getMockOrganization,
   getMockKPIs,
   getMockRecentActivity,
+  getMockHeatmap,
+  getMockActivityFeed,
 } from "../lib/mockData";
 import { useAuthStore } from "../stores/auth";
 
@@ -850,6 +858,10 @@ export interface OverviewParams {
   start_date: string;
   end_date: string;
   currency?: Currency;
+  // EP-24.1 — optional dimension filters, supported by every breakdown endpoint
+  project_id?: string;
+  provider?: string;
+  model?: string;
 }
 
 export interface TimeSeriesParams extends OverviewParams {
@@ -944,6 +956,9 @@ export async function getKPIs(params: OverviewParams): Promise<KPIsResponse> {
 
 // Recent activity — backend returns HTTP 501 NOT IMPLEMENTED.
 // In live mode, returns an empty response so the UI shows an empty state.
+// NOTE: this is GET /v1/usage/events (individual raw events), a different,
+// still-unimplemented endpoint from GET /v1/dashboard/activity (imports/
+// syncs/failures) below — see getActivityFeed for the real EP-24.1 feed.
 export async function getRecentActivity(limit = 20): Promise<UsageEventsResponse> {
   if (USE_MOCK) {
     await delay(250);
@@ -951,6 +966,37 @@ export async function getRecentActivity(limit = 20): Promise<UsageEventsResponse
   }
   // GET /v1/usage/events is 501 NOT IMPLEMENTED — return empty gracefully
   return { events: [], total: 0, page: 1, page_size: limit };
+}
+
+// EP-24.1 — hour-of-day x day-of-week usage heatmap
+export async function getHeatmap(params: OverviewParams): Promise<HeatmapResponse> {
+  if (USE_MOCK) {
+    await delay(280);
+    return getMockHeatmap();
+  }
+  const raw = await get<BackendHeatmapResponse>(
+    "/v1/dashboard/heatmap",
+    params as unknown as Record<string, string>,
+  );
+  return mapHeatmap(raw);
+}
+
+// EP-24.1 — real recent activity feed (imports/syncs/provider failures),
+// backed by GET /v1/dashboard/activity — reuses EP-08/EP-23.3/EP-23.4's
+// UsageCollectionRun + EP-22's ProviderConnection failure fields.
+export async function getActivityFeed(
+  organizationId: string,
+  limit = 20,
+): Promise<ActivityFeed> {
+  if (USE_MOCK) {
+    await delay(220);
+    return getMockActivityFeed(limit);
+  }
+  const raw = await get<BackendActivityResponse>("/v1/dashboard/activity", {
+    organization_id: organizationId,
+    limit: String(limit),
+  });
+  return mapActivity(raw);
 }
 
 // ── Alerts (EP-19.3) ─────────────────────────────────────────────────────────

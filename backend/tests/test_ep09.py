@@ -1343,7 +1343,13 @@ class TestAnalyticsService:
         result = await service.get_top_models(_ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=5)
         # Verify limit was passed to repository
         cost_repo.get_totals_by_model.assert_called_once_with(
-            _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=5
+            _ORG_ID,
+            date(2026, 1, 1),
+            date(2026, 6, 30),
+            limit=5,
+            project_id=None,
+            provider=None,
+            model=None,
         )
         assert len(result) == 5
         assert result[0]["model"] == "model-0"  # highest cost
@@ -1385,7 +1391,13 @@ class TestAnalyticsService:
             _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3
         )
         cost_repo.get_totals_by_project.assert_called_once_with(
-            _ORG_ID, date(2026, 1, 1), date(2026, 6, 30), limit=3
+            _ORG_ID,
+            date(2026, 1, 1),
+            date(2026, 6, 30),
+            limit=3,
+            project_id=None,
+            provider=None,
+            model=None,
         )
         assert len(result) == 3
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.provider_connection import ProviderConnection, ProviderType
@@ -93,3 +93,30 @@ class ProviderConnectionRepository(BaseRepository[ProviderConnection]):
                 ProviderConnection.provider_type == provider_type,
             ),
         )
+
+    async def list_recent_failures(
+        self,
+        org_id: uuid.UUID,
+        *,
+        limit: int = 10,
+    ) -> list[ProviderConnection]:
+        """Connections with a recorded failure, most recent first (EP-24.1).
+
+        Powers the "Provider failures" section of the Recent Activity feed.
+        Reuses the ``last_failure_at``/``health_status`` fields EP-19.3/EP-22
+        already maintain — no new column, no separate failure log table.
+        """
+        stmt = (
+            select(ProviderConnection)
+            .where(
+                and_(
+                    ProviderConnection.organization_id == org_id,
+                    ProviderConnection.deleted_at.is_(None),
+                    ProviderConnection.last_failure_at.is_not(None),
+                )
+            )
+            .order_by(ProviderConnection.last_failure_at.desc())
+            .limit(limit)
+        )
+        result = await self._session.execute(stmt)
+        return list(result.scalars().all())

@@ -28,6 +28,12 @@ import {
   CheckCircle2,
   Circle,
   BarChart3,
+  CalendarDays,
+  CalendarClock,
+  FolderKanban,
+  Upload,
+  RotateCw,
+  AlertTriangle,
 } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
@@ -36,12 +42,19 @@ import CriticalAlertBanner from "../components/CriticalAlertBanner";
 import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
-import { useOverview, useTimeSeries, useProviders, useModels } from "../hooks/useDashboard";
+import {
+  useOverview,
+  useTimeSeries,
+  useProviders,
+  useModels,
+  useActivityFeed,
+} from "../hooks/useDashboard";
 import { useDashboardState, type DashboardSetupState } from "../hooks/useDashboardState";
 import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
 import {
   formatCost,
   formatDate,
+  formatDateTime,
   formatTokens,
   formatNumber,
   modelDisplayName,
@@ -51,7 +64,7 @@ import {
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
-import type { Granularity } from "../types/api";
+import type { Granularity, ActivityRunItem, ActivityFailureItem } from "../types/api";
 
 // EP-22.3 — Intelligent Dashboard Empty States & Guided First Experience.
 //
@@ -365,6 +378,129 @@ function GranularityTabs({
   );
 }
 
+// EP-24.1 — Recent Activity: latest imports, latest syncs, provider
+// failures. Three compact columns reusing the app's existing list-row
+// conventions (icon + text + timestamp) rather than a new list primitive.
+function RunRow({ run }: { run: ActivityRunItem }) {
+  const failed = run.status === "failed";
+  return (
+    <li className="flex items-center gap-2.5 py-2 border-b border-border-subtle last:border-0">
+      <span
+        className={cn(
+          "w-1.5 h-1.5 rounded-full flex-shrink-0",
+          failed ? "bg-danger" : "bg-success",
+        )}
+        aria-hidden="true"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium text-tx-primary truncate">
+          {providerDisplayName(run.provider)}
+        </p>
+        <p className="text-[11px] text-tx-muted">
+          {formatDateTime(run.startedAt)} · {run.eventsCollected} events
+        </p>
+      </div>
+      {failed && <AlertTriangle size={13} className="text-danger flex-shrink-0" />}
+    </li>
+  );
+}
+
+function RecentActivitySection({
+  imports,
+  syncs,
+  failures,
+  loading,
+}: {
+  imports: ActivityRunItem[];
+  syncs: ActivityRunItem[];
+  failures: ActivityFailureItem[];
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {Array.from({ length: 3 }, (_, i) => (
+          <div key={i} className="rounded-xl border border-border-subtle p-4 h-40 skeleton" />
+        ))}
+      </div>
+    );
+  }
+
+  const nothing = imports.length === 0 && syncs.length === 0 && failures.length === 0;
+  if (nothing) {
+    return (
+      <p className="text-xs text-tx-muted text-center py-6">
+        No imports or syncs have run yet — background sync will populate this once connected
+        providers start collecting usage.
+      </p>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="rounded-xl border border-border-subtle p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <Upload size={14} className="text-brand" />
+          <h4 className="text-xs font-semibold text-tx-primary">Latest Imports</h4>
+        </div>
+        {imports.length === 0 ? (
+          <p className="text-[11px] text-tx-muted">No manual imports yet.</p>
+        ) : (
+          <ul>
+            {imports.map((r) => (
+              <RunRow key={r.id} run={r} />
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="rounded-xl border border-border-subtle p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <RotateCw size={14} className="text-brand" />
+          <h4 className="text-xs font-semibold text-tx-primary">Latest Syncs</h4>
+        </div>
+        {syncs.length === 0 ? (
+          <p className="text-[11px] text-tx-muted">No background syncs yet.</p>
+        ) : (
+          <ul>
+            {syncs.map((r) => (
+              <RunRow key={r.id} run={r} />
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="rounded-xl border border-border-subtle p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle size={14} className={failures.length > 0 ? "text-danger" : "text-tx-muted"} />
+          <h4 className="text-xs font-semibold text-tx-primary">Provider Failures</h4>
+        </div>
+        {failures.length === 0 ? (
+          <p className="text-[11px] text-tx-muted">No provider failures. All healthy.</p>
+        ) : (
+          <ul>
+            {failures.map((f) => (
+              <li
+                key={f.connectionId}
+                className="flex items-start gap-2.5 py-2 border-b border-border-subtle last:border-0"
+              >
+                <AlertTriangle size={13} className="text-danger flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-tx-primary truncate">{f.displayName}</p>
+                  <p className="text-[11px] text-tx-muted truncate">{f.lastError ?? "Unknown error"}</p>
+                  {f.lastFailureAt && (
+                    <p className="text-[10px] text-tx-muted mt-0.5">
+                      {formatDateTime(f.lastFailureAt)} · {f.consecutiveFailureCount} consecutive
+                    </p>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Overview() {
   const { currency } = useUIStore();
   const chrome = useChartChrome();
@@ -388,6 +524,7 @@ export default function Overview() {
   const timeSeries = useTimeSeries();
   const providers = useProviders();
   const models = useModels();
+  const activityFeed = useActivityFeed(8);
 
   const kpi = overview.data;
   const tsData = timeSeries.data?.data ?? [];
@@ -438,12 +575,15 @@ export default function Overview() {
       lines.push("Summary");
       lines.push("Metric,Value");
       lines.push(`Total Spend,${kpi.total_cost}`);
+      lines.push(`Today's Spend,${kpi.today_cost}`);
+      lines.push(`This Month,${kpi.month_cost}`);
       lines.push(`Total Requests,${kpi.total_requests}`);
       lines.push(`Input Tokens,${kpi.total_input_tokens}`);
       lines.push(`Output Tokens,${kpi.total_output_tokens}`);
       lines.push(`Avg Cost / Request,${kpi.avg_cost_per_request}`);
       lines.push(`Active Providers,${kpi.active_providers}`);
       lines.push(`Active Models,${kpi.active_models}`);
+      lines.push(`Projects,${kpi.active_projects}`);
     }
     lines.push("");
     lines.push("Spend by Provider");
@@ -516,7 +656,7 @@ export default function Overview() {
         )}
       </AnimatePresence>
 
-      {/* KPI Cards */}
+      {/* KPI Cards — 8 top-level metrics (EP-24.1) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
           <MetricCard
@@ -524,21 +664,57 @@ export default function Overview() {
             value={kpi?.total_cost ?? "0"}
             type="currency"
             currency={currency}
-            trendPct={kpi?.cost_trend_pct}
+            trendPct={kpi?.cost_trend_pct ?? undefined}
             trendInverse={false}
-            subtitle="vs previous period"
+            subtitle="vs previous 30 days"
             icon={DollarSign}
             gradient="teal"
             sparkline={recent7}
             loading={overview.isLoading}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
+          <MetricCard
+            label="Today's Spend"
+            value={kpi?.today_cost ?? "0"}
+            type="currency"
+            currency={currency}
+            subtitle="so far today"
+            icon={CalendarClock}
+            gradient="blue"
+            loading={overview.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
+          <MetricCard
+            label="This Month"
+            value={kpi?.month_cost ?? "0"}
+            type="currency"
+            currency={currency}
+            subtitle="month to date"
+            icon={CalendarDays}
+            gradient="purple"
+            loading={overview.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
+          <MetricCard
+            label="Total Tokens"
+            value={formatTokens((kpi?.total_input_tokens ?? 0) + (kpi?.total_output_tokens ?? 0))}
+            type="raw"
+            trendPct={kpi?.token_trend_pct ?? undefined}
+            subtitle={`${formatTokens(kpi?.total_input_tokens ?? 0)} in · ${formatTokens(kpi?.total_output_tokens ?? 0)} out`}
+            icon={Layers}
+            gradient="emerald"
+            loading={overview.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
           <MetricCard
             label="Total Requests"
             value={kpi?.total_requests ?? 0}
             type="number"
-            trendPct={kpi?.request_trend_pct}
+            trendPct={kpi?.request_trend_pct ?? undefined}
             trendInverse={false}
             subtitle="API calls processed"
             icon={Activity}
@@ -547,25 +723,35 @@ export default function Overview() {
             loading={overview.isLoading}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <MetricCard
-            label="Token Usage"
-            value={formatTokens((kpi?.total_input_tokens ?? 0) + (kpi?.total_output_tokens ?? 0))}
-            type="raw"
-            trendPct={kpi?.token_trend_pct}
-            subtitle={`${formatTokens(kpi?.total_input_tokens ?? 0)} in · ${formatTokens(kpi?.total_output_tokens ?? 0)} out`}
-            icon={Layers}
+            label="Active Providers"
+            value={kpi?.active_providers ?? 0}
+            type="number"
+            subtitle={`${kpi?.active_models ?? 0} models in use`}
+            icon={PlugZap}
+            gradient="teal"
+            loading={overview.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+          <MetricCard
+            label="Projects"
+            value={kpi?.active_projects ?? 0}
+            type="number"
+            subtitle="with recorded spend"
+            icon={FolderKanban}
             gradient="emerald"
             loading={overview.isLoading}
           />
         </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }}>
           <MetricCard
             label="Avg Cost / Request"
             value={kpi?.avg_cost_per_request ?? "0"}
             type="currency"
             currency={currency}
-            subtitle={`${kpi?.active_providers ?? 0} providers · ${kpi?.active_models ?? 0} models`}
+            subtitle="across all providers"
             icon={Zap}
             gradient="purple"
             loading={overview.isLoading}
@@ -853,7 +1039,24 @@ export default function Overview() {
         </Section>
       )}
 
-      {/* Recent Activity — live over WebSocket, falls back to polling */}
+      {/* Recent Activity — EP-24.1: latest imports, syncs, and provider
+          failures, backed by GET /v1/dashboard/activity (EP-08/EP-23.3/
+          EP-23.4's UsageCollectionRun + EP-22's ProviderConnection failure
+          fields). Distinct from the live WebSocket feed below — this
+          section is about *background collection health*, not individual
+          usage events. */}
+      {dashboardState.state === 4 && (
+        <Section title="Sync Activity" description="Latest imports, syncs, and provider failures">
+          <RecentActivitySection
+            imports={activityFeed.data?.imports ?? []}
+            syncs={activityFeed.data?.syncs ?? []}
+            failures={activityFeed.data?.failures ?? []}
+            loading={activityFeed.isLoading}
+          />
+        </Section>
+      )}
+
+      {/* Live activity — live over WebSocket, falls back to polling */}
       {dashboardState.state === 4 && <LiveActivityFeed limit={10} />}
     </div>
   );

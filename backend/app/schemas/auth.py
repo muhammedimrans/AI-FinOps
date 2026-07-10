@@ -43,6 +43,12 @@ class PasswordResetRequest(BaseModel):
     email: EmailStr
 
 
+class ResendVerificationRequest(BaseModel):
+    """Email address to (re)send a verification link to (EP-24.4)."""
+
+    email: EmailStr
+
+
 class ResetPasswordRequest(BaseModel):
     """Reset token plus the desired new password."""
 

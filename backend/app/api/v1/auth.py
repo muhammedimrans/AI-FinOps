@@ -1,4 +1,4 @@
-"""Authentication API — EP-05 / F-017, extended by EP-21.2.
+"""Authentication API — EP-05 / F-017, extended by EP-21.2, EP-24.4.
 
 Endpoints:
   POST /v1/auth/register             — create a User + personal workspace, issue a session
@@ -7,8 +7,11 @@ Endpoints:
   POST /v1/auth/refresh              — rotate refresh token, issue new access token
   GET  /v1/auth/me                   — the authenticated caller's profile
   POST /v1/auth/onboarding/complete  — mark the first-time onboarding wizard done (EP-21.3)
-  POST /v1/auth/verify-email         — consume an email verification token
-  POST /v1/auth/request-password-reset — request a password-reset link
+  POST /v1/auth/verify-email         — consume an email verification token (JSON body)
+  GET  /v1/auth/verify-email         — same, as a plain link-click URL (EP-24.4)
+  POST /v1/auth/resend-verification  — re-send the verification email, rate-limited (EP-24.4)
+  POST /v1/auth/forgot-password      — request a password-reset email, rate-limited (EP-24.4)
+  POST /v1/auth/request-password-reset — pre-EP-24.4 alias of /forgot-password, kept mounted
   POST /v1/auth/reset-password       — consume a reset token and set a new password
 
 Session cookies (EP-21.2): login, register, and refresh additionally set
@@ -16,6 +19,13 @@ httpOnly `costorah_access_token`/`costorah_refresh_token` cookies
 (app.auth.cookies) alongside the unchanged JSON token response — existing
 bearer-token clients (apps/dashboard) are unaffected; apps/website relies
 on the cookie. logout clears both cookies.
+
+Transactional email (EP-24.4): registration, resend-verification, and
+forgot/reset-password all send real email via `app.email.service.EmailService`
+(Resend in production) — see CLAUDE.md's EP-24.4 section for the full
+architecture. Every one of these endpoints keeps working, response shape
+unchanged, in any environment without `RESEND_API_KEY` configured (local
+dev, CI) — `EmailService` degrades to a logged no-op send in that case.
 """
 
 from __future__ import annotations
@@ -23,7 +33,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from jwt.exceptions import DecodeError, ExpiredSignatureError, InvalidTokenError
 
 from app.api.deps import DbDep, SettingsDep
@@ -38,7 +48,7 @@ from app.auth.exceptions import (
     UsernameAlreadyTakenError,
 )
 from app.auth.exceptions import InvalidTokenError as AuthInvalidTokenError
-from app.auth.rate_limit import LoginRateLimiter
+from app.auth.rate_limit import EmailRateLimiter, LoginRateLimiter
 from app.auth.service import AuthService
 from app.auth.tokens import decode_access_token
 from app.schemas.auth import (
@@ -51,6 +61,7 @@ from app.schemas.auth import (
     RefreshRequest,
     RegisterRequest,
     RegisterResponse,
+    ResendVerificationRequest,
     ResetPasswordRequest,
     TokenResponse,
     UpdatePreferencesRequest,
@@ -75,6 +86,22 @@ def _get_login_rate_limiter(request: Request) -> LoginRateLimiter:
         container = getattr(request.app.state, "container", None)
         limiter = LoginRateLimiter(redis=getattr(container, "redis", None))
         request.app.state.login_rate_limiter = limiter
+    return limiter
+
+
+def _get_email_rate_limiter(request: Request) -> EmailRateLimiter:
+    """Return the app-wide verification/reset email rate limiter (EP-24.4).
+
+    Same lazily-created, app.state-cached, Redis-backed pattern as
+    ``_get_login_rate_limiter`` above — a second limiter instance because
+    the policy (a single sliding window, no lockout) genuinely differs
+    from login's, not because the underlying mechanism does.
+    """
+    limiter = getattr(request.app.state, "email_rate_limiter", None)
+    if limiter is None:
+        container = getattr(request.app.state, "container", None)
+        limiter = EmailRateLimiter(redis=getattr(container, "redis", None))
+        request.app.state.email_rate_limiter = limiter
     return limiter
 
 
@@ -452,6 +479,30 @@ async def refresh(
     )
 
 
+async def _verify_email_and_respond(
+    *, token: str, db: DbDep, settings: SettingsDep
+) -> MessageResponse:
+    """Shared body for the POST and GET verify-email variants below —
+    exactly one place calls ``AuthService.verify_email`` and maps its
+    exceptions to HTTP responses, so the two entry points can never drift."""
+    svc = AuthService(db, settings)
+    try:
+        await svc.verify_email(token=token)
+    except EmailAlreadyVerifiedError:
+        # EP-24.4: never reveal token/verification-state details beyond
+        # "already verified" — this specific case is safe to surface (it
+        # tells the caller nothing a valid token holder doesn't already
+        # know) and doubles as an idempotent success for a user who clicks
+        # an old verification link a second time.
+        return MessageResponse(message="Email address is already verified")
+    except AuthInvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification token is invalid or expired",
+        ) from exc
+    return MessageResponse(message="Email verified successfully")
+
+
 @router.post(
     "/verify-email",
     response_model=MessageResponse,
@@ -462,36 +513,121 @@ async def verify_email(
     db: DbDep,
     settings: SettingsDep,
 ) -> MessageResponse:
+    return await _verify_email_and_respond(token=body.token, db=db, settings=settings)
+
+
+@router.get(
+    "/verify-email",
+    response_model=MessageResponse,
+    summary="Verify an email address using a one-time token (link-click variant)",
+    description=(
+        "Same behavior as POST /verify-email, exposed as a GET so the "
+        "verification link itself can be a plain, single-click URL. "
+        "apps/dashboard's own /verify-email page still calls the POST "
+        "variant from JavaScript (EP-05) — this GET endpoint is additive, "
+        "not a replacement, kept for non-JS or direct-link integrations."
+    ),
+)
+async def verify_email_get(
+    db: DbDep,
+    settings: SettingsDep,
+    token: str = Query(min_length=1),
+) -> MessageResponse:
+    return await _verify_email_and_respond(token=token, db=db, settings=settings)
+
+
+async def _request_verification_email(
+    *, email: str, request: Request, db: DbDep, settings: SettingsDep
+) -> MessageResponse:
+    """Shared, rate-limited body for POST /resend-verification."""
+    limiter = _get_email_rate_limiter(request)
+    decision = await limiter.check_and_record(scope="verify", key=email.lower())
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many verification emails requested. Please try again later.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
     svc = AuthService(db, settings)
-    try:
-        await svc.verify_email(token=body.token)
-    except EmailAlreadyVerifiedError as exc:
+    await svc.resend_verification_email(email=email)
+    # Same response whether the account exists, is already verified, or
+    # genuinely got a new email — never reveals which occurred (EP-24.4).
+    return MessageResponse(
+        message="If an account with that email exists and isn't verified, a new link has been sent"
+    )
+
+
+@router.post(
+    "/resend-verification",
+    response_model=MessageResponse,
+    summary="Resend the email verification link",
+)
+async def resend_verification(
+    body: ResendVerificationRequest,
+    request: Request,
+    db: DbDep,
+    settings: SettingsDep,
+) -> MessageResponse:
+    return await _request_verification_email(
+        email=body.email, request=request, db=db, settings=settings
+    )
+
+
+async def _request_password_reset_email(
+    *, email: str, request: Request, db: DbDep, settings: SettingsDep
+) -> MessageResponse:
+    """Shared, rate-limited body for both the /forgot-password (EP-24.4) and
+    the pre-existing /request-password-reset routes below — same handler,
+    two mounted paths, so neither can silently drift from the other."""
+    limiter = _get_email_rate_limiter(request)
+    decision = await limiter.check_and_record(scope="reset", key=email.lower())
+    if not decision.allowed:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email address is already verified",
-        ) from exc
-    except AuthInvalidTokenError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification token is invalid or expired",
-        ) from exc
-    return MessageResponse(message="Email verified successfully")
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many reset emails requested. Please try again later.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+    svc = AuthService(db, settings)
+    await svc.create_password_reset_token(email=email)
+    return MessageResponse(
+        message="If an account with that email exists, a reset link has been sent"
+    )
+
+
+@router.post(
+    "/forgot-password",
+    response_model=MessageResponse,
+    summary="Request a password-reset email",
+)
+async def forgot_password(
+    body: PasswordResetRequest,
+    request: Request,
+    db: DbDep,
+    settings: SettingsDep,
+) -> MessageResponse:
+    return await _request_password_reset_email(
+        email=body.email, request=request, db=db, settings=settings
+    )
 
 
 @router.post(
     "/request-password-reset",
     response_model=MessageResponse,
-    summary="Request a password-reset email",
+    summary="Request a password-reset email (alias of /forgot-password)",
+    description=(
+        "Pre-EP-24.4 name for this endpoint, kept mounted for backward "
+        "compatibility (apps/dashboard's ForgotPassword.tsx already calls "
+        "this path) — identical behavior to /forgot-password."
+    ),
 )
 async def request_password_reset(
     body: PasswordResetRequest,
+    request: Request,
     db: DbDep,
     settings: SettingsDep,
 ) -> MessageResponse:
-    svc = AuthService(db, settings)
-    await svc.create_password_reset_token(email=body.email)
-    return MessageResponse(
-        message="If an account with that email exists, a reset link has been sent"
+    return await _request_password_reset_email(
+        email=body.email, request=request, db=db, settings=settings
     )
 
 

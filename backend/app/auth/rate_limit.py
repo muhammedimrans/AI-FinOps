@@ -226,3 +226,75 @@ class LoginRateLimiter:
     async def record_success(self, *, email: str) -> None:
         """Reset the consecutive-failure counter after a successful login."""
         await self._call("reset_failures", f"rl:login:fail:{email.lower()}")
+
+
+# ── Email-sending rate limiting (EP-24.4) ───────────────────────────────────
+#
+# Protects POST /v1/auth/resend-verification and POST /v1/auth/forgot-password
+# (and .../request-password-reset, its pre-EP-24.4 alias) against being used
+# to spam a mailbox or exhaust Resend's send quota. Deliberately reuses
+# _RedisBackend/_MemoryBackend (the storage layer above is already fully
+# generic — it has no login-specific logic) rather than a second sliding-
+# window implementation; only the policy (one sliding window, no lockout)
+# differs from LoginRateLimiter, which is why this is a distinct, smaller
+# class rather than a parameterization of LoginRateLimiter itself.
+
+EMAIL_RATE_LIMIT_WINDOW_SECONDS = 300  # 5 minutes
+EMAIL_RATE_LIMIT_MAX_ATTEMPTS = 3
+
+
+@dataclass
+class EmailRateLimiter:
+    """Sliding-window rate limiter for verification/password-reset email sends.
+
+    One instance shared across requests (same construction pattern as
+    ``LoginRateLimiter``) — pass the shared Redis client when available.
+    """
+
+    redis: Any = None  # redis.asyncio.Redis | None
+    window_seconds: int = EMAIL_RATE_LIMIT_WINDOW_SECONDS
+    max_attempts: int = EMAIL_RATE_LIMIT_MAX_ATTEMPTS
+    _memory: _MemoryBackend = field(default_factory=_MemoryBackend)
+
+    def _backends(self) -> list[_Backend]:
+        backends: list[_Backend] = []
+        if self.redis is not None:
+            backends.append(_RedisBackend(self.redis))
+        backends.append(self._memory)
+        return backends
+
+    async def _call(self, method: str, *args: Any) -> Any:  # noqa: ANN401 — dispatch helper
+        backends = self._backends()
+        for i, backend in enumerate(backends):
+            try:
+                return await getattr(backend, method)(*args)
+            except Exception as exc:
+                if i == len(backends) - 1:
+                    raise
+                log.warning(
+                    "rate_limit_backend_degraded",
+                    backend=type(backend).__name__,
+                    method=method,
+                    error=str(exc),
+                )
+        return None  # pragma: no cover
+
+    async def check_and_record(self, *, scope: str, key: str) -> RateLimitDecision:
+        """Check whether ``key`` (an email address, lowercased by the
+        caller) is within its send quota for ``scope`` (e.g. ``"verify"``,
+        ``"reset"`` — keeps the two email types' quotas independent), and
+        record this attempt if so. Always records the attempt when
+        allowed, so N calls in a window always exhausts the quota — there
+        is no separate "peek without consuming" mode, matching how the
+        caller always intends to actually send on an allowed check."""
+        now = time.time()
+        window_key = f"rl:email:{scope}:{key}"
+        attempts = await self._call("count_in_window", window_key, now, self.window_seconds)
+        if attempts >= self.max_attempts:
+            return RateLimitDecision(
+                allowed=False,
+                retry_after_seconds=self.window_seconds,
+                reason="email_rate_limited",
+            )
+        await self._call("add_to_window", window_key, now, self.window_seconds)
+        return RateLimitDecision(allowed=True)

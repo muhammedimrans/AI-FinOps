@@ -41,6 +41,7 @@ vi.mock("../services/api", async (importOriginal) => {
     listPermissions: vi.fn(),
     getSchedulerStatus: vi.fn(),
     updateSchedulerSettings: vi.fn(),
+    resendVerification: vi.fn(),
   };
 });
 
@@ -119,6 +120,31 @@ describe("Settings — EP-22.2 backend integration", () => {
     expect(screen.getByDisplayValue("Ada Lovelace")).toBeTruthy();
     expect(screen.getByDisplayValue("ada")).toBeTruthy();
     expect(screen.getByDisplayValue("ada@example.com")).toBeTruthy();
+  });
+
+  it("shows a Verified badge and no resend button when the email is verified", () => {
+    renderSettings();
+    expect(screen.getByText("Verified")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /resend verification/i })).toBeNull();
+  });
+
+  it("shows Not verified with a resend button, and calls resendVerification on click", async () => {
+    const user = userEvent.setup();
+    useAuthStore.getState().setLogin("access.token", "refresh.token", {
+      ...baseUser,
+      email_verified: false,
+    });
+    mockedApi.resendVerification.mockResolvedValue({
+      message: "If an account with that email exists and isn't verified, a new link has been sent",
+    });
+    renderSettings();
+
+    expect(screen.getByText("Not verified")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /resend verification/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.resendVerification).toHaveBeenCalledWith("ada@example.com");
+    });
   });
 
   it("saves profile changes via PATCH /v1/auth/me", async () => {

@@ -49,16 +49,18 @@ class TestRegisterEndpoint:
     (already covered by tests/test_ep05.py::TestAuthServiceRegister)."""
 
     @pytest.mark.asyncio
-    async def test_register_success_returns_201_with_workspace_and_cookies(
+    async def test_register_success_returns_201_with_workspace_no_session(
         self, client: Any
     ) -> None:
+        """EP-24.6.1: register() no longer issues a session — no tokens, no
+        cookies, `email_verification_required: true`."""
         user = make_user(email="new@example.com", display_name="New User")
         workspace = make_org(name="New User's Workspace", slug="new-user-workspace")
         workspace.is_personal = True
 
         with patch(
             "app.api.v1.auth.AuthService.register",
-            AsyncMock(return_value=(_pair(), user, workspace)),
+            AsyncMock(return_value=(None, user, workspace)),
         ):
             resp = await client.post(
                 "/v1/auth/register",
@@ -74,9 +76,11 @@ class TestRegisterEndpoint:
         assert body["user"]["email"] == "new@example.com"
         assert body["workspace"]["is_personal"] is True
         assert body["workspace"]["slug"] == "new-user-workspace"
-        assert body["access_token"] == "access.jwt.token"
-        assert ACCESS_TOKEN_COOKIE in resp.cookies
-        assert REFRESH_TOKEN_COOKIE in resp.cookies
+        assert body["access_token"] is None
+        assert body["refresh_token"] is None
+        assert body["email_verification_required"] is True
+        assert ACCESS_TOKEN_COOKIE not in resp.cookies
+        assert REFRESH_TOKEN_COOKIE not in resp.cookies
 
     @pytest.mark.asyncio
     async def test_register_duplicate_email_returns_409(self, client: Any) -> None:

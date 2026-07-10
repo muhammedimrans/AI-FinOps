@@ -16,14 +16,17 @@ class AccountDisabledError(AuthError):
 
 
 class EmailNotVerifiedError(AuthError):
-    """Password login was attempted before the account's email was verified.
+    """Login (or registration, EP-24.6.1) was attempted/would resolve before
+    the account's email was verified.
 
-    EP-24.4.1 — closes the login-time bypass: `register()` deliberately
-    issues a session immediately for a brand-new (unverified) account (an
-    existing, documented activation-funnel decision — see EP-21.2's note on
-    `register()`), but a *separate* `login()` call with email+password must
-    never succeed until that email is verified. Google OAuth logins are
-    exempt (EP-24.5) — Google already verifies the address, so
+    EP-24.4.1 originally closed only the *login*-time bypass, on the
+    (documented, EP-21.2) theory that `register()`'s own immediate session
+    issuance was a deliberate activation-funnel exception. EP-24.6.1
+    reverses that exception: `register()` no longer issues a session either
+    (see `AuthService.register()`'s own docstring) — a brand-new
+    password-based account must click its verification link before
+    `login()` will ever issue one. Google OAuth logins are exempt (EP-24.5)
+    — Google already verifies the address, so
     `login_or_register_with_google()` never raises this.
     """
 
@@ -95,4 +98,18 @@ class LastAuthMethodError(AuthError):
     A user with no password set (a Google-only account) must always retain
     at least one way to authenticate — Part 4's "do not allow removing the
     final authentication method."
+    """
+
+
+# ── Mandatory password setup for Google-only accounts (EP-24.6.1) ──────────
+
+
+class PasswordAlreadyConfiguredError(AuthError):
+    """`set_password()` was called for an account that already has one.
+
+    `set_password` exists only to give a Google-only account (no prior
+    password, `password_hash IS NULL`) its *first* password — an account
+    that already has one must go through `change_password` instead, which
+    requires proving the current password rather than silently overwriting
+    it.
     """

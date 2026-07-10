@@ -26,6 +26,14 @@ export interface AuthUser {
   google_linked?: boolean;
   google_email?: string | null;
   last_login_provider?: string | null;
+  // EP-24.6.1 — true once the account has a password set. Derived on the
+  // backend from `password_hash is not None`, never a new column. A
+  // Google-only account starts `false`; ProtectedRoute forces it through
+  // /set-password before anything else. Same "absent/undefined means
+  // unknown, never force a redirect" treatment as onboarding_completed —
+  // a session persisted before this field existed self-heals on the next
+  // silent refresh rather than being incorrectly trapped in the gate.
+  password_configured?: boolean;
 }
 
 interface AuthState {

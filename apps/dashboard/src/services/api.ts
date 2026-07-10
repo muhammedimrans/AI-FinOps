@@ -288,6 +288,15 @@ export async function deleteAccount(password: string): Promise<void> {
   return request<void>("DELETE", "/v1/auth/me", { body: { password } });
 }
 
+/**
+ * First password for a Google-only account (EP-24.6.1, Issue 1). Distinct
+ * from `changePassword` — there is no current password to send, and the
+ * backend refuses (409) if one is already set.
+ */
+export async function setPassword(newPassword: string): Promise<BackendUserPublic> {
+  return post<BackendUserPublic>("/v1/auth/set-password", { new_password: newPassword });
+}
+
 // ── Google OAuth — Settings "Linked accounts" (EP-24.5) ───────────────────────
 
 /** URL for the login-page "Continue with Google" button — a plain top-level

@@ -7,6 +7,7 @@ import OrgSelector from "./components/OrgSelector";
 import { useOrgStore } from "./stores/org";
 
 const Login          = lazy(() => import("./features/Login"));
+const SetPassword    = lazy(() => import("./features/SetPassword"));
 const Onboarding     = lazy(() => import("./features/Onboarding"));
 const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./features/ResetPassword"));
@@ -71,6 +72,23 @@ export default function App() {
               <Login />
             </Suspense>
           </ErrorBoundary>
+        }
+      />
+
+      {/* Set Password (EP-24.6.1): protected, standalone — the mandatory
+          first-password step for a Google-only account. ProtectedRoute
+          redirects here ahead of /onboarding whenever
+          user.password_configured === false. */}
+      <Route
+        path="/set-password"
+        element={
+          <ProtectedRoute>
+            <ErrorBoundary>
+              <Suspense fallback={null}>
+                <SetPassword />
+              </Suspense>
+            </ErrorBoundary>
+          </ProtectedRoute>
         }
       />
 

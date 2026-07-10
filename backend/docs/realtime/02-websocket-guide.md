@@ -27,18 +27,28 @@ organization or the connection is rejected
 ## Connection flow
 
 1. Client opens the WebSocket.
-2. Server checks the per-IP rate limit
+2. Server **accepts the WebSocket first** (EP-24.6.1) — this is required
+   for any subsequent `close(code=...)` to actually reach the client as
+   that numeric code. Per the ASGI spec, a server that sends
+   `websocket.close` as its first message (before `websocket.accept`)
+   never completes the opening HTTP Upgrade handshake — the client never
+   sees a custom close code, only a generic `1006` (abnormal closure), the
+   browser's own catch-all for "the handshake never properly finished."
+   Pre-EP-24.6.1, this doc described the rate-limit/auth checks as
+   happening *before* accept, which was itself the bug: every rejection
+   silently downgraded to an undiagnosable `1006` in real browsers.
+3. Server checks the per-IP rate limit
    (`app.realtime.rate_limit.ConnectionRateLimiter`, 30 attempts/min by
-   default) — over the limit closes with code `4429` before accepting.
-3. Server authenticates via
+   default) — over the limit closes with code `4429`.
+4. Server authenticates via
    `app.realtime.auth.authenticate_realtime_connection()` — on failure,
    closes with code `4401` and a reason string.
-4. Server accepts the WebSocket and registers the connection with the
-   `ConnectionManager`, joining that organization's event stream.
-5. Server sends a `{"type": "ping"}` heartbeat every 30 seconds and
+5. Server registers the connection with the `ConnectionManager`, joining
+   that organization's event stream.
+6. Server sends a `{"type": "ping"}` heartbeat every 30 seconds and
    expects any client frame back within 10 seconds
    (see [Heartbeat](#heartbeat)).
-6. Events for that organization are pushed as JSON text frames, one
+7. Events for that organization are pushed as JSON text frames, one
    `RealtimeEvent` per frame (see [Event Model](./04-event-model.md)).
 
 ## Python example

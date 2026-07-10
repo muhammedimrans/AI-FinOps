@@ -19,6 +19,7 @@ from app.auth.exceptions import (
     InvalidTokenError,
     LastAuthMethodError,
     OwnerOfSharedWorkspaceError,
+    PasswordAlreadyConfiguredError,
     UsernameAlreadyTakenError,
 )
 from app.auth.password import hash_password, verify_password
@@ -165,21 +166,28 @@ class AuthService:
         display_name: str,
         ip_address: str | None = None,
         user_agent: str | None = None,
-    ) -> tuple[TokenPair, User, Organization]:
+    ) -> tuple[TokenPair | None, User, Organization]:
         """
         Create a User, a personal workspace (Organization, is_personal=True),
-        and an OWNER Membership linking them, then issue a session — all in
-        one transaction. Mirrors the User+Organization+Membership pattern
-        already used by `app/db/seed.py::seed_demo_data`, extended with the
-        is_personal flag and wired to real request-time input instead of
-        hardcoded seed constants.
+        and an OWNER Membership linking them — all in one transaction.
+        Mirrors the User+Organization+Membership pattern already used by
+        `app/db/seed.py::seed_demo_data`, extended with the is_personal flag
+        and wired to real request-time input instead of hardcoded seed
+        constants.
 
-        The account is created ACTIVE (not gated on email verification) —
-        requiring a delivered, clicked verification email before a brand
-        new user can even see their own workspace would be a needless
-        activation-funnel drop-off; `email_verified` starts False and a
-        verification email is sent below (EP-24.4), but nothing in the
-        product blocks on it being clicked.
+        EP-24.6.1: no longer issues a session. Every prior version of this
+        method (EP-21.2 through EP-24.4.1) deliberately logged a brand-new
+        registrant straight into the product to avoid an activation-funnel
+        drop-off, and treated that as the one intentional exception to
+        "no session before verification" (see `EmailNotVerifiedError`'s
+        docstring history). Production confirmed that exception was itself
+        the bug being reported — a freshly registered, still-unverified
+        account should never reach the dashboard. This method now mirrors
+        `login()`'s own contract exactly: create the account, send the
+        verification email, and return `None` in place of a `TokenPair` —
+        the caller (a *separate* `login()` call, made only after the email
+        is clicked) is the only remaining path that ever issues a session
+        for a password-based account.
         """
         if await self._user_repo.email_exists(email):
             raise EmailAlreadyRegisteredError
@@ -195,16 +203,12 @@ class AuthService:
 
         org = await self._create_personal_workspace(user)
 
-        pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
-        await self._user_repo.update_last_login(user.id)
-        user.last_login_provider = "password"
-
         log_auth_event(
             AuditEvent.REGISTRATION, user_id=user.id, email=user.email, ip_address=ip_address
         )
         await self._send_verification_email(user)
 
-        return pair, user, org
+        return None, user, org
 
     # ── Login ─────────────────────────────────────────────────────────────────
 
@@ -497,6 +501,32 @@ class AuthService:
         await self._session.flush()
         await self._session_repo.revoke_all_for_user_except(user.id, current_session_id)
         log_auth_event(AuditEvent.PASSWORD_CHANGED, user_id=user.id, email=user.email)
+
+    # ── Mandatory password setup for Google-only accounts (EP-24.6.1) ───────
+
+    async def set_password(self, *, user: User, new_password: str) -> None:
+        """
+        Give a Google-only account (``password_hash IS NULL``) its first
+        password. Distinct from ``change_password`` on purpose — there is no
+        "current password" to prove knowledge of yet, so this method takes
+        none and instead refuses outright (``PasswordAlreadyConfiguredError``)
+        if one is already set, forcing that case through ``change_password``
+        instead rather than silently overwriting an existing credential.
+
+        No other session is revoked — unlike ``change_password``, this isn't
+        recovering from a potentially-compromised credential; it's the very
+        first one this account has ever had.
+        """
+        if user.password_hash is not None:
+            raise PasswordAlreadyConfiguredError
+        user.password_hash = hash_password(new_password)
+        await self._session.flush()
+        log_auth_event(
+            AuditEvent.PASSWORD_CHANGED,
+            user_id=user.id,
+            email=user.email,
+            reason="initial_setup_google",
+        )
 
     # ── Account deletion (EP-22.2 Settings — Danger Zone) ────────────────────
 

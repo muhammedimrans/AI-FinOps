@@ -392,6 +392,7 @@ class TestAuthSchemas:
             google_linked=False,
             google_email=None,
             last_login_provider=None,
+            password_configured=True,
         )
         assert up.email_verified is True
 
@@ -570,8 +571,8 @@ class TestAuthServiceRegister:
             display_name="New User",
         )
 
-        assert pair.access_token
-        assert pair.refresh_token
+        # EP-24.6.1: register() no longer issues a session — verify first.
+        assert pair is None
         assert user.email == "new@example.com"
         assert user.status == UserStatus.ACTIVE
         assert user.email_verified is False
@@ -585,7 +586,7 @@ class TestAuthServiceRegister:
         assert membership_arg.role == MembershipRole.OWNER
         assert membership_arg.organization_id == workspace.id
         assert membership_arg.user_id == user.id
-        svc._session_repo.create.assert_awaited_once()
+        svc._session_repo.create.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_register_duplicate_email_raises(self) -> None:

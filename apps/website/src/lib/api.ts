@@ -60,6 +60,11 @@ export interface UserPublic {
   status: string;
   email_verified: boolean;
   onboarding_completed: boolean;
+  // EP-24.6.1 — always present on this endpoint's real backend response;
+  // see apps/dashboard's stores/auth.ts for the full explanation. Always
+  // true for a password-registered account, since register() always sets
+  // a password.
+  password_configured?: boolean;
 }
 
 export interface WorkspacePublic {
@@ -76,10 +81,14 @@ export interface RegisterRequest {
 }
 
 export interface RegisterResponse {
-  access_token: string;
-  refresh_token: string;
-  token_type: "bearer";
-  expires_in: number;
+  // EP-24.6.1 — register() no longer issues a session (Issue 2): these are
+  // always null for this endpoint now. Kept as fields (not removed) so the
+  // response shape stays parseable by anything still expecting them.
+  access_token: string | null;
+  refresh_token: string | null;
+  token_type: "bearer" | null;
+  expires_in: number | null;
+  email_verification_required: boolean;
   user: UserPublic;
   workspace: WorkspacePublic;
 }

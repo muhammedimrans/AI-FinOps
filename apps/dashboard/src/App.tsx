@@ -11,6 +11,7 @@ const Onboarding     = lazy(() => import("./features/Onboarding"));
 const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./features/ResetPassword"));
 const VerifyEmail    = lazy(() => import("./features/VerifyEmail"));
+const AcceptInvite   = lazy(() => import("./features/AcceptInvite"));
 const Overview     = lazy(() => import("./features/Overview"));
 const Analytics    = lazy(() => import("./features/Analytics"));
 const Providers    = lazy(() => import("./features/Providers"));
@@ -101,6 +102,19 @@ export default function App() {
           }
         />
       ))}
+
+      {/* Accept/decline an organization invitation (EP-24.6) — public;
+          accepting requires being signed in, decline never does. */}
+      <Route
+        path="/accept-invite"
+        element={
+          <ErrorBoundary>
+            <Suspense fallback={null}>
+              <AcceptInvite />
+            </Suspense>
+          </ErrorBoundary>
+        }
+      />
 
       {/* Protected shell */}
       <Route

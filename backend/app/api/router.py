@@ -8,6 +8,7 @@ from app.api.v1 import (
     dashboard,
     health,
     ingest,
+    invitations,
     organizations,
     pricing,
     projects,
@@ -59,3 +60,6 @@ api_router.include_router(projects.router, prefix="/v1")
 
 # EP-24.2 — Budgets, Spend Alerts & Cost Monitoring
 api_router.include_router(budgets.router, prefix="/v1")
+
+# EP-24.6 — Organization Invitations & Team Collaboration
+api_router.include_router(invitations.router, prefix="/v1")

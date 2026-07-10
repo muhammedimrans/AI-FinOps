@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Loader2,
@@ -33,6 +33,12 @@ export default function Login() {
   const { isAuthenticated, setLogin } = useAuthStore();
   const { setOrganization } = useOrgStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // EP-24.6: preserves an in-progress invitation-accept (or any other
+  // deep link) across a login — AcceptInvite.tsx sends unauthenticated
+  // visitors here with `?redirect=` set to its own URL, so signing in
+  // returns them there instead of the default dashboard landing page.
+  const redirectTo = searchParams.get("redirect");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -46,9 +52,10 @@ export default function Login() {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
 
-  // Already authenticated — go straight to dashboard
+  // Already authenticated — go straight to the dashboard, or wherever the
+  // caller was headed (e.g. an in-progress invitation accept).
   if (isAuthenticated()) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={redirectTo || "/dashboard"} replace />;
   }
 
   async function handleResend() {
@@ -96,7 +103,7 @@ export default function Login() {
       } catch {
         // Non-fatal — OrgSelector will recover on the next render.
       }
-      navigate("/dashboard", { replace: true });
+      navigate(redirectTo || "/dashboard", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Invalid email or password.");

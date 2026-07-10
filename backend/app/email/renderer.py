@@ -240,3 +240,114 @@ If you didn't request this, you can safely ignore this email — your password w
             f"Need help? Contact support@costorah.com"
         )
         return RenderedEmail(subject="Reset your Costorah password", html_body=html, text_body=text)
+
+    # ── Organization invitations (EP-24.6) ──────────────────────────────────
+
+    def render_invitation_email(
+        self,
+        *,
+        organization_name: str,
+        inviter_name: str,
+        role: str,
+        accept_url: str,
+        expires_at_display: str,
+        year: int,
+    ) -> RenderedEmail:
+        org = escape(organization_name)
+        inviter = escape(inviter_name)
+        role_label = escape(role.capitalize())
+        expires = escape(expires_at_display)
+        body_html = f"""
+<h1 class="heading" style="margin:0 0 16px 0;font-size:22px;line-height:30px;font-weight:700;">You're invited to join {org}</h1>
+<p class="body-text" style="margin:0;font-size:14px;line-height:22px;">
+{inviter} has invited you to join <strong>{org}</strong> on Costorah as <strong>{role_label}</strong>.
+</p>
+{_button(url=accept_url, label="Accept invitation")}
+<p class="body-text" style="margin:0;font-size:13px;line-height:20px;">
+This invitation expires on {expires}. If you weren't expecting this, you can safely ignore this email.
+</p>
+{_fallback_url_block(accept_url)}
+"""
+        html = _layout(
+            preheader=f"{inviter} invited you to join {organization_name} on Costorah.",
+            body_html=body_html,
+        ).replace("{year}", str(year))
+        text = (
+            f"You're invited to join {organization_name}\n\n"
+            f"{inviter_name} has invited you to join {organization_name} on Costorah as {role.capitalize()}.\n\n"
+            f"Accept your invitation:\n\n"
+            f"{accept_url}\n\n"
+            f"This invitation expires on {expires_at_display}. If you weren't expecting this, "
+            f"you can safely ignore this email.\n\n"
+            f"Need help? Contact support@costorah.com"
+        )
+        return RenderedEmail(
+            subject=f"You're invited to join {organization_name} on Costorah",
+            html_body=html,
+            text_body=text,
+        )
+
+    def render_invitation_accepted_email(
+        self,
+        *,
+        organization_name: str,
+        member_email: str,
+        role: str,
+        members_url: str,
+        year: int,
+    ) -> RenderedEmail:
+        org = escape(organization_name)
+        member = escape(member_email)
+        role_label = escape(role.capitalize())
+        body_html = f"""
+<h1 class="heading" style="margin:0 0 16px 0;font-size:22px;line-height:30px;font-weight:700;">{member} joined {org}</h1>
+<p class="body-text" style="margin:0;font-size:14px;line-height:22px;">
+Your invitation was accepted — {member} is now a <strong>{role_label}</strong> of {org}.
+</p>
+{_button(url=members_url, label="View members")}
+"""
+        html = _layout(
+            preheader=f"{member_email} accepted your invitation to {organization_name}.",
+            body_html=body_html,
+        ).replace("{year}", str(year))
+        text = (
+            f"{member_email} joined {organization_name}\n\n"
+            f"Your invitation was accepted — {member_email} is now a {role.capitalize()} of "
+            f"{organization_name}.\n\n"
+            f"View members:\n\n"
+            f"{members_url}\n\n"
+            f"Need help? Contact support@costorah.com"
+        )
+        return RenderedEmail(
+            subject=f"{member_email} joined {organization_name}", html_body=html, text_body=text
+        )
+
+    def render_invitation_cancelled_email(
+        self,
+        *,
+        organization_name: str,
+        year: int,
+    ) -> RenderedEmail:
+        org = escape(organization_name)
+        body_html = f"""
+<h1 class="heading" style="margin:0 0 16px 0;font-size:22px;line-height:30px;font-weight:700;">Invitation cancelled</h1>
+<p class="body-text" style="margin:0;font-size:14px;line-height:22px;">
+Your invitation to join <strong>{org}</strong> on Costorah has been cancelled. If you believe this was a mistake, contact the workspace's admin to request a new invitation.
+</p>
+"""
+        html = _layout(
+            preheader=f"Your invitation to join {organization_name} was cancelled.",
+            body_html=body_html,
+        ).replace("{year}", str(year))
+        text = (
+            f"Invitation cancelled\n\n"
+            f"Your invitation to join {organization_name} on Costorah has been cancelled. "
+            f"If you believe this was a mistake, contact the workspace's admin to request a "
+            f"new invitation.\n\n"
+            f"Need help? Contact support@costorah.com"
+        )
+        return RenderedEmail(
+            subject=f"Your invitation to {organization_name} was cancelled",
+            html_body=html,
+            text_body=text,
+        )

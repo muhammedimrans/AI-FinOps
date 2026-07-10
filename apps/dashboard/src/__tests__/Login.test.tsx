@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import * as api from "../services/api";
 import { useAuthStore } from "../stores/auth";
 
@@ -144,5 +144,35 @@ describe("Login — EP-24.4.1 email verification enforcement", () => {
       expect(useAuthStore.getState().accessToken).toBe("at");
     });
     expect(screen.queryByRole("button", { name: /resend verification email/i })).toBeNull();
+  });
+
+  it("navigates to a preserved ?redirect= target after login (EP-24.6)", async () => {
+    mockedApi.login.mockResolvedValue({
+      access_token: "at",
+      refresh_token: "rt",
+      token_type: "bearer",
+      expires_in: 1800,
+      user: {
+        id: "usr_1",
+        email: "ada@example.com",
+        username: null,
+        display_name: "Ada",
+        status: "active",
+        email_verified: true,
+      },
+    } as Awaited<ReturnType<typeof api.login>>);
+    mockedApi.getOrganizations.mockResolvedValue({ organizations: [] });
+
+    render(
+      <MemoryRouter initialEntries={["/login?redirect=%2Faccept-invite%3Ftoken%3Dabc"]}>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/accept-invite" element={<div>accept-invite landing</div>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    await submitLoginForm();
+
+    expect(await screen.findByText("accept-invite landing")).toBeTruthy();
   });
 });

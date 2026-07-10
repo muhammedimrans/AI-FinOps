@@ -35,6 +35,9 @@ from app.models.alert import (  # noqa: F401
 # EP-24.2 - Budgets (import after Organization, Project, User; FK dependency)
 from app.models.budget import Budget, BudgetPeriod, BudgetScopeType  # noqa: F401
 from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401
+
+# EP-24.6 - Organization invitations (import after Organization, User; FK dependency)
+from app.models.invitation import Invitation, InvitationStatus  # noqa: F401
 from app.models.membership import Membership, MembershipRole  # noqa: F401
 
 # EP-09 - Cost & Analytics Engine (import after UsageEvent and ProviderConnection; FK dependency)

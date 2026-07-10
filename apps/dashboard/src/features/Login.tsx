@@ -14,7 +14,13 @@ import {
   Layers,
   ArrowRight,
 } from "lucide-react";
-import { login, getOrganizations, googleOAuthStartUrl, ApiError } from "../services/api";
+import {
+  login,
+  getOrganizations,
+  googleOAuthStartUrl,
+  resendVerification,
+  ApiError,
+} from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
 import { cn } from "../utils";
@@ -34,15 +40,35 @@ export default function Login() {
   const [rememberMe, setRememberMe] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // EP-24.4.1: the 403 "verify your email" case gets its own affordance
+  // (a resend button) rather than just an error string, since the fix
+  // here is something the user can actually do without leaving the page.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
 
   // Already authenticated — go straight to dashboard
   if (isAuthenticated()) {
     return <Navigate to="/dashboard" replace />;
   }
 
+  async function handleResend() {
+    setResendState("sending");
+    try {
+      await resendVerification(email);
+      setResendState("sent");
+    } catch {
+      // Resend has its own generic, anti-enumeration response on the
+      // backend (EP-24.4) — a network failure here is the only case that
+      // reaches this branch, so fall back to idle and let the user retry.
+      setResendState("idle");
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setNeedsVerification(false);
+    setResendState("idle");
     setLoading(true);
     try {
       const data = await login({ email, password });
@@ -74,6 +100,9 @@ export default function Login() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setError("Invalid email or password.");
+      } else if (err instanceof ApiError && err.status === 403 && err.message.includes("verify")) {
+        setError(err.message);
+        setNeedsVerification(true);
       } else if (err instanceof ApiError && err.status === 403) {
         setError("Your account has been disabled.");
       } else if (err instanceof ApiError && err.status === 429) {
@@ -318,7 +347,23 @@ export default function Login() {
                       className="flex items-start gap-2 rounded-xl border border-danger/20 bg-danger-dim p-3"
                     >
                       <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-danger" />
-                      <p className="text-xs text-danger">{error}</p>
+                      <div className="flex-1">
+                        <p className="text-xs text-danger">{error}</p>
+                        {needsVerification && (
+                          <button
+                            type="button"
+                            onClick={() => void handleResend()}
+                            disabled={resendState !== "idle"}
+                            className="mt-1.5 text-xs font-medium text-danger underline underline-offset-2 disabled:no-underline disabled:opacity-70"
+                          >
+                            {resendState === "sent"
+                              ? "Verification email sent — check your inbox"
+                              : resendState === "sending"
+                                ? "Sending…"
+                                : "Resend verification email"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </motion.div>
                 )}

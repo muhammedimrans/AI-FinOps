@@ -204,7 +204,11 @@ describe("Overview (EP-24.1)", () => {
     await renderOverview();
 
     expect(await screen.findByText("Sync Activity")).toBeTruthy();
-    expect(screen.getByText("Latest Imports")).toBeTruthy();
+    // EP-24.4.1: the activity-feed query is now gated on dashboardState
+    // resolving to state 4 (see useDashboard.ts's QueryGateOptions), so it
+    // starts fetching only after "Sync Activity" itself appears — its own
+    // content (imports/syncs/failures) needs its own async wait.
+    expect(await screen.findByText("Latest Imports")).toBeTruthy();
     expect(screen.getByText("Latest Syncs")).toBeTruthy();
     expect(screen.getByText("Provider Failures")).toBeTruthy();
     expect(screen.getByText("Prod Anthropic")).toBeTruthy();

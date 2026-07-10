@@ -106,6 +106,18 @@ export function login(body: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
+ * Requests a fresh verification email (EP-24.4 / EP-24.4.1) — used from the
+ * login form's "Resend verification email" affordance when a login attempt
+ * is rejected with 403 for an unverified account. Anti-enumeration on the
+ * backend: the response is the same generic message regardless of whether
+ * the account exists or is already verified, so there is nothing to branch
+ * on here beyond "the request completed."
+ */
+export function resendVerification(email: string): Promise<{ message: string }> {
+  return post<{ message: string }>("/v1/auth/resend-verification", { email });
+}
+
+/**
  * URL for the "Continue with Google" button (EP-24.5) — a plain top-level
  * navigation (`<a href>`/`window.location.href`, never `fetch`), since the
  * backend's own GET /v1/auth/google/start sets an httpOnly state cookie and

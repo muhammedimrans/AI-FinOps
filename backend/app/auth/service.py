@@ -13,6 +13,7 @@ from app.auth.exceptions import (
     AccountDisabledError,
     EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
+    EmailNotVerifiedError,
     GoogleAccountAlreadyLinkedError,
     InvalidCredentialsError,
     InvalidTokenError,
@@ -215,7 +216,17 @@ class AuthService:
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> tuple[TokenPair, User]:
-        """Authenticate credentials and create a new session."""
+        """Authenticate credentials and create a new session.
+
+        EP-24.4.1: refuses to issue a session for an account whose email
+        hasn't been verified yet (`EmailNotVerifiedError`) — checked only
+        after credentials are confirmed valid, so a wrong-password attempt
+        against an unverified account still gets the generic 401 rather
+        than leaking verification status ahead of proving the password is
+        even correct. `register()`'s own immediate session issuance is a
+        separate, deliberate, unaffected code path (see that method's
+        docstring) — this check only guards a *subsequent* login attempt.
+        """
         user = await self._user_repo.get_by_email(email)
         if user is None or user.password_hash is None:
             raise InvalidCredentialsError
@@ -223,6 +234,14 @@ class AuthService:
             raise InvalidCredentialsError
         if user.status == UserStatus.DISABLED:
             raise AccountDisabledError
+        if not user.email_verified:
+            log_auth_event(
+                AuditEvent.LOGIN_REJECTED_UNVERIFIED,
+                user_id=user.id,
+                email=user.email,
+                ip_address=ip_address,
+            )
+            raise EmailNotVerifiedError
 
         # Activate any organization invitations created before this account
         # existed (invite-by-email creates a Membership with user_id=None).

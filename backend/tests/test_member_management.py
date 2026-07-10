@@ -105,7 +105,9 @@ class TestLoginLinksPendingInvitations:
             jwt_secret="j" * 32,
         )
         password = "correct-horse-battery-staple"
-        user = make_user(email="carol@example.com", password_hash=hash_password(password))
+        user = make_user(
+            email="carol@example.com", password_hash=hash_password(password), email_verified=True
+        )
 
         svc = AuthService(AsyncMock(), settings)
         svc._user_repo = AsyncMock()

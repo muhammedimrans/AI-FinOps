@@ -2259,3 +2259,127 @@ Backend: `pytest` (1829 passed, including a from-scratch `alembic upgrade head` 
 2. **A second OAuth provider** (GitHub, Microsoft) — the natural trigger to extract the four `google_*` columns into a proper polymorphic `oauth_identities` table, generalizing `app/auth/google_oauth.py`'s state/PKCE/nonce machinery (which is already provider-agnostic in shape, just not yet parameterized) rather than duplicating it per provider.
 3. **Redis-backed state one-time-use tracking**, if the 10-minute-TTL-only replay window (see "Known limitations") is ever judged insufficient at this product's scale — not needed today since Google's own one-time authorization codes already provide the load-bearing guarantee.
 4. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: wiring `ProviderConnection.encrypted_api_key` into real usage collection for the remaining 5 providers, and the still-open transactional-email items (organization invites, delivery-event webhooks) from EP-24.4.
+
+---
+
+## 26. EP-24.4.1 — Authentication Enforcement & First-Login Stabilization
+
+**Status: complete.** A production stabilization pass, not a feature EP — the request that triggered it was explicit that Google OAuth, new features, and any redesign of the authentication architecture were all out of scope. This EP fixes one concrete production bug (a brand-new, unverified account could log in with a correct password) and two adjacent first-login UX problems (slow dashboard render, a WebSocket reconnect loop with no ceiling) that surfaced during the same investigation. Note on the originating request's own deliverables list: it asked for "remaining authentication work before EP-24.5" — EP-24.5 (Google OAuth, §25) had already shipped by the time this EP started, so that phrasing is stale; "Known limitations" below is framed as "remaining work" without pinning it to a specific future EP number.
+
+### Part 1 — Root cause of the email-verification bypass
+
+**The bug**: `AuthService.register()` (`backend/app/auth/service.py`) correctly creates a new `User` with `email_verified=False` and correctly sends a verification email (EP-24.4, §24) — that part of the pipeline was never broken, which is why "email delivery works correctly" in the reported symptom. The break was one step later: `AuthService.login()` verified the password, checked `user.status == UserStatus.DISABLED`, and then issued a session — **it never once read `user.email_verified`**. Because the backend's own account-creation flow deliberately auto-logs a fresh registrant in immediately (see "Why `register()`'s own auto-login is untouched" below), nobody had separately gated the one code path that matters for this bug: a *second*, later `login()` call with the same, still-unverified account's correct password.
+
+**Evidence** (traced by reading every step named in Part 1 of the request):
+1. `AuthService.register()` — sets `email_verified=False` on the new `User` row (unchanged, correct, confirmed by `tests/test_ep24_4_email_auth.py`'s existing coverage).
+2. `AuthService._send_verification_email()` — creates a `VerificationToken`, sends the email via `EmailService` (unchanged, correct — this is the part production observed working).
+3. `AuthService.login()` (pre-fix) — `user = get_by_email(email)` → `verify_password(...)` → `if user.status == DISABLED: raise` → **directly to `_issue_session(user, ...)`**. No `if not user.email_verified` branch existed anywhere in this method.
+4. `_issue_session()` — creates a `Session` row, signs a JWT access token, generates a refresh token. It has no awareness of `email_verified` and was never supposed to — enforcement belongs one layer up, in the caller that decides *whether* a session should be issued at all, not in the primitive that issues one once that decision is made.
+5. `POST /v1/auth/login` (`app/api/v1/auth.py`) — called `AuthService.login()` and returned its `TokenPair` directly to the client on any non-exception path. Since `login()` never raised for an unverified account, the endpoint never had a reason to reject it either.
+6. `refresh()` — audited and found **not** part of the bypass: it operates on an already-issued, already-hashed refresh token from the `Session` table, not on credentials, and has no equivalent "was this session allowed to exist" gate to fail — the actual defect is entirely upstream, at the point a session is first created. Adding a redundant `email_verified` check here would duplicate logic without closing any new gap, since a session can only exist if `login()` (now fixed) or `register()` (intentionally exempt, see below) created it.
+7. **Google OAuth** (`login_or_register_with_google()`, EP-24.5) — confirmed exempt by design and by test (`TestGoogleLoginUnaffected`): Google-verified emails are trusted at the point of exchange, so this path never calls the new check.
+
+**Answering the request's five specific questions directly:**
+1. *Is `email_verified` stored as `FALSE` after registration, or accidentally `TRUE`?* — Correctly `FALSE`. Never the bug.
+2. *Does login check `email_verified` before creating a session?* — **No, this was the bug.** Now yes (see "The fix" below).
+3. *Can an unverified user receive JWT tokens?* — Only via `register()`'s own deliberate, documented immediate-session-issuance (unchanged, see below) — never via a subsequent `login()` call, as of this fix.
+4. *Can an unverified user refresh tokens?* — Only if they already hold a valid refresh token from one of the two legitimate session-creation paths above; there is no separate refresh-time bypass, since `refresh()` never independently re-derives "should this account have a session" — it only continues one that already legitimately exists.
+5. *Are there multiple login paths that bypass verification?* — Two paths issue sessions for an unverified user: `register()` (intentional) and Google OAuth (intentionally exempt, EP-24.5). `login()` was the one unintentional bypass; it is now closed.
+
+### Part 2 — The fix
+
+`backend/app/auth/exceptions.py` — new `EmailNotVerifiedError(AuthError)`.
+
+`backend/app/auth/service.py` — `AuthService.login()` gained exactly one new branch, positioned **after** the password and disabled-account checks and **before** `_issue_session()`:
+
+```python
+if not user.email_verified:
+    log_auth_event(AuditEvent.LOGIN_REJECTED_UNVERIFIED, user_id=user.id, email=user.email, ip_address=ip_address)
+    raise EmailNotVerifiedError
+```
+
+Position matters for two reasons: (1) a wrong-password attempt against an unverified account still gets the generic `InvalidCredentialsError`/401, so this fix never leaks "this email exists and is unverified" to someone who doesn't already know the correct password; (2) it runs before any session-creation side effect, so no `Session` row, JWT, or refresh token is ever produced for a rejected attempt.
+
+`backend/app/api/v1/auth.py` — `POST /v1/auth/login` gained one new `except EmailNotVerifiedError` handler, mapping to exactly the response Part 2 of the request specified:
+
+```python
+raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+```
+
+This handler is placed before the rate limiter's `record_success()` call and deliberately never calls `record_failure()` either — the credentials were correct, so this is not a brute-force signal, and a legitimate user waiting on a slow inbox retrying login should never trip an account lockout over it.
+
+**Why `register()`'s own auto-login is untouched.** This is an existing, already-documented (EP-21.2, §6/§7) product decision: a brand-new registrant is logged in immediately, before their email is verified, specifically to avoid an activation-funnel drop-off between "created an account" and "can see the product." The request's Part 1 asked whether this counts as a "bypass" — it is a deliberate, one-time exception scoped to the exact moment of account creation, not a hole in enforcement: every *subsequent* authentication event for that same account (a new browser, a new device, a session that expired) now goes through the fixed `login()` and is correctly gated. Nothing in this EP redesigns that decision, per the request's own "do not redesign the authentication architecture" instruction.
+
+### Part 3 — Database validation
+
+No schema or migration change was required or made. `users.email_verified` (added in EP-21.2, defaulted correctly since) was audited end-to-end:
+- **New users**: `register()` sets `False` — confirmed unchanged, confirmed enforced by the new `login()` check on any login attempt after the auto-login session expires.
+- **Already-verified users**: `verify_email()` (EP-24.4, unchanged by this EP) sets `True` once, permanently — `TestLoginEmailVerificationEnforcement::test_verified_account_logs_in_successfully` pins that a verified account's login is completely unaffected by this fix.
+- **Pre-existing users from before `email_verified` existed as a column**: EP-21.2's own migration already backfilled every pre-existing row to `True` (the same "retroactively gating existing users would be a regression, not a fix" reasoning EP-21.3 later reused for `onboarding_completed_at`, §11) — re-confirmed by reading that migration again during this EP's investigation; no new backfill was needed.
+- **Migration defaults**: the column has no default at the database level — every code path that creates a `User` row (`register()`, `login_or_register_with_google()`) sets it explicitly, so there is no code path that could silently insert a row with an undefined verification state.
+
+### Part 4 — Dashboard performance investigation
+
+**Root cause**: `features/Overview.tsx` mounts and unconditionally fires `useOverview()`, `useTimeSeries()`, `useProviders()`, `useModels()`, and `useActivityFeed()` — five React Query calls — every time the component renders, regardless of whether the organization has any usage data at all. For a brand-new organization (dashboard state 1–3, per EP-22.3's `useDashboardState()`, §17), the section that would actually render `useTimeSeries`/`useProviders`/`useModels`/`useActivityFeed`'s data (`DashboardStateHero` replaces it entirely for states 1–3) never shows it — the queries fire, wait on the network, and their results are thrown away unread. On first login this is compounded by the fact that `useDashboardState()` itself runs three sequential-feeling queries (connections, projects, all-time overview) to determine which state to show, so a new user's very first paint was gated behind up to eight total round-trips before anything meaningful appeared.
+
+**The fix**: a minimal, backward-compatible `enabled` gate. `hooks/useDashboard.ts` gained an exported `QueryGateOptions` interface (`{ enabled?: boolean }`) threaded as an optional **second** parameter through `useTimeSeries`, `useProviders`, `useModels`, and `useActivityFeed` — each hook's existing `enabled: !!organizationId` became `enabled: !!organizationId && (options.enabled ?? true)`. Every pre-existing call site (notably `Analytics.tsx`, which always wants these queries regardless of dashboard state) is unaffected, since the default (`options.enabled ?? true`) reproduces the old always-on behavior exactly when the new parameter is omitted. `features/Overview.tsx` is the one call site that passes it:
+
+```typescript
+const hasRealUsage = !dashboardState.isLoading && dashboardState.state === 4;
+const timeSeries = useTimeSeries({}, { enabled: hasRealUsage });
+const providers = useProviders({}, { enabled: hasRealUsage });
+const models = useModels({}, { enabled: hasRealUsage });
+const activityFeed = useActivityFeed(8, { enabled: hasRealUsage });
+```
+
+`useOverview()` (the 8 top-level KPI cards) and `useBudgetSummary()` were deliberately **not** gated — both render real, useful zeroed/empty content immediately for a brand-new org ("$0.00 spend", "0 requests") rather than depending on state, so gating them would only add a delay with no corresponding benefit. This satisfies the request's "render the shell immediately; load expensive widgets progressively... for new users, render the empty dashboard immediately, do not wait for analytics that do not exist" instruction precisely: the shell (KPI cards, `GettingStartedBanner`/`DashboardStateHero`) renders as soon as `dashboardState` resolves; the four breakdown queries this fix gates simply never fire at all for a brand-new org, rather than firing and being wasted.
+
+**What was investigated and deliberately left unchanged**: `useDashboardState()`'s own `["overview-all-time", organizationId]` query (a third, distinct-from-the-KPI-cards `getOverview()` call used purely to detect "has this org ever recorded any usage") was flagged by an internal research pass as a possible duplicate call. Re-reading its own code comments (EP-22.3, §17) confirmed this is an already-documented, deliberate tradeoff — not a bug — reusing an existing endpoint with a fixed far-past `start_date` rather than adding a new summary endpoint. Per this EP's explicit "do not redesign" instruction, it was left untouched.
+
+### Part 5 — WebSocket investigation
+
+**Root cause of the "Reconnecting" loop concern**: `RealtimeClient.scheduleReconnect()` (`apps/dashboard/src/realtime/client.ts`) already capped the *delay* between reconnect attempts (exponential backoff with jitter, capped at 30s — `apps/dashboard/src/realtime/connection.ts`, unchanged, confirmed already correct) but had no cap on the *number* of attempts. A backend or network condition that never recovers (e.g., a production WebSocket endpoint genuinely unreachable, or blocked by an intermediary) meant the client would retry forever, once every ~30s, for the lifetime of the tab — an infinite reconnect loop in the sense the request described, even though each individual attempt was correctly throttled.
+
+**The fix**: `MAX_RECONNECT_ATTEMPTS = 10` (a new exported constant). Once `reconnectAttempts` reaches this cap, `scheduleReconnect()` stops scheduling further attempts and transitions the connection to a new terminal `"offline"` status instead. This is safe to add without any other architectural change because `useRealtimeRefetchInterval()` (the React Query bridge, EP-19.2) already treats *any* non-`"connected"` status — including the new `"offline"` — as "fall back to 60-second polling." The dashboard was never actually blocked by a failed WebSocket; it was only retrying forever in the background, which this fix bounds without changing the fallback behavior at all. `reconnectNow()` (called on organization switch or a fresh login) already reset `reconnectAttempts = 0`, so a user who logs in fresh, or switches orgs, after the client has given up gets a full new set of attempts — the cap is per-connection-lifetime, not per-session.
+
+**Investigated and deliberately left unchanged, per the request's explicit "do not redesign" instruction:**
+- **Whether the WebSocket should start at all for a brand-new user with nothing to stream.** `useRealtimeConnection`'s eager-connect-on-mount behavior (`apps/dashboard/src/realtime/hooks.ts`) is tied to the same polling-fallback architecture the reconnect cap above relies on — gating it on `dashboardState.state === 4` would mean states 1–3 never get a chance to *become* state 4 live (a user connecting their first provider in another tab, or completing onboarding, wouldn't be reflected without a full page reload). This is a legitimate architectural tradeoff to revisit deliberately in a future EP, not a bug to patch here.
+- **`ConnectionIndicator.tsx`** — the header pill that surfaces connection status. Read in full; it is small, not intrusive, and already renders a plain, honest "Polling" state rather than an alarming "Reconnecting" message once the fallback kicks in. No change needed.
+- **Cloudflare compatibility, backend WebSocket auth** — audited (`app/api/v1/realtime.py`, EP-19.1, unchanged) and found correct; the reported symptom traces entirely to the frontend's unbounded retry count, not a backend or edge-proxy defect.
+
+### Part 6 — Validation (register → reject → verify → login → dashboard → WebSocket)
+
+Per this project's established convention (§9, §10, §11, and every EP since — this sandbox has no way to drive a real browser against a live deployment), the journey was verified in pieces, not as one continuous browser session:
+1. **register → email received**: unchanged from EP-24.4 (§24), re-verified by the unmodified `test_ep24_4_email_auth.py` suite passing.
+2. **login rejected**: `TestLoginEmailVerificationEnforcement::test_unverified_account_is_rejected` and `TestLoginEndpointRejection::test_returns_403_with_required_message` — both assert the exact status code and message text the request specified.
+3. **rejection does not count as a rate-limit failure**: `TestLoginEndpointRejection::test_rejection_does_not_count_as_a_rate_limit_failure`.
+4. **verify → login succeeds**: `TestFullJourney::test_register_reject_verify_login_succeeds` — a single service-layer test that registers, forces the session to expire (simulating "comes back later"), attempts login (rejected), calls `verify_email()`, then logs in again (succeeds) — the automated equivalent of the request's Part 6 manual journey.
+5. **dashboard renders immediately, no excessive delay**: verified via the `useDashboard.ts` gating fix and `Overview.test.tsx`'s existing KPI-card assertions continuing to pass unmodified (they never depended on the now-gated queries).
+6. **WebSocket behaves correctly**: `client.test.ts`'s new `"stops retrying and reports offline after MAX_RECONNECT_ATTEMPTS"` test drives 11 consecutive close events and confirms exactly `MAX_RECONNECT_ATTEMPTS` reconnect attempts are made before the client reports `"offline"` and stops.
+
+### Part 7 — Testing
+
+- **Backend** (`backend/tests/test_ep24_4_1_auth_enforcement.py`, 10 new tests): `TestLoginEmailVerificationEnforcement` (unverified rejected; verified succeeds; wrong password on an unverified account still raises `InvalidCredentialsError`, not `EmailNotVerifiedError` — confirming credentials are checked first; disabled account still raises `AccountDisabledError`, not `EmailNotVerifiedError` — confirming the disabled check still runs first), `TestRegisterUnaffected` (register still issues a session for a brand-new unverified account), `TestGoogleLoginUnaffected` (Google login never raises `EmailNotVerifiedError`), `TestLoginEndpointRejection` (exact 403 message; rejection doesn't count as a rate-limit failure; a verified account still succeeds at the API layer), `TestFullJourney` (the full register → reject → verify → login pin, above). Two pre-existing tests needed a one-line fixture fix (`make_user(..., email_verified=True)`) since their `make_user()` factory calls predate this EP and defaulted to `False`, which the new check now correctly (if unexpectedly, for those two tests' original intent) rejects — `test_ep05.py::TestAuthServiceLogin::test_login_returns_token_pair_and_user` and `test_member_management.py::TestLoginLinksPendingInvitations::test_login_calls_link_pending_by_email`. Full backend suite: **1839 passed, 30 skipped** (up from 1829 before this EP — the 30 skips are the pre-existing, documented `DATABASE_URL`-gated integration tests, unrelated to this EP), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+- **Frontend — dashboard** (`apps/dashboard`): new `src/__tests__/Login.test.tsx` (5 tests) — the 403 verify-email message and resend button render on rejection; the resend button calls `resendVerification(email)` and shows a confirmation state; a plain 401 shows the generic invalid-credentials message with no resend button; a 403 that doesn't mention verification (account-disabled) shows the disabled message with no resend button; a verified account still logs in and navigates normally, with no verification UI ever appearing. New `MAX_RECONNECT_ATTEMPTS`-pinning test in `src/realtime/__tests__/client.test.ts` (bringing that file to 11 tests). `src/__tests__/Overview.test.tsx`'s existing "renders Recent Activity with real imports/syncs/failures" test needed one assertion changed from a synchronous `getByText` to an `await findByText`, since the query-gating fix (Part 4) makes the activity-feed query start fetching only once `dashboardState` resolves to state 4, rather than in parallel with it — a genuine, expected async-timing change from the fix, not a regression. Full dashboard suite: **247 passed** (up from 242), `eslint src --max-warnings 0` clean, `tsc -b` clean, `vite build` clean.
+- **Frontend — website**: `apps/website/src/lib/api.ts` gained a `resendVerification()` function (mirroring the dashboard's, since the website's login form independently calls the same `POST /v1/auth/login` and needed the same 403-handling and resend affordance — `apps/website/src/routes/login.tsx` updated in lockstep). Two new tests in `src/lib/api.test.ts`: the 403 verify-email message round-trips through `ApiError` correctly; `resendVerification()` posts to `/v1/auth/resend-verification` with the given email. Full website suite: **17 passed** (up from 15), `eslint .` clean (pre-existing shadcn/ui `react-refresh` warnings only, unrelated), `vite build` clean (Nitro SSR, all 13 routes, confirmed via the pre-existing route-count check this EP re-ran as a regression guard).
+
+### Files changed
+
+Backend: `app/auth/exceptions.py`, `app/auth/service.py`, `app/auth/audit.py`, `app/api/v1/auth.py`, `tests/test_ep05.py` (fixture fix), `tests/test_member_management.py` (fixture fix), `tests/test_ep24_4_1_auth_enforcement.py` (new).
+Dashboard: `src/hooks/useDashboard.ts`, `src/features/Overview.tsx`, `src/realtime/client.ts`, `src/realtime/__tests__/client.test.ts`, `src/features/Login.tsx`, `src/__tests__/Login.test.tsx` (new), `src/__tests__/Overview.test.tsx` (one assertion updated for the gating fix's async timing).
+Website: `src/lib/api.ts`, `src/routes/login.tsx`, `src/lib/api.test.ts`.
+No migration, no new table, no new API endpoint — the 403 response uses the existing `POST /v1/auth/login` endpoint and the existing `POST /v1/auth/resend-verification` endpoint (EP-24.4, §24).
+
+### Known limitations
+
+- **`register()`'s own immediate-session-issuance for an unverified account is unchanged** — this is a pre-existing, documented (EP-21.2) product decision, not a gap this EP was scoped to close, and the request's own framing ("do not redesign the authentication architecture") confirms it should stay as-is. A brand-new registrant's very first session is still granted before their email is verified; every subsequent login attempt is now correctly gated.
+- **The WebSocket still starts eagerly for a brand-new user with nothing to stream** (Part 5) — investigated and deliberately not changed, since gating it on dashboard state would mean states 1–3 can't reflect a live update (e.g. connecting a provider in another tab) without a full reload. This is an architectural tradeoff for a future EP to make deliberately, not a bug.
+- **`MAX_RECONNECT_ATTEMPTS = 10` is a fixed constant, not configurable** — chosen to bound the worst case (roughly the sum of the exponential-backoff-with-30s-cap series, on the order of a few minutes of total retry time) without introducing new configuration surface for a value this EP's scope didn't call for tuning.
+- **The dashboard query-gating fix (Part 4) only covers `Overview.tsx`'s four breakdown queries** — `Analytics.tsx` and other pages that always want this data regardless of dashboard state were correctly left ungated (the whole point of the optional, backward-compatible `QueryGateOptions` parameter), but a future page that renders a similar "hero replaces the breakdown section" pattern for new orgs would need to apply the same gate itself; it isn't automatic.
+- **No live, continuous browser test of the full register → reject → verify → login → dashboard → WebSocket journey** — same caveat as every prior EP in this document: verified in pieces (backend service/API tests, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Future improvements
+
+1. **Gate the WebSocket's eager-connect behavior on dashboard state, deliberately** — a future EP could start the connection only once `dashboardState.state` reaches a threshold where live updates are actually meaningful, while still handling the "user completes onboarding in another tab" case (e.g., by connecting once dashboard state is no longer state 1, rather than only at state 4).
+2. **A dedicated "add a password" flow for Google-only accounts** and the other items already carried forward from EP-24.5 (§25) — unaffected by this EP, still the next real product blockers alongside the standing usage-collection and transactional-email items named at the end of §25.
+3. **A CI job that fails if a new `login`-equivalent code path is added without the `email_verified` check** — this EP found exactly one bypass by manual trace; a lint rule or test asserting every session-issuing call site is one of the two documented, intentional exceptions (`register()`, Google OAuth) would catch a future regression automatically rather than relying on another manual audit.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, googleOAuthStartUrl, login, register } from "./api";
+import { ApiError, googleOAuthStartUrl, login, register, resendVerification } from "./api";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -125,6 +125,48 @@ describe("login()", () => {
     await expect(login({ email: "ada@example.com", password: "wrong" })).rejects.toMatchObject({
       status: 401,
     });
+  });
+
+  it("throws ApiError with status 403 and the verify-your-email message when unverified (EP-24.4.1)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(403, { detail: "Please verify your email before signing in." }),
+    );
+
+    try {
+      await login({ email: "ada@example.com", password: "correct-horse-battery-staple" });
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(403);
+      expect((err as ApiError).message).toContain("verify");
+    }
+  });
+});
+
+describe("resendVerification() (EP-24.4.1)", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts to /v1/auth/resend-verification with the given email", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(200, { message: "If an account with that email exists, a link has been sent." }),
+    );
+
+    await resendVerification("ada@example.com");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("/v1/auth/resend-verification");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ email: "ada@example.com" });
   });
 });
 

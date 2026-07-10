@@ -8,6 +8,9 @@ import { parseRealtimeFrame } from "./events";
 import { HeartbeatMonitor } from "./heartbeat";
 import { isServerPing, type ConnectionSnapshot, type ConnectionStatus, type RealtimeEvent } from "./types";
 
+// EP-24.4.1 — see scheduleReconnect() below for why this exists.
+export const MAX_RECONNECT_ATTEMPTS = 10;
+
 export interface RealtimeClientOptions {
   baseUrl?: string;
   /** Returns the current access token at connect/reconnect time — a
@@ -153,6 +156,18 @@ export class RealtimeClient {
   }
 
   private scheduleReconnect(reason: string): void {
+    // EP-24.4.1: bounded retry count, not just bounded per-attempt delay —
+    // an unbounded number of attempts (even at a capped 30s cadence) is
+    // still an infinite reconnect loop over a long-lived tab. After
+    // MAX_RECONNECT_ATTEMPTS, give up and report "offline"; the React
+    // Query bridge already falls back to polling for any non-"connected"
+    // status (see useRealtimeRefetchInterval), so the dashboard keeps
+    // working — reconnectNow() (org switch / fresh login) resets the
+    // counter and tries again.
+    if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      this.setStatus("offline", `Gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
+      return;
+    }
     this.lastError = reason;
     this.setStatus("reconnecting", reason);
     const delay = reconnectDelayMs(this.reconnectAttempts);

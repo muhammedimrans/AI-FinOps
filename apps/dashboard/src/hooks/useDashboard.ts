@@ -37,7 +37,19 @@ export function useOverview() {
   });
 }
 
-export function useTimeSeries(filters: DimensionFilters = {}) {
+// EP-24.4.1 — every breakdown hook below accepts an optional second
+// `{ enabled }` argument, ANDed with the existing `!!organizationId` gate.
+// Backward compatible: every pre-existing call site (Analytics.tsx etc.)
+// passes nothing and keeps fetching exactly as before. Overview.tsx is the
+// only caller that passes `enabled: false` — for a brand-new organization
+// with no usage yet (dashboard state 1-3), these breakdown queries would
+// return empty data that nothing renders (DashboardStateHero replaces this
+// section entirely), so there's no reason to fire the request at all.
+export interface QueryGateOptions {
+  enabled?: boolean;
+}
+
+export function useTimeSeries(filters: DimensionFilters = {}, options: QueryGateOptions = {}) {
   const { start_date, end_date, currency, granularity, organizationId } = useFilters();
   const refetchInterval = useRealtimeRefetchInterval(POLL_FALLBACK_MS);
   return useQuery({
@@ -61,13 +73,13 @@ export function useTimeSeries(filters: DimensionFilters = {}) {
         granularity,
         ...filters,
       }),
-    enabled: !!organizationId,
+    enabled: !!organizationId && (options.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     refetchInterval,
   });
 }
 
-export function useProviders(filters: DimensionFilters = {}) {
+export function useProviders(filters: DimensionFilters = {}, options: QueryGateOptions = {}) {
   const { start_date, end_date, currency, organizationId } = useFilters();
   const refetchInterval = useRealtimeRefetchInterval(POLL_FALLBACK_MS);
   return useQuery({
@@ -89,13 +101,13 @@ export function useProviders(filters: DimensionFilters = {}) {
         currency,
         ...filters,
       }),
-    enabled: !!organizationId,
+    enabled: !!organizationId && (options.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     refetchInterval,
   });
 }
 
-export function useModels(filters: DimensionFilters = {}) {
+export function useModels(filters: DimensionFilters = {}, options: QueryGateOptions = {}) {
   const { start_date, end_date, currency, organizationId } = useFilters();
   const refetchInterval = useRealtimeRefetchInterval(POLL_FALLBACK_MS);
   return useQuery({
@@ -117,7 +129,7 @@ export function useModels(filters: DimensionFilters = {}) {
         currency,
         ...filters,
       }),
-    enabled: !!organizationId,
+    enabled: !!organizationId && (options.enabled ?? true),
     staleTime: 5 * 60 * 1000,
     refetchInterval,
   });
@@ -183,13 +195,13 @@ export function useHeatmap(filters: DimensionFilters = {}) {
 // EP-24.1 — real recent-activity feed (imports/syncs/failures), backed by
 // GET /v1/dashboard/activity. Distinct from useRecentActivity() below,
 // which targets the still-unimplemented raw usage-events endpoint.
-export function useActivityFeed(limit = 20) {
+export function useActivityFeed(limit = 20, options: QueryGateOptions = {}) {
   const { organizationId } = useOrgStore();
   const refetchInterval = useRealtimeRefetchInterval(POLL_FALLBACK_MS);
   return useQuery({
     queryKey: ["activity-feed", organizationId, limit],
     queryFn: () => api.getActivityFeed(organizationId!, limit),
-    enabled: !!organizationId,
+    enabled: !!organizationId && (options.enabled ?? true),
     staleTime: 30 * 1000,
     refetchInterval,
   });

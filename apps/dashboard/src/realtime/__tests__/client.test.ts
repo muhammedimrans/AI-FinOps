@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { RealtimeClient } from "../client";
+import { MAX_RECONNECT_ATTEMPTS, RealtimeClient } from "../client";
 import { WS_CLOSE_AUTH_FAILED } from "../connection";
 import type { ConnectionSnapshot, RealtimeEvent } from "../types";
 
@@ -176,5 +176,23 @@ describe("RealtimeClient", () => {
     client.connect();
     expect(client.getSnapshot().organizationId).toBe("org-1");
     expect(client.getSnapshot().reconnectAttempts).toBe(0);
+  });
+
+  it("stops retrying and reports offline after MAX_RECONNECT_ATTEMPTS (EP-24.4.1)", () => {
+    client.connect();
+    for (let i = 0; i < MAX_RECONNECT_ATTEMPTS; i++) {
+      const socket = FakeWebSocket.instances.at(-1)!;
+      socket.emit("close", { code: 1006, reason: "abnormal closure" });
+      // Advance past whatever backoff delay this attempt scheduled.
+      vi.advanceTimersByTime(60_000);
+    }
+    // One more close after the cap is reached must not open another socket.
+    const countBeforeFinalClose = FakeWebSocket.instances.length;
+    const lastSocket = FakeWebSocket.instances.at(-1)!;
+    lastSocket.emit("close", { code: 1006, reason: "abnormal closure" });
+    vi.advanceTimersByTime(60_000);
+
+    expect(statusChanges.at(-1)?.status).toBe("offline");
+    expect(FakeWebSocket.instances.length).toBe(countBeforeFinalClose);
   });
 });

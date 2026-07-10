@@ -40,6 +40,7 @@ class AuditEvent(enum.StrEnum):
     PASSWORD_RESET_COMPLETED = "password_reset_completed"  # noqa: S105
     PASSWORD_CHANGED = "password_changed"  # noqa: S105
     ACCOUNT_LOCKED = "account_locked"  # future-ready — not fired by this EP
+    LOGIN_REJECTED_UNVERIFIED = "login_rejected_unverified"  # EP-24.4.1
 
     # ── Google OAuth (EP-24.5, Part 10) ─────────────────────────────────────
     GOOGLE_LOGIN = "google_login"

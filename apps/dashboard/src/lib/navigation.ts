@@ -29,6 +29,10 @@ export interface NavItem {
   // sense once more than one person can belong to the workspace, which a
   // personal org (is_personal=true) never allows by construction.
   businessOnly?: boolean;
+  // EP-25.2 — label to show instead when the current workspace is
+  // personal, for the handful of items whose default label carries
+  // organization/team framing a single-user account shouldn't see.
+  personalLabel?: string;
 }
 
 // Shared between Sidebar (navigation) and CommandPalette (quick jump / search).
@@ -44,7 +48,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard/pricing",      icon: Receipt,         label: "Pricing",        group: "Analytics", keywords: "cost calculator catalog rates" },
   { to: "/users",                  icon: Users,           label: "Members",        group: "Admin", keywords: "users invite team invitations", businessOnly: true },
   { to: "/rbac",                   icon: ShieldCheck,     label: "RBAC",           group: "Admin", keywords: "roles permissions access", businessOnly: true },
-  { to: "/api-keys",               icon: Key,             label: "API Keys",       group: "Admin", keywords: "credentials secrets" },
+  { to: "/api-keys",               icon: Key,             label: "API Keys",       group: "Admin", keywords: "credentials secrets", personalLabel: "My API Keys" },
   { to: "/connections",            icon: PlugZap,         label: "Connections",    group: "Admin", keywords: "provider integration" },
   { to: "/audit-logs",             icon: ScrollText,      label: "Audit Logs",     group: "Admin", keywords: "history activity" },
   { to: "/settings",               icon: Settings,        label: "Settings",       group: "System", keywords: "preferences profile" },
@@ -53,9 +57,12 @@ export const NAV_ITEMS: NavItem[] = [
 
 export const NAV_GROUPS = ["Analytics", "Admin", "System"];
 
-/** NAV_ITEMS filtered for the current workspace type (EP-25.1). */
+/** NAV_ITEMS filtered (and relabeled) for the current workspace type
+ * (EP-25.1 filtering, EP-25.2 relabeling). */
 export function visibleNavItems(isPersonal: boolean): NavItem[] {
-  return isPersonal ? NAV_ITEMS.filter((item) => !item.businessOnly) : NAV_ITEMS;
+  const items = isPersonal ? NAV_ITEMS.filter((item) => !item.businessOnly) : NAV_ITEMS;
+  if (!isPersonal) return items;
+  return items.map((item) => (item.personalLabel ? { ...item, label: item.personalLabel } : item));
 }
 
 export function isNavItemActive(item: NavItem, pathname: string): boolean {

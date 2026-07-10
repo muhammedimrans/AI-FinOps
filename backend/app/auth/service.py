@@ -18,6 +18,7 @@ from app.auth.exceptions import (
     InvalidCredentialsError,
     InvalidTokenError,
     LastAuthMethodError,
+    NoPersonalWorkspaceError,
     OwnerOfSharedWorkspaceError,
     PasswordAlreadyConfiguredError,
     UsernameAlreadyTakenError,
@@ -39,6 +40,7 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.session import Session
 from app.models.user import User, UserStatus
 from app.models.verification_token import VerificationToken
+from app.organizations.audit import OrgAuditEvent, log_org_event
 from app.repositories.budget_repository import BudgetRepository
 from app.repositories.invitation_repository import InvitationRepository
 from app.repositories.membership_repository import MembershipRepository
@@ -185,6 +187,55 @@ class AuthService:
             slug_seed=f"{user.display_name}-workspace",
             is_personal=True,
         )
+
+    async def upgrade_to_business(
+        self, *, user: User, organization_name: str | None = None
+    ) -> Organization:
+        """
+        Convert the caller's personal workspace into a Business workspace (EP-25.2).
+
+        Reuses the exact same ``Organization`` row every project, provider
+        connection, budget, alert, and API key that workspace already owns
+        is scoped to — this is a one-column flip (``is_personal`` ->
+        ``False``, plus an optional rename), never a second
+        Organization/Membership pair and never a data migration. The row's
+        ``id``/``slug`` are unchanged, so every existing foreign key
+        (``organization_id`` on every scoped table) keeps pointing at the
+        same workspace without any repository or service needing to know
+        an upgrade ever happened.
+
+        Raises ``NoPersonalWorkspaceError`` if the caller has no personal
+        workspace to convert (should be unreachable given the
+        registration/Google-login invariant that every account gets
+        exactly one).
+        """
+        memberships = await self._membership_repo.list_by_user_email_with_orgs(user.email)
+        personal = next(
+            (
+                m
+                for m in memberships
+                if m.organization.is_personal and m.role == MembershipRole.OWNER
+            ),
+            None,
+        )
+        if personal is None:
+            raise NoPersonalWorkspaceError
+
+        org = personal.organization
+        name = (organization_name or "").strip() or "My Team"
+        updated = await self._org_repo.update(org, is_personal=False, name=name)
+
+        log_org_event(
+            OrgAuditEvent.WORKSPACE_UPGRADED_TO_BUSINESS,
+            organization_id=updated.id,
+            actor_user_id=user.id,
+        )
+        # Best-effort, reusing the existing welcome template rather than
+        # building a second one (task's own "do not duplicate providers").
+        # A delivery failure must never block the upgrade itself.
+        await self._email.send_welcome_email(to=user.email, display_name=user.display_name)
+
+        return updated
 
     async def register(
         self,

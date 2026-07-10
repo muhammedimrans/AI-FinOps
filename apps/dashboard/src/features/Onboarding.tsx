@@ -257,6 +257,13 @@ function WorkspaceStep({
     queryFn: getOrganizations,
   });
   const current = data?.organizations.find((o) => o.id === organizationId);
+  // EP-25.2: the personal workspace can never be renamed (backend now
+  // refuses PATCH /v1/organizations/{id} with 400 for is_personal orgs —
+  // see app/api/v1/organizations.py's update_organization guard) and
+  // should never surface "workspace" terminology to a Personal account at
+  // all. Only a real Business workspace (is_personal=false) gets the
+  // rename UI this step originally always showed.
+  const isPersonal = current?.is_personal ?? true;
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState("");
@@ -278,12 +285,29 @@ function WorkspaceStep({
     },
   });
 
+  if (isPersonal) {
+    return (
+      <StepShell>
+        <IconBadge icon={LayoutDashboard} />
+        <h2 className="text-lg font-semibold text-tx-primary mb-1">My Account</h2>
+        <p className="text-sm text-tx-muted leading-relaxed mb-6">
+          Everything here is private to you — projects, providers, budgets, alerts, and API keys.
+          You can upgrade to Business later from Settings to add teammates.
+        </p>
+        <button onClick={onNext} className="btn-primary mt-8 w-full">
+          Continue
+          <ArrowRight size={15} />
+        </button>
+      </StepShell>
+    );
+  }
+
   return (
     <StepShell>
       <IconBadge icon={LayoutDashboard} />
-      <h2 className="text-lg font-semibold text-tx-primary mb-1">Personal Workspace</h2>
+      <h2 className="text-lg font-semibold text-tx-primary mb-1">Your Workspace</h2>
       <p className="text-sm text-tx-muted leading-relaxed mb-6">
-        This is your private workspace — nobody else can see it unless you invite them.
+        This is your team's shared workspace — invite others to it from Members once you're set up.
       </p>
 
       <div className="text-left space-y-4">

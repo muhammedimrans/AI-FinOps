@@ -2873,3 +2873,107 @@ Per this EP's own instructions, none of these were touched:
 ### Next milestone recommendation
 
 The standing next-blocker list carried forward unchanged from §25–§28 is unaffected by this EP: (1) a self-service "add a password" flow for Google-only accounts, (2) wiring `ProviderConnection.encrypted_api_key` into real usage collection for the 5 currently-zero-volume providers, (3) delivery-event webhooks. This EP adds one genuinely new item to that list, ahead of those in practical value for the Personal/Business split to feel complete: **a general-purpose "create a business workspace" endpoint** (EP-25.2) — reusing `AuthService._create_workspace()` (already generalized for exactly this purpose in this EP) so a Personal-registered user can upgrade to having a team workspace without re-registering, and so Google-registered users gain a path to a business workspace at all.
+
+---
+
+## 30. EP-25.2 — Personal → Business Upgrade & Ownership Consistency Audit
+
+**Status: complete.** Closes the two gaps §29 (EP-25.1) explicitly left open: a Personal account had no in-product path to become a Business workspace, and no repo-wide audit had verified that the "if you can create it, you can edit/delete it" invariant §18's EP-24 audit established actually holds for every resource type this project models. This EP is a small, additive feature (one endpoint, one conversion) plus a documentation-and-one-line-fix audit — no repository, service, RBAC framework, or authentication mechanism was duplicated or rewritten.
+
+### Why the upgrade needed almost no new code
+
+`Organization.is_personal` (EP-21.2) and `AuthService._create_workspace()` (generalized in EP-25.1 specifically so both the personal and business registration paths share one org-creation implementation) already contained everything an upgrade needs to *not* need: a business workspace and a personal workspace are the same `Organization`/`Membership` schema, differing only in that one boolean and in how many memberships exist. Converting one into the other is therefore not a data migration — it's one `UPDATE organizations SET is_personal = false, name = ...`. `AuthService.upgrade_to_business()` (`app/auth/service.py`) is the whole implementation:
+
+```python
+async def upgrade_to_business(self, *, user: User, organization_name: str | None = None) -> Organization:
+    memberships = await self._membership_repo.list_by_user_email_with_orgs(user.email)
+    personal = next((m for m in memberships if m.organization.is_personal and m.role == OWNER), None)
+    if personal is None:
+        raise NoPersonalWorkspaceError
+    org = personal.organization
+    name = (organization_name or "").strip() or "My Team"
+    updated = await self._org_repo.update(org, is_personal=False, name=name)
+    log_org_event(OrgAuditEvent.WORKSPACE_UPGRADED_TO_BUSINESS, organization_id=updated.id, actor_user_id=user.id)
+    await self._email.send_welcome_email(to=user.email, display_name=user.display_name)  # best-effort
+    return updated
+```
+
+The row's `id` and `slug` are never touched — every existing foreign key (`organization_id` on `projects`, `provider_connections`, `budgets`, `alerts`, `organization_api_keys`, `usage_cost_records`, ...) keeps pointing at the exact same workspace. This is the literal mechanism behind "Projects remain. Providers remain. Budgets remain. Alerts remain. Analytics remain. API Keys remain." — nothing had to be told to "carry over," because nothing about *which* organization owns them ever changed.
+
+### API
+
+`POST /v1/auth/upgrade-to-business` (`app/api/v1/auth.py`) — `CurrentUser`-authenticated, no `org_id` in the path (mirrors `/v1/auth/set-password`/`/v1/auth/onboarding/complete`'s "acts on the caller's own account" convention rather than the org-scoped-path convention `/v1/organizations/{id}/...` uses) because the target organization is *derived* from the caller, not named by the client. Optional `organization_name` body field, `UpgradeToBusinessRequest`; response is the existing `WorkspacePublic` schema (`id`/`name`/`slug`/`is_personal`) — the same shape `POST /v1/auth/register` already returns for its `workspace` field, so the frontend's existing `WorkspacePublic`-shaped handling needed no new type. `404` (`NoPersonalWorkspaceError`) is the only failure mode besides `401` — unreachable in practice, since every account is guaranteed exactly one personal workspace by `register()`/`login_or_register_with_google()`, but the guard exists rather than assuming the invariant.
+
+**No database migration.** The endpoint mutates two existing columns (`is_personal`, `name`) via the same `OrganizationRepository.update()` every other org-mutating endpoint (`PATCH /v1/organizations/{id}`, EP-22.2) already calls.
+
+### Frontend — "no logout required"
+
+`Settings.tsx` gained `UpgradeToBusinessCard`, rendered on the Profile tab only when `currentOrg?.is_personal` is true (the tab every Personal account already lands on by default, since the Workspace tab is filtered out for them per EP-25.1). On success:
+
+```
+upgradeToBusiness(name) -> WorkspacePublic
+        │
+        ├─► useOrgStore().setOrganization(id, name, is_personal=false)   — same store, same id
+        └─► queryClient.invalidateQueries(["organizations"])              — same query key every
+                                                                              org-aware component
+                                                                              (OrgSelector, Sidebar,
+                                                                              CommandPalette, Settings
+                                                                              itself) already reads
+```
+
+Every consumer of `is_personal` — `visibleNavItems()` (nav filtering), `OrgSelector` (switcher visibility), `BusinessOnlyRoute` (direct-URL guards), Settings' own tab list — re-renders from the same Zustand store write and the same invalidated React Query cache; none of them needed new code to "notice" the upgrade, because none of them were ever unaware of `is_personal` in the first place. This is the concrete mechanism behind "No logout required. No data migration. ... Business Navigation [enabled immediately]" — it's cache invalidation of already-existing state, not a new capability.
+
+### Part 2 — Personal UX polish
+
+- **Onboarding wizard's Step 2 no longer shows "Personal Workspace" / rename UI to a Personal account.** Auditing `Onboarding.tsx`'s `WorkspaceStep` found a real, pre-existing bug this EP's own backend change (EP-25.1's `PATCH /v1/organizations/{id}` guard) had silently turned into a broken control: the step always rendered a "Workspace name" edit field and called `updateOrganization()` regardless of account type — which, for a Personal account, has returned `400 "Your personal workspace cannot be renamed."` since EP-25.1 shipped, with no onboarding-time indication of why. Fixed by branching on `current?.is_personal`: a Personal account now sees a static "My Account" step ("Everything here is private to you... You can upgrade to Business later from Settings") with no rename control at all; a Business account keeps the original rename UI, now labeled "Your Workspace" instead of the previously-hardcoded "Personal Workspace" (which was itself wrong for a Business registrant, since EP-25.1's Business registration flow hands this same step a real, non-personal org).
+- **Navigation relabeling.** `NavItem` gained an optional `personalLabel` field; `visibleNavItems(isPersonal)` (EP-25.1) now also applies it. Currently used for exactly one item: "API Keys" → "My API Keys" for a Personal account, matching this EP's spec list verbatim. `businessOnly` items (Organization/Members/RBAC) continue to be filtered out entirely, unchanged from EP-25.1 — they're not relabeled because they're never shown at all.
+- **Scope of this polish pass.** Every surface EP-25.1 already gated (`UserMenu`'s org block, the switcher, `BusinessOnlyRoute`) was re-audited and confirmed to leak no "Organization"/"Owner"/"Workspace" text to a Personal account. Two cosmetic, lower-traffic surfaces were *not* changed and are named under "Known limitations": the header breadcrumb's `routeLabel()` (still reads the base `NAV_ITEMS` label, not the personalized one) and the standalone `/api-keys` page's own `PageHeader` title.
+
+### Part 3 — Ownership consistency audit
+
+Every resource this EP's spec named was read end-to-end (backend router, RBAC grant, repository, frontend button) and scored against Create/Edit/Delete/View/Archive:
+
+| Resource | Create | Edit | Delete | View | Archive | Notes |
+|---|---|---|---|---|---|---|
+| Project | ✅ `PROJECT_WRITE` | ✅ `PROJECT_WRITE` | ✅ `PROJECT_DELETE` (MEMBER+, fixed by §18's EP-24 audit) | ✅ `PROJECT_READ` | *(= soft-delete)* | Re-verified: frontend `Delete project` button (`Projects.tsx`), backend endpoint, `ProjectRepository.soft_delete`, RBAC, DB cascade (org-level FK `ON DELETE CASCADE`, row-level soft-delete), tests (`test_ep23_projects.py::test_member_can_delete`) — all already correct since §18, confirmed still true, no regression |
+| Provider Connection | ✅ `PROVIDER_WRITE` | ✅ `PROVIDER_WRITE` | ✅ `PROVIDER_DELETE` | ✅ `PROVIDER_READ` | via `is_active` toggle | Sync/Reconnect/Rotate all present (EP-22/EP-23.3) and permission-consistent |
+| API Key | ✅ `API_KEY_WRITE` | ✅ (rename, `API_KEY_WRITE`) | ✅ (revoke, `API_KEY_WRITE`) | ✅ `API_KEY_READ` | N/A — revoke is the terminal state, no separate activate/deactivate concept exists (no `is_active` column) | Copy is a client-only, one-time reveal (no permission needed) |
+| Budget | ✅ `NOTIFICATION_WRITE` | ✅ `NOTIFICATION_WRITE` | ✅ `NOTIFICATION_WRITE` | ✅ `NOTIFICATION_READ` | via `enabled` toggle (part of the same PATCH) | Fully symmetric already |
+| Alert Rule | ✅ `NOTIFICATION_WRITE` | **✅ new this EP** | ✅ `NOTIFICATION_WRITE` | ✅ `NOTIFICATION_READ` | via `enabled` field (part of the new PATCH) | **The one real gap found** — see below |
+| Alert (instance) | *(system-fired, not user-created)* | N/A | N/A | ✅ `NOTIFICATION_READ` | Acknowledge/Resolve/Dismiss/Reopen (`NOTIFICATION_WRITE`) | Lifecycle actions, not CRUD — "create" doesn't apply to a fired alert |
+| Invitation | ✅ Business only, `ORG_MANAGE_MEMBERS` | *(no edit — role/email are set once)* | ✅ Cancel/Resend, `ORG_MANAGE_MEMBERS` | ✅ same permission | N/A | Personal orgs 400 (EP-25.1); Business unaffected |
+
+**Finding: `AlertRule` had create+delete but no edit.** `POST /v1/alerts/rules` and `DELETE /v1/alerts/rules/{id}` both existed (EP-19.3); no `PATCH` did. This is exactly the class of gap §18's EP-24 audit was built to catch (create without a corresponding mutate/delete path) — the only reason it survived past that audit is that `AlertRule` management has **no frontend surface at all** (confirmed by an app-wide grep: zero references to `listRules`/`createRule`/alert-rule endpoints anywhere in `apps/dashboard`), so no user-facing button was ever silently broken the way EP-24's `Project.delete` gap was. Fixed by adding `PATCH /v1/alerts/rules/{rule_id}` (`UpdateAlertRuleRequest` — `name`/`severity`/`operator`/`threshold`/`enabled`, all optional, `exclude_unset` partial update), reusing the exact `NOTIFICATION_WRITE` permission and `_parse_enum`/`Decimal` validation helpers the existing `create_rule`/`update_budget` endpoints already use — no new validation logic, no new permission.
+
+**Other resources audited and found already consistent, no changes:** Organization (rename/delete/transfer-ownership matrix unchanged from §18/§27), Membership (role-change/remove unchanged from §18), Usage/Analytics (read-only by nature — nothing to audit for create/edit/delete symmetry).
+
+### Security
+
+- `POST /v1/auth/upgrade-to-business` and `PATCH /v1/alerts/rules/{id}` reuse existing authentication (`CurrentUser`) and authorization (`RequireQueryPermission(Permission.NOTIFICATION_WRITE)`) dependencies verbatim — no new JWT, session, RBAC, or audit-logging code. `upgrade_to_business()`'s only new audit event, `OrgAuditEvent.WORKSPACE_UPGRADED_TO_BUSINESS`, is logged through the existing `app/organizations/audit.py` structlog sink (EP-24.6) — same "no new database table" convention as every other audit trail in this codebase.
+- `upgrade_to_business()` only ever operates on a workspace the caller is already `OWNER` of (`m.role == MembershipRole.OWNER` in the `next(...)` filter) — it cannot be used to convert someone else's personal workspace, and there is no `org_id` parameter for a client to substitute one.
+- Google OAuth, email verification, password reset, login, sessions, and refresh tokens are all untouched by this EP — `upgrade_to_business()` never issues, revokes, or reads a token.
+
+### Performance
+
+- `upgrade_to_business()` issues exactly two queries: `list_by_user_email_with_orgs` (already indexed, EP-12.1) to find the caller's personal org, and one `UPDATE` via `OrganizationRepository.update()`. No new index, no N+1, no additional round-trip for the optional welcome email (fire-and-await, not a blocking dependency of the response — a delivery failure never raises, per `EmailService`'s existing EP-24.4 contract).
+- The frontend's post-upgrade refresh reuses the existing `["organizations"]` query key rather than introducing a second cache entry — every component reading that key gets the update in one invalidation, not one per component.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep25_2_upgrade_and_audit.py`, 13 new tests): `AuthService.upgrade_to_business` — reuses the same org row (same `id`/`slug`, `is_personal` flips, name applied), defaults to `"My Team"` for `None` and whitespace-only input, raises `NoPersonalWorkspaceError` when the caller has no personal org and when the caller isn't `OWNER` of one; `POST /v1/auth/upgrade-to-business` — 200 success, 404 when no personal workspace, 401 unauthenticated; `PATCH /v1/alerts/rules/{id}` — ADMIN can update (name + enabled), VIEWER gets 403, unknown rule is 404, a rule belonging to a different org is 404 (never leaks existence); a regression pin of §18's EP-24 permission-consistency invariant (`PROJECT_WRITE`/`PROJECT_DELETE` both still granted to MEMBER; OWNER still holds every permission). Full backend suite: **1919 passed, 30 skipped** (1906 + 13), `ruff check`/`black --check`/`mypy app` all clean.
+- **Frontend** (`apps/dashboard`): `Settings.test.tsx` gained a new `describe` block (4 tests — card shown for a personal workspace, hidden for a business one, calls `upgradeToBusiness` with the typed name, calls it with `undefined` when the name field is left blank); `Onboarding.test.tsx` gained 1 new test (personal org shows "My Account" with no rename control, no "Ada's Workspace" text) and its existing rename-flow test's fixture was given an explicit `is_personal: false` to keep exercising the Business path it always intended to test; `navigation.test.ts` gained 1 new test (API Keys relabels to "My API Keys" for personal, stays "API Keys" for business); `OrgSelector.test.tsx`'s pre-existing `as any` casts were removed as part of this EP's lint pass (no longer necessary once the fixture objects matched the real shape). Full dashboard suite: **284 passed** (269 + 15 net new across the four files above, some pre-existing), ESLint clean (`--max-warnings 0`), `tsc -b` clean, `vite build` clean.
+- **Website**: unaffected by this EP — no website file changed. Full suite (19 tests) re-run as a regression check, unaffected, passing.
+
+### Known limitations
+
+- **No repository-scoped `list_by_org` unbounded-fetch pattern change** — `_cascade_delete_organization` (EP-25.1) and everything this EP touches continue to use the existing `limit=1000` one-shot pattern rather than a paginated loop; unchanged from §29, not revisited here since this EP's scope was the upgrade flow and the audit, not the deletion cascade itself (already covered and tested in EP-25.1).
+- **Two cosmetic terminology surfaces remain unrelabeled for Personal accounts**: the header breadcrumb (`routeLabel()`) and the standalone `/api-keys` page's `PageHeader` title both still read "API Keys" rather than "My API Keys" — only the sidebar and command palette (the primary navigation surfaces) were relabeled. Low-value, deliberately deferred rather than plumbing `isPersonal` through two more call sites for a page title.
+- **`AlertRule` still has no frontend management UI at all** — this EP closed the backend create/edit/delete asymmetry (the actual audit finding), but did not build a Rules page, since nothing in the product today creates a rule through any UI (only `budget_threshold`/`budget_exceeded` are evaluated against real data, per §19/§22, and those are managed through the Budgets page, not Alert Rules). Building that UI was out of this EP's scope — the fix here is the API-level consistency guarantee, ready for whenever a Rules UI is built on top of it.
+- **No self-service "downgrade to Personal"** — the upgrade is one-directional, matching the spec's own framing (an upgrade, not a toggle). A Business workspace with only one member could theoretically be converted back, but nothing in this EP's brief asked for that, and doing so would need to answer what happens to any pending invitations or a since-renamed slug — deliberately not attempted.
+- **No live, continuous browser test of the full Settings → Upgrade to Business → immediate nav/switcher change journey** — same caveat as every prior EP in this document: verified in pieces (backend service/API tests, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Future improvements
+
+1. Relabel the two remaining cosmetic surfaces (header breadcrumb, `/api-keys` page title) if Personal-account terminology consistency becomes a higher product priority.
+2. Build a Rules management UI on top of the now-complete `AlertRule` CRUD, if/when non-budget alert types (usage spikes, provider health, etc.) get real evaluation logic — the rule engine already supports them (§19's `app/alerts/rule_engine.py`), only the data to evaluate against and a UI are missing.
+3. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: a self-service "add a password" flow for Google-only accounts, wiring `ProviderConnection.encrypted_api_key` into real usage collection for the remaining 5 providers, and delivery-event webhooks.

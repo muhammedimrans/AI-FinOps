@@ -297,6 +297,27 @@ export async function setPassword(newPassword: string): Promise<BackendUserPubli
   return post<BackendUserPublic>("/v1/auth/set-password", { new_password: newPassword });
 }
 
+/** The caller's (possibly just-upgraded) workspace — mirrors the backend's
+ * WorkspacePublic schema exactly (register()/upgrade-to-business share it). */
+export interface WorkspacePublic {
+  id: string;
+  name: string;
+  slug: string;
+  is_personal: boolean;
+}
+
+/**
+ * Personal -> Business upgrade (EP-25.2). Reuses the caller's existing
+ * personal Organization row — flips `is_personal` to false and optionally
+ * renames it (defaults to "My Team" server-side). No new account, no new
+ * workspace, no data migration, no logout required.
+ */
+export async function upgradeToBusiness(organizationName?: string): Promise<WorkspacePublic> {
+  return post<WorkspacePublic>("/v1/auth/upgrade-to-business", {
+    organization_name: organizationName || undefined,
+  });
+}
+
 // ── Google OAuth — Settings "Linked accounts" (EP-24.5) ───────────────────────
 
 /** URL for the login-page "Continue with Google" button — a plain top-level

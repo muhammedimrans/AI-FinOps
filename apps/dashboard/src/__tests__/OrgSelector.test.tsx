@@ -35,8 +35,7 @@ describe("OrgSelector — EP-25.1 hides the personal workspace", () => {
 
   it("auto-selects the personal org silently when it's the only workspace", async () => {
     mockedApi.getOrganizations.mockResolvedValue({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      organizations: [personalOrg()] as any,
+      organizations: [personalOrg()],
     });
     render(<OrgSelector />);
 
@@ -48,8 +47,7 @@ describe("OrgSelector — EP-25.1 hides the personal workspace", () => {
 
   it("auto-selects the sole business org, never offering the hidden personal one", async () => {
     mockedApi.getOrganizations.mockResolvedValue({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      organizations: [personalOrg(), businessOrg("org_biz", "Acme Inc")] as any,
+      organizations: [personalOrg(), businessOrg("org_biz", "Acme Inc")],
     });
     render(<OrgSelector />);
 
@@ -63,8 +61,7 @@ describe("OrgSelector — EP-25.1 hides the personal workspace", () => {
         personalOrg(),
         businessOrg("org_a", "Acme Inc"),
         businessOrg("org_b", "Widget Co"),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ] as any,
+      ],
     });
     render(<OrgSelector />);
 

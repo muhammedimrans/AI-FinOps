@@ -119,6 +119,18 @@ class SetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class UpgradeToBusinessRequest(BaseModel):
+    """Optional workspace name for a Personal -> Business upgrade (EP-25.2).
+
+    ``organization_name`` is optional — an omitted or blank value falls
+    back to ``"My Team"`` in ``AuthService.upgrade_to_business()``, matching
+    the same "optional name, sensible default" pattern ``RegisterRequest``
+    already uses for a Business registration's workspace name.
+    """
+
+    organization_name: str | None = Field(default=None, max_length=255)
+
+
 # ── Response schemas ──────────────────────────────────────────────────────────
 
 

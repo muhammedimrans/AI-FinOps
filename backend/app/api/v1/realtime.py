@@ -52,6 +52,29 @@ async def websocket_gateway(
     container: AppContainer = websocket.app.state.container
     ip = websocket.client.host if websocket.client else None
 
+    # EP-24.6.1 — Issue 3: `accept()` MUST run before any `close(code=...)`
+    # call. Per the ASGI websocket spec, a server that sends
+    # `websocket.close` as its *first* outgoing message (i.e. before
+    # `websocket.accept`) never completes the opening HTTP Upgrade
+    # handshake at all — uvicorn rejects the connection at the HTTP level
+    # instead of performing a WebSocket closing handshake, so the numeric
+    # close code (4429/4401 below) never reaches the client. Every real
+    # browser's native WebSocket implementation reports that as
+    # `CloseEvent{code: 1006, wasClean: false}` — "abnormal closure" — not
+    # the app-specific code the server actually intended (this codebase's
+    # own `docs/realtime/02-websocket-guide.md` had documented the old,
+    # broken "closes with 4429/4401 before accepting" order as if it were
+    # correct). Starlette's in-process `TestClient.websocket_connect`
+    # doesn't reproduce this — its `WebSocketTestSession` simulates the
+    # ASGI protocol directly and hands back whatever code the app sent
+    # regardless of accept order, which is why `test_ep19_1.py`'s
+    # rate-limit/auth-failure tests passed even with the bug. Accepting
+    # first (and immediately closing with the real code on failure) is the
+    # standard fix for "deliver a custom WebSocket close code to a real
+    # browser" — see docs/realtime/02-websocket-guide.md, updated in
+    # lockstep with this fix.
+    await websocket.accept()
+
     if not await container.realtime_rate_limiter.check(ip=ip):
         await websocket.close(code=4429, reason="Too many connection attempts")
         return
@@ -69,8 +92,6 @@ async def websocket_gateway(
     except RealtimeAuthError as exc:
         await websocket.close(code=4401, reason=exc.message)
         return
-
-    await websocket.accept()
 
     connection_manager = container.connection_manager
     reconnect_count = 1 if websocket.query_params.get("reconnect") else 0

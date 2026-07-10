@@ -27,6 +27,10 @@ interface HandoffUser {
   status: string;
   email_verified: boolean;
   onboarding_completed?: boolean;
+  // EP-24.6.1 — carries Issue 1's "must set a password before continuing"
+  // signal through the Google-login handoff, same optional/self-heals
+  // treatment as onboarding_completed above.
+  password_configured?: boolean;
 }
 
 interface HandoffWorkspace {
@@ -89,6 +93,9 @@ export function consumeSessionHandoff(): boolean {
         // field is a type error under this tsconfig.
         ...(payload.user.onboarding_completed !== undefined
           ? { onboarding_completed: payload.user.onboarding_completed }
+          : {}),
+        ...(payload.user.password_configured !== undefined
+          ? { password_configured: payload.user.password_configured }
           : {}),
       },
       false, // handoff sessions are not "remembered" past this browser session

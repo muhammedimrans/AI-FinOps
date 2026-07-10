@@ -122,24 +122,31 @@ class TestLoginEmailVerificationEnforcement:
 
 class TestRegisterUnaffected:
     @pytest.mark.asyncio
-    async def test_register_still_issues_a_session_for_a_brand_new_unverified_account(self) -> None:
-        """register()'s own immediate session issuance is a deliberate,
-        separate code path from login() (EP-21.2's activation-funnel
-        decision) — this EP does not touch it."""
+    async def test_register_no_longer_issues_a_session(self) -> None:
+        """Superseded by EP-24.6.1: register()'s immediate session issuance
+        (the EP-21.2 activation-funnel exception this test used to pin) was
+        found to be the production bug reported in EP-24.6.1 Issue 2 — a
+        first-time password registrant reaching the dashboard before
+        verifying their email. `register()` now mirrors `login()`'s own
+        "no session until verified" contract; only a *subsequent* `login()`
+        call, made after the email is clicked, ever issues one. See
+        `test_ep24_6_1_hotfix.py` for the full regression coverage of the
+        new behavior."""
         svc = _make_svc()
         svc._org_repo = AsyncMock()
+        svc._org_repo.slug_exists.return_value = False
         svc._verify_repo = AsyncMock()
         svc._email = AsyncMock()
         svc._user_repo.email_exists.return_value = False
-        svc._org_repo.slug_exists.return_value = False
 
         pair, user, org = await svc.register(
             email="brandnew@example.com", password=_TEST_PASSWORD, display_name="Brand New"
         )
 
-        assert isinstance(pair, TokenPair)
+        assert pair is None
         assert user.email_verified is False
         assert org is not None
+        svc._session_repo.create.assert_not_awaited()
 
 
 class TestGoogleLoginUnaffected:

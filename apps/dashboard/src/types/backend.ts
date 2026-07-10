@@ -28,6 +28,9 @@ export interface BackendUserPublic {
   google_linked: boolean;
   google_email: string | null;
   last_login_provider: string | null;
+  // EP-24.6.1 — see stores/auth.ts's AuthUser.password_configured for the
+  // full explanation; the backend always sends this field.
+  password_configured: boolean;
 }
 
 export interface BackendLoginResponse {

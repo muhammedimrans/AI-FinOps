@@ -1,7 +1,8 @@
-"""Authentication API — EP-05 / F-017, extended by EP-21.2, EP-24.4.
+"""Authentication API — EP-05 / F-017, extended by EP-21.2, EP-24.4, EP-24.6.1.
 
 Endpoints:
-  POST /v1/auth/register             — create a User + personal workspace, issue a session
+  POST /v1/auth/register             — create a User + personal workspace (EP-24.6.1: no
+                                        session — verify the email, then log in)
   POST /v1/auth/login                — issue access + refresh tokens
   POST /v1/auth/logout               — revoke the current session
   POST /v1/auth/refresh              — rotate refresh token, issue new access token
@@ -17,6 +18,7 @@ Endpoints:
   POST /v1/auth/google/link          — begin linking Google to the authenticated account (EP-24.5)
   GET  /v1/auth/google/callback      — Google's OAuth redirect target (EP-24.5)
   POST /v1/auth/google/unlink        — unlink Google from the authenticated account (EP-24.5)
+  POST /v1/auth/set-password         — first password for a Google-only account (EP-24.6.1)
 
 Google OAuth (EP-24.5): Authorization Code + PKCE, reusing this same
 AuthService/session-issuance/cookie machinery — see CLAUDE.md's EP-24.5
@@ -64,6 +66,7 @@ from app.auth.exceptions import (
     InvalidCredentialsError,
     LastAuthMethodError,
     OwnerOfSharedWorkspaceError,
+    PasswordAlreadyConfiguredError,
     UsernameAlreadyTakenError,
 )
 from app.auth.exceptions import InvalidTokenError as AuthInvalidTokenError
@@ -85,6 +88,7 @@ from app.schemas.auth import (
     RegisterResponse,
     ResendVerificationRequest,
     ResetPasswordRequest,
+    SetPasswordRequest,
     TokenResponse,
     UpdatePreferencesRequest,
     UpdateProfileRequest,
@@ -144,6 +148,7 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
         google_linked=user.google_sub is not None,
         google_email=user.google_email,
         last_login_provider=user.last_login_provider,
+        password_configured=user.password_hash is not None,
     )
 
 
@@ -151,12 +156,18 @@ def _build_user_public(user: Any) -> UserPublic:  # noqa: ANN401
     "/register",
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create an account, personal workspace, and session",
+    summary="Create an account and personal workspace; verification required before login",
+    description=(
+        "EP-24.6.1: does NOT issue a session. Creates the User (email_verified=False) "
+        "and its personal workspace, sends a verification email, and returns them with "
+        "no token pair — `email_verification_required` is always true for this path. "
+        "The account can only obtain a session afterwards via POST /v1/auth/login, "
+        "which itself refuses to issue one until the email is verified."
+    ),
 )
 async def register(
     body: RegisterRequest,
     request: Request,
-    response: Response,
     db: DbDep,
     settings: SettingsDep,
 ) -> RegisterResponse:
@@ -165,7 +176,7 @@ async def register(
     ua = request.headers.get("user-agent")
 
     try:
-        pair, user, workspace = await svc.register(
+        _pair, user, workspace = await svc.register(
             email=body.email,
             password=body.password,
             display_name=body.display_name,
@@ -178,12 +189,10 @@ async def register(
             detail="An account with this email already exists",
         ) from exc
 
-    set_session_cookies(response, pair, settings)
+    # No session cookies are set here (EP-24.6.1) — `_pair` is always None
+    # for this path; `register()`'s own docstring explains why.
     return RegisterResponse(
-        access_token=pair.access_token,
-        refresh_token=pair.refresh_token,
-        token_type="bearer",  # noqa: S106
-        expires_in=pair.expires_in,
+        email_verification_required=True,
         user=_build_user_public(user),
         workspace=WorkspacePublic(
             id=workspace.external_id,
@@ -384,6 +393,33 @@ async def change_password(
             detail="Current password is incorrect",
         ) from exc
     return MessageResponse(message="Password changed successfully")
+
+
+@router.post(
+    "/set-password",
+    response_model=UserPublic,
+    summary="Set the first password for a Google-only account (EP-24.6.1)",
+    description=(
+        "For an account with no password yet (`password_configured: false` on "
+        "UserPublic — i.e. registered via Google). Refuses with 409 if a password "
+        "is already set; use /change-password for that account instead."
+    ),
+)
+async def set_password(
+    body: SetPasswordRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> UserPublic:
+    svc = AuthService(db, settings)
+    try:
+        await svc.set_password(user=current_user, new_password=body.new_password)
+    except PasswordAlreadyConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A password is already set for this account — use change-password instead",
+        ) from exc
+    return _build_user_public(current_user)
 
 
 @router.delete(
@@ -748,6 +784,10 @@ def _build_dashboard_handoff_url(
             "status": user.status.value,
             "email_verified": user.email_verified,
             "onboarding_completed": user.onboarding_completed_at is not None,
+            # EP-24.6.1 — Issue 1: lets ProtectedRoute force a first-time
+            # Google user through /set-password before /onboarding, exactly
+            # like onboarding_completed already gates the wizard itself.
+            "password_configured": user.password_hash is not None,
         },
     }
     if workspace is not None:

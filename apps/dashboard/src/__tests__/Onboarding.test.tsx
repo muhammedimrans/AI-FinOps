@@ -40,6 +40,7 @@ const baseUser = {
   google_linked: false,
   google_email: null,
   last_login_provider: null,
+  password_configured: true,
 };
 
 function renderOnboarding() {

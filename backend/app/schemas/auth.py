@@ -98,6 +98,18 @@ class DeleteAccountRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class SetPasswordRequest(BaseModel):
+    """First password for a Google-only account (EP-24.6.1, Part/Issue 1).
+
+    No ``current_password`` field — unlike ``ChangePasswordRequest``, there
+    is nothing to prove knowledge of yet. The endpoint itself refuses
+    (409) if the account already has a password; this schema only
+    validates the new value's shape.
+    """
+
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 # ── Response schemas ──────────────────────────────────────────────────────────
 
 
@@ -131,6 +143,11 @@ class UserPublic(BaseModel):
     google_linked: bool
     google_email: str | None
     last_login_provider: str | None
+    # EP-24.6.1 — derived from `User.password_hash is not None`, never a new
+    # column: a Google-only account (no password ever set) reads False here
+    # until it completes the mandatory "Set Password" step; every
+    # password-registered account is True from the moment it's created.
+    password_configured: bool
 
     model_config = {"from_attributes": True}
 
@@ -161,9 +178,27 @@ class WorkspacePublic(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class RegisterResponse(TokenResponse):
-    """Token pair, the new user's profile, and their auto-created personal workspace."""
+class RegisterResponse(BaseModel):
+    """The new user's profile and their auto-created personal workspace.
 
+    EP-24.6.1 — deliberately does **not** extend `TokenResponse` any more.
+    `AuthService.register()` no longer issues a session for a brand-new
+    password-based account (it must verify its email and log in first,
+    exactly like a *second* login attempt already had to since EP-24.4.1)
+    — so there is no token pair to return here. `access_token`/
+    `refresh_token`/`token_type`/`expires_in` are kept as optional fields
+    (rather than removed outright) so this stays the same response shape
+    existing clients already parse; they are simply always `None` for the
+    password path. `email_verification_required` is the explicit signal a
+    frontend should key its "check your email" UI off, instead of
+    inferring it from the tokens being absent.
+    """
+
+    access_token: str | None = None
+    refresh_token: str | None = None
+    token_type: Literal["bearer"] | None = None
+    expires_in: int | None = None
+    email_verification_required: bool = True
     user: UserPublic
     workspace: WorkspacePublic
 

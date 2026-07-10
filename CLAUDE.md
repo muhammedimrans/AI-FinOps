@@ -1473,3 +1473,235 @@ The task's own instruction was "reuse the scheduler introduced in EP-23.4 as the
 1. **Close the two remaining known-limitation gaps** above (org-level token split, per-provider-per-day time series) — both are the same "add a SUM/GROUP BY column to an existing query" pattern every other gap in this EP used, not new architecture.
 2. **`/v1/analytics/*` consolidation or removal** — now that this EP confirmed it's genuinely orphaned (zero frontend call sites), a future EP could either delete it or migrate its 6 endpoints to be thin aliases of `/v1/dashboard/*`, removing the dual-system confusion this EP's own investigation had to work through.
 3. **A shared scheduler-status subscription** (see "Known limitations") if multiple simultaneously-open dashboard pages' independent 20-second polls ever become a measurable load concern — not the case at this product's current scale.
+
+---
+
+## 22. EP-24.2 — Budgets, Spend Alerts & Cost Monitoring
+
+**Status: complete.** Organizations can now define spending budgets — scoped to the whole organization, a project, a provider, or a model — with multiple independent alert thresholds, and have them evaluated automatically after every usage synchronization (scheduled or manual). No second analytics engine, no second scheduler, no second notification pipeline: this EP is a thin evaluation layer over EP-24.1's aggregation queries, EP-23.4's scheduler, and EP-19.3's alert dispatcher.
+
+### Why this is additive, not a rewrite of the existing budget mechanisms
+
+Two budget-adjacent mechanisms already existed before this EP and are both **left completely unchanged**:
+
+- **`Project.budget`** (EP-19.3, `app/models/project.py`) — a single nullable `Numeric` column, one budget per project, no thresholds beyond whatever `AlertRule` rows a user configured, no periods beyond "month to date."
+- **`app/api/v1/ingest.py`'s `_check_budget_alerts`** — a synchronous, per-ingest-event check that computes month-to-date spend via `UsageRecordRepository.get_project_month_to_date_total` and fires through the generic `RuleEngine`/`AlertRule` mechanism.
+
+Neither supports organization/provider/model scope, multiple independent thresholds, or non-monthly periods — which is exactly what this EP's spec asked for. Rather than warping either mechanism to fit, this EP introduces a new first-class `Budget` entity that is a **superset**, and evaluates it through the scheduler rather than per-ingest-event (batched, not per-request — see "Performance" below). The two old mechanisms keep working exactly as before; a project can have both a legacy `.budget` value (still checked at ingest time) and one or more `Budget` rows (evaluated after sync) with no conflict, since they write to entirely different tables and fire through the same `AlertService.fire()` with different `alert_type`/`scope` values, which naturally dedup independently.
+
+### Architecture
+
+```
+UsageSyncScheduler (EP-23.4)              Manual "Sync Now" / "Sync All"
+  _run_job() — after sync_all_connections()   (app/api/v1/provider_connections.py)
+        │                                             │
+        │  event_bus is not None?                     │  always
+        ▼                                             ▼
+        └──────────────► BudgetEvaluationService.evaluate_and_alert(org_id) ◄──────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    │                                 │
+                    ▼                                 ▼
+          app/budgets/period.py            UsageCostRecordRepository
+          resolve_period_window()          .get_totals_by_org(org, start, end,
+          (deterministic, no DB)             project_id=…, provider=…, model=…)
+                    │                          — the EXACT same dimension-filtered
+                    │                            aggregate query EP-24.1's Analytics/
+                    │                            Overview pages already call. No
+                    │                            second aggregation path.
+                    ▼
+          BudgetEvaluation (current_spend, remaining, percent_used,
+                             projected_period_spend, remaining_daily_allowance,
+                             status, thresholds_crossed)
+                    │
+                    ▼ (one AlertService.fire() call per crossed threshold)
+          app/alerts/dispatcher.py — AlertService.fire()  (EP-19.3, unchanged)
+                    │
+                    ├─► dedup via app/alerts/dedup.py's NEW budget_threshold_scope()
+                    │     (budget_id, period_key, threshold_pct) — independent per
+                    │     threshold, resets every new period
+                    │
+                    └─► publishes to EventBus (EP-19.1) → dashboard bell/notification
+                          center picks it up exactly like any other alert
+```
+
+Read-only paths (`GET /v1/budgets`, `GET /v1/budgets/{id}/status`, `GET /v1/dashboard/budget-summary`) construct `BudgetEvaluationService(session)` with **no** `alert_service` — calling `evaluate_and_alert()` on that instance raises `RuntimeError` rather than silently doing nothing, so a future call site can never accidentally wire a GET request to fire alerts as a side effect. Only the scheduler's post-sync hook and the manual-sync endpoints construct it with a real `AlertService`.
+
+### Database — one new table, no changes to existing tables
+
+`budgets` (migration `f1a2b3c4d5e6`, chained off EP-23.4's `e8f1a2b3c4d5`):
+
+| Column | Purpose |
+|---|---|
+| `organization_id` | FK, CASCADE |
+| `name` | Display name |
+| `scope_type` | `organization` \| `project` \| `provider` \| `model` (new `budget_scope_type` enum) |
+| `scope_project_id` | FK to `projects.id`, populated only when `scope_type=project` |
+| `scope_provider` | Free-text, populated only when `scope_type=provider` — **not an FK**, because `provider` has no catalog table anywhere in this schema (it's a free-text column on `UsageCostRecord` itself, matched via `UsageCostRecordRepository`'s existing `_dimension_filters`) |
+| `scope_model` | Free-text, same reasoning, populated only when `scope_type=model` |
+| `amount` / `currency` | The ceiling, in the given currency |
+| `period` | `daily` \| `weekly` \| `monthly` \| `yearly` \| `custom` (new `budget_period` enum) |
+| `custom_period_start` / `custom_period_end` | Only used when `period=custom` |
+| `threshold_percentages` | JSONB list, e.g. `[50, 75, 90, 100]` — default `[50, 75, 90, 100]` |
+| `enabled` | Soft on/off switch, independent of soft-delete |
+| `created_by` | FK to `users.id`, SET NULL |
+
+Exactly one of `scope_project_id`/`scope_provider`/`scope_model` is populated per row, matching `scope_type` — enforced at the API/service layer (`app/api/v1/budgets.py`'s create validation), not a DB `CHECK` constraint, to avoid a per-dialect quirk for a three-way mutual exclusion that's cheap to validate in Python. No existing table gained or lost a column.
+
+### `app/budgets/period.py` — deterministic period-window math
+
+`resolve_period_window(budget, today) -> PeriodWindow{start, end, days_elapsed, days_remaining, total_days}` — pure function, no database access, same `(budget, today)` input always produces the same output:
+
+- **Daily**: `[today, today]`.
+- **Weekly**: Monday-start ISO week.
+- **Monthly**: first-to-last day of `today`'s calendar month (leap-year-correct via `calendar.monthrange`).
+- **Yearly**: Jan 1 – Dec 31 of `today`'s year.
+- **Custom**: the budget's own `custom_period_start`/`custom_period_end`; if either is unset, degrades to a single-day window at `today` rather than raising, so a misconfigured custom budget never crashes an entire organization's evaluation pass.
+- `today` before the window start → `days_elapsed=0`; `today` after the window end → `days_elapsed=total_days`, `days_remaining=0` (the "period already ended" case, which still evaluates correctly rather than dividing by a stale range).
+
+`period_key(budget, window)` — a short string identifying *which occurrence* of a recurring period this is (e.g. `"2026-06-01"` for a June monthly budget), used to qualify the alert dedup key below so a new month's spend never inherits the prior month's still-open alert.
+
+### Alert dedup — `app/alerts/dedup.py`'s new `budget_threshold_scope`
+
+The pre-existing `budget_scope(project_id)` (EP-19.3, used only by `app/api/v1/ingest.py`'s legacy check) is untouched. A new, additive function:
+
+```python
+def budget_threshold_scope(budget_id: uuid.UUID, period_key: str, threshold_pct: float) -> str:
+    return f"budget:{budget_id}:{period_key}:{threshold_pct}"
+```
+
+Qualified by **(budget, period, threshold)**, not just budget — so:
+- Each configured threshold (50%/75%/90%/100%/110%/…) gets its own independent OPEN → resolved lifecycle. Crossing 50% and later 90% in the same period produces two distinct alerts, not one alert that silently changes its message.
+- A new period (next month, next week, …) is never suppressed by a still-open alert from a prior period — `period_key` changes every period, so the dedup key changes too, and the first threshold crossed in a new period always starts a fresh `Alert` row rather than reopening an old, already-resolved one.
+
+This reuses `AlertService.fire()`'s existing dedup mechanism (`AlertRepository.find_open_by_dedup_key`) completely unmodified — the only new code is the scope string itself.
+
+### Alert evaluation flow (sequence)
+
+```
+UsageSyncScheduler._run_job()                 BudgetEvaluationService        AlertService (EP-19.3)
+        │  sync_all_connections() completes            │                             │
+        │  event_bus is not None                        │                             │
+        ├───────────────────────────────────────────────►  evaluate_and_alert(org_id) │
+        │                                                │  list_enabled_for_org(org)  │
+        │                                                │  for each budget:           │
+        │                                                │    resolve_period_window()  │
+        │                                                │    get_totals_by_org(…)     │  (EP-24.1's query, reused)
+        │                                                │    compute status/forecast  │
+        │                                                │    thresholds_crossed = […] │
+        │                                                │    for each crossed thresh: │
+        │                                                │      budget_threshold_scope()
+        │                                                ├─────────────────────────────►  fire(alert_type, severity,
+        │                                                │                             │       scope, metadata)
+        │                                                │                             │  dedup → fold into existing
+        │                                                │                             │  OPEN alert, or create new
+        │                                                │                             │  publish to EventBus
+        │◄───────────────────────── list[BudgetEvaluation] (also used for job metrics) │
+```
+
+A failure evaluating one budget, or firing one alert, is caught and logged (`structlog` warning, no raw exception text) and never aborts the rest of the pass — one misconfigured budget must never block every other budget in the organization, and a budget-evaluation failure must never turn a *successful* usage sync into a reported job failure.
+
+### Severity / alert-type mapping
+
+| Threshold % | `AlertType` | `AlertSeverity` |
+|---|---|---|
+| < 75 | `BUDGET_THRESHOLD` | `INFO` |
+| 75–89.9 | `BUDGET_THRESHOLD` | `LOW` |
+| 90–99.9 | `BUDGET_THRESHOLD` | `MEDIUM` |
+| 100–109.9 | `BUDGET_EXCEEDED` | `HIGH` |
+| ≥ 110 | `BUDGET_EXCEEDED` | `CRITICAL` |
+
+Both `AlertType` values already existed in EP-19.3's enum (`app/models/alert.py`) — this EP is the first to actually fire `BUDGET_THRESHOLD`/`BUDGET_EXCEEDED` for a first-class `Budget` (the legacy ingest-time check fires the same two types independently, for `Project.budget`).
+
+### Status banding (dashboard display, independent of alert firing)
+
+| `percent_used` | `BudgetStatusSummary.status` |
+|---|---|
+| < 75 | `healthy` |
+| 75–89.9 | `warning` |
+| 90–99.9 | `critical` |
+| ≥ 100 | `exceeded` |
+
+This is a **display-only** derived value (what color the progress bar and badge render), computed independently of which thresholds a budget happens to have configured — a budget with `threshold_percentages=[100]` (alert only at 100%) still shows a `warning`/`critical` status band on the dashboard well before that one configured alert fires, so the UI is never surprising relative to actual spend.
+
+### Forecast algorithm — deterministic, no machine learning
+
+Per the ticket's explicit instruction, `app/budgets/service.py`'s `_forecast()`:
+
+```
+projected_period_spend    = current_spend / days_elapsed * total_days
+remaining_daily_allowance = (amount - current_spend) / days_remaining
+```
+
+- **`projected_period_spend`**: linear extrapolation of the run-rate observed so far this period. `days_elapsed <= 0` (period hasn't started yet, per the period-window edge case above) projects the current spend unchanged (0, in practice) rather than dividing by zero.
+- **`remaining_daily_allowance`**: how much more can be spent per day for the rest of the period without exceeding the budget. `days_remaining <= 0` (period already over) returns `0` rather than dividing by zero.
+
+Both numbers are recomputed fresh on every evaluation (no stored forecast state) — cheap enough (two divisions over numbers already fetched) that there's no reason to cache them, and recomputing guarantees they can never drift from the underlying spend data.
+
+### API — `/v1/budgets`, extending `/v1/dashboard`
+
+New router `app/api/v1/budgets.py`, registered in `app/api/router.py`. Follows the exact `/v1/alerts` convention (EP-19.3) — `organization_id` as a **query** parameter (not a path parameter, unlike `/v1/organizations/{id}/projects` etc.), `RequireQueryPermission`, `OrgScopedMembership` implicitly via that dependency:
+
+| Method | Path | Permission | Purpose |
+|---|---|---|---|
+| GET | `/v1/budgets` | `NOTIFICATION_READ` | List every budget for an org, response is CRUD data only (no spend) |
+| POST | `/v1/budgets` | `NOTIFICATION_WRITE` | Create |
+| PATCH | `/v1/budgets/{id}` | `NOTIFICATION_WRITE` | Partial update (`exclude_unset`, matching `PATCH /v1/organizations/{id}` and `PATCH /v1/auth/me`'s established pattern) |
+| DELETE | `/v1/budgets/{id}` | `NOTIFICATION_WRITE` | Soft-delete |
+| GET | `/v1/budgets/{id}/status` | `NOTIFICATION_READ` | One budget's derived spend/forecast/status (read-only, no alert firing) |
+| GET | `/v1/dashboard/budget-summary` | *(`OrgScopedMembership`, matching every other `/v1/dashboard/*` endpoint)* | Every enabled budget's status + org-wide Budget Remaining / Active Alerts / Critical Alerts / Projected EOM Spend |
+
+**Permission choice**: `NOTIFICATION_READ`/`NOTIFICATION_WRITE` (not a new permission) — reused because budgets are, functionally, an org-configurable alerting concern exactly like `AlertRule`s already are (`POST /v1/alerts/rules` already uses `NOTIFICATION_WRITE`, and MEMBER already has write access there). Confirmed via `app/auth/rbac.py`: MEMBER has `NOTIFICATION_WRITE`, VIEWER only has `NOTIFICATION_READ` — so VIEWER can see budgets and their status but cannot create/edit/delete them, matching the spec's implicit expectation that budget configuration is a team-management action, not something every read-only viewer should be able to change.
+
+**`GET /v1/dashboard/budget-summary`**'s "Projected End-of-Month Spend" figure is **not** tied to any specific configured `Budget` row — an organization might have zero budgets configured and still want to see this number. It's computed by constructing an in-memory, **never-persisted** "virtual" organization-scoped monthly `Budget` object and running it through the exact same `BudgetEvaluationService.evaluate_budget()` used for real budgets — reusing the identical forecast formula and aggregate query rather than writing a second, parallel projection calculation.
+
+### Performance
+
+- **Evaluation is batched, not per-request.** Unlike the legacy `_check_budget_alerts` (which runs on every single `POST /v1/ingest/usage` call), `BudgetEvaluationService.evaluate_and_alert()` runs once per organization per sync (scheduled: once per tick that org is due, per EP-23.4's own cadence; manual: once per "Sync Now"/"Sync All" click) — spend does not change between individual ingested events fast enough to justify per-event evaluation, and batching means an organization with 50 provider connections still only evaluates its budgets once per sync, not 50 times.
+- **No duplicate aggregation.** Every `current_spend` figure comes from one call to `UsageCostRecordRepository.get_totals_by_org()` per budget per evaluation — the exact same method, same indexes (`(org, usage_date)` / `(org, provider, usage_date)` / `(org, project_id, usage_date)` / `(org, model, usage_date)`), EP-24.1's Analytics/Overview pages already rely on. No new index was needed for this EP.
+- **Re-evaluating a budget multiple times in the same period is safe, not just harmless.** Because `AlertService.fire()`'s dedup keys off `(organization, alert_type, dedup_key)` while the alert is `OPEN`, re-crossing an already-crossed threshold on a later sync folds into the same `Alert` row (`occurrence_count` increments, `last_occurred_at` updates) rather than creating a duplicate — this is what makes "evaluate budgets multiple times" a non-issue rather than something the scheduler has to guard against.
+- **The scheduler's post-sync hook runs inside the same transaction as the sync it follows** (`async with self._session_factory() as session, session.begin(): … await self._evaluate_budgets(session, org_id, event_bus, logger)`) — one connection, one commit, no extra round-trip to acquire a session.
+
+### Frontend
+
+- **`services/api.ts`** — `BudgetRecord`, `BudgetStatusSummary`, `BudgetSummaryResponse` types + `listBudgets`/`createBudget`/`updateBudget`/`deleteBudget`/`getBudgetStatus`/`getBudgetSummary` functions, mirroring the backend schemas exactly (`amount`/`current_spend`/etc. as strings, matching the existing "Decimal serialized as string" convention EP-23.3 established).
+- **`hooks/useBudgets.ts`** — `useBudgets()` (list), `useBudgetSummary()` (org-wide summary, polled every 60s so a background sync's evaluation shows up without a manual refresh — same polling-fallback convention every other dashboard hook already uses), `useBudgetMutations()` (create/update/delete, each invalidating both the budgets list and the summary query).
+- **`components/BudgetBar.tsx`** — extended (not replaced) with an optional `status?: "healthy"|"warning"|"critical"|"exceeded"` prop. When supplied, it drives the bar's 3-color palette (healthy→success, warning/critical→warning, exceeded→danger) instead of the pre-existing pct-only 3-tier heuristic, so a caller with a real server-derived `Budget` status never visually disagrees with what the backend computed. Every pre-existing call site (`Projects.tsx`) is unaffected — the prop is optional and the pct-only fallback is byte-identical to before.
+- **`features/Budgets.tsx`** (new page, `/dashboard/budgets`) — summary KPI row (Total Budgeted / Total Spent / Projected EOM Spend / Active Alerts), an inline create/edit form (`BudgetEditorForm` — scope/period/amount/currency/threshold-list inputs, project dropdown sourced from the existing `listProjectsCrud`, provider dropdown sourced from the existing `CONNECTABLE_PROVIDERS` catalog — no new provider list), and a card grid (`BudgetCard`) showing each budget's status badge, progress bar, remaining amount, forecasted end-of-period spend, and days/daily-allowance remaining, with edit/delete actions (delete gated behind the existing `ConfirmDialog`).
+- **`features/Alerts.tsx`** (new page, `/dashboard/alerts`, "Alert Center") — the list/table UI EP-19.3 documented as not yet built (`useAlertsHistory`/`useAlertActions` existed with no consuming list view). Severity + status filter dropdowns and free-text search (all server-side, via the existing `GET /v1/alerts` query params), per-alert lifecycle actions (Acknowledge/Resolve/Dismiss/Reopen — the exact same four mutations `useAlertActions()` already exposed), and a scope line per alert (project/provider/model, read from `Alert.metadata`, which `BudgetEvaluationService`'s `_fire_for_evaluation` populates with `budget_name`/`scope_type`/`threshold_pct`/`percent_used`/`current_spend`/`amount`/`currency`/`period_start`/`period_end`).
+- **`features/Overview.tsx`** — 4 new KPI cards (Budget Remaining, Active Alerts, Critical Alerts, Projected EOM Spend) appended after the existing 8-card EP-24.1 grid, sourced from `useBudgetSummary()` — no change to the existing 8 cards.
+- **Navigation** — `lib/navigation.ts` gained `Budgets` and `Alert Center` entries in the existing "Analytics" nav group; `App.tsx` gained the two lazy-loaded routes, following the exact `lazy(() => import(...))` + `<Page>` pattern every other route already uses.
+
+The pre-existing bell-dropdown notification center (`layouts/Header.tsx`) and `useAlerts()` (client-derived + live-merged feed) are **unchanged** — the new Alert Center page is the persisted-history/search surface `useAlertsHistory`'s own doc comment already described as the intended future consumer, not a replacement for the bell dropdown's instant feed.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep24_2_budgets.py`, 54 new tests, fully hermetic — no real database, matching every prior EP's test convention):
+  - `resolve_period_window`/`period_key` — daily/weekly/monthly/yearly/custom windows, leap-year-correct month boundaries, before-period-start and after-period-end edge cases, period-key stability within a period and change across periods.
+  - `budget_threshold_scope` — differs by threshold, differs by period, deterministic for identical inputs.
+  - `BudgetEvaluationService.evaluate_budget` — currency-row matching (including the no-matching-currency-row = zero-spend case), scope-filter pass-through for project/provider/model budgets, forecast linear-extrapolation math (including the zero-days-elapsed and zero-days-remaining guards), status banding across all four tiers, threshold-crossing detection (including "no thresholds crossed").
+  - `evaluate_and_alert` — raises without an `alert_service`; fires exactly one alert per crossed threshold; a ≥100% threshold fires `BUDGET_EXCEEDED`/`HIGH`; no crossed thresholds fires nothing; re-evaluating the same crossed threshold twice produces the same dedup-relevant scope both times; one budget's `fire()` failure never aborts evaluation of the next budget.
+  - `BudgetRepository` — `list_enabled_for_org` filters, `get_for_org` org-scoping.
+  - API — `GET/POST/PATCH/DELETE /v1/budgets` (VIEWER can read but not write/delete — 403; MEMBER can create/update/delete; 404 for an unknown budget; 422 for a `project` scope missing `scope_project_id`, and for a non-positive `amount`), `GET /v1/budgets/{id}/status` (derived status matches the evaluation math), `GET /v1/dashboard/budget-summary` (alert counts, per-budget summaries, `projected_eom_spend` present), unauthenticated 401/403 on every endpoint.
+  - `UsageSyncScheduler` — `_evaluate_budgets` is invoked exactly once after a successful `_run_job()` when an `event_bus` is configured; skipped entirely when it is not (confirming the pre-existing, event-bus-less test suite from EP-23.4 continues to exercise the scheduler without ever touching budget evaluation); a budget-evaluation failure does not raise out of `_evaluate_budgets` itself.
+  - Full backend suite (all EPs combined): **1697 passed** (1643 + 54), ruff/black/mypy clean across `app/` and the new test file.
+- **Frontend** (`apps/dashboard`, 14 new tests across 2 files):
+  - `src/__tests__/Budgets.test.tsx` (6 tests) — empty state, card rendering with status/spend, summary KPI cards, create-via-inline-editor (asserts the exact `CreateBudgetRequest` payload), delete-with-confirm, the `exceeded` status badge for an over-budget summary.
+  - `src/__tests__/Alerts.test.tsx` (8 tests) — empty state, severity/status badge rendering, open/critical summary counts, all four lifecycle actions (acknowledge/resolve/dismiss/reopen) each asserted against the exact API call made, severity-filter query-param pass-through.
+  - `src/__tests__/Overview.test.tsx` — extended with a default `getBudgetSummary` mock (the new KPI row's hook mounts unconditionally on every render); no existing assertion changed.
+  - Full dashboard suite: **229 passed** (215 + 14), lint clean, typecheck clean (`tsc -b`), build clean (`vite build`).
+
+### Known limitations
+
+- **The legacy `Project.budget` / `_check_budget_alerts` ingest-time mechanism is not migrated into `Budget` rows.** A project that already had a `.budget` value set before this EP keeps being checked exactly as before (per-ingest-event, month-to-date only, via the generic `AlertRule` mechanism) *in addition to* whatever `Budget` rows a user separately configures scoped to that project. This is disclosed rather than silently merged — automatically migrating every existing `.budget` value into a first-class `Budget` row was considered and deliberately not done, since it would silently change an existing project's alerting behavior (different dedup key, different evaluation cadence, different threshold set) without the organization opting in.
+- **`GET /v1/dashboard/budget-summary`'s "Projected EOM Spend" only reflects the requested `currency`** — an organization spending in both USD and EUR sees a single-currency projection (whichever `currency` query param was passed, default `USD`), not a combined figure. This matches every other dashboard endpoint's existing "filter to one currency, never sum across currencies" convention (EP-10/EP-24.1) rather than a new limitation introduced here.
+- **No email/Slack/webhook delivery** — per the ticket's own instruction ("Initially implement dashboard notifications. Design the architecture so additional channels plug in later"), only the dashboard/bell notification channel is wired. `AlertService.fire()`'s `_publish()` (EP-19.3) already dispatches through a single `EventBus.publish()` call keyed by `EventType`; adding Email/Slack/Webhook delivery is a matter of adding new subscribers to that same event stream (or a new dispatch branch inside `_publish()`) — no change to `BudgetEvaluationService` or anything upstream of `AlertService.fire()` would be needed, which is the concrete sense in which "additional channels plug in later without changing the core budget evaluation logic" is satisfied by this EP's layering, not just asserted.
+- **Budget evaluation does not run on a schedule independent of usage sync.** An organization with `auto_sync_enabled=false` (manual-sync-only) only gets its budgets re-evaluated when a user clicks "Sync Now"/"Sync All" — there's no separate "evaluate budgets every N minutes regardless of sync" cron. This matches the spec's own framing ("evaluate spending using the existing background scheduler," i.e. piggyback on sync, not build a second scheduler) rather than being an oversight.
+- **`threshold_percentages` accepts any positive number, including values that don't obviously mean anything as a percentage** (e.g. `500`) — the API validates "non-empty list of positive numbers," not an upper bound, since a threshold above 100% (like the ticket's own `110%` example) is a legitimate "way over budget" alert tier, and there's no principled place to draw a maximum.
+- **No live, continuous browser test of the full create-budget → cross-a-threshold-via-real-usage → see-the-alert-in-the-Alert-Center journey** — same caveat as every prior EP in this document: verified in pieces (backend unit/API tests, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment or wait out a real sync cycle.
+
+### Future improvements
+
+1. **Migrate `Project.budget` into `Budget` rows** (opt-in, not automatic) — a one-time "convert my project budget to a first-class Budget" action per project would let the legacy ingest-time check eventually be retired in favor of exclusively scheduler-driven evaluation, closing the "two budget mechanisms coexist" gap named above deliberately rather than by default.
+2. **Additional notification channels** (Email, Slack, Webhook) — the architecture is ready (see "Known limitations"); this is purely new `EventBus` subscriber work, which EP-25 (transactional email, already in the §8 roadmap) is the natural first mover for.
+3. **A combined-currency Projected EOM Spend** on the Overview page, if an organization's real usage ever spans multiple currencies meaningfully — not exercised by any real account today.

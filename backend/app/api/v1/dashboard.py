@@ -31,8 +31,14 @@ import structlog
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import DbDep
+from app.api.v1.budgets import _to_status_summary as _budget_to_status_summary
 from app.auth.dependencies import OrgScopedMembership
+from app.budgets.service import BudgetEvaluationService
 from app.dashboard.service import DashboardService
+from app.models.alert import AlertSeverity, AlertStatus, AlertType
+from app.models.budget import Budget, BudgetPeriod, BudgetScopeType
+from app.repositories.alert_repository import AlertRepository
+from app.schemas.budgets import BudgetSummaryResponse
 from app.schemas.dashboard import (
     ActivityFailureItem,
     ActivityResponse,
@@ -641,4 +647,81 @@ async def get_activity(
         imports=[ActivityRunItem(**item) for item in data["imports"]],
         syncs=[ActivityRunItem(**item) for item in data["syncs"]],
         failures=[ActivityFailureItem(**item) for item in data["failures"]],
+    )
+
+
+# ── EP-24.2 Budget Summary ───────────────────────────────────────────────────
+
+
+@router.get(
+    "/budget-summary",
+    response_model=BudgetSummaryResponse,
+    summary="Budget status summary — for the Budgets page and the Overview KPI cards",
+    description=(
+        "Every enabled budget's current spend/remaining/forecast/status (EP-24.2), "
+        "plus the organization-wide 'Budget Remaining' / 'Active Alerts' / "
+        "'Critical Alerts' / 'Projected End-of-Month Spend' figures the Overview "
+        "page's KPI cards need. Read-only — never fires alerts (that only happens "
+        "via BudgetEvaluationService.evaluate_and_alert(), called after a usage "
+        "sync — see app/services/usage_sync_scheduler.py and "
+        "app/api/v1/provider_connections.py)."
+    ),
+)
+async def get_budget_summary(
+    db: DbDep,
+    _member: OrgScopedMembership,
+    organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
+    currency: Annotated[str, Query(description="Target currency")] = "USD",
+) -> BudgetSummaryResponse:
+    evaluator = BudgetEvaluationService(db)  # read-only — no alert_service
+    evaluations = await evaluator.evaluate_organization(organization_id)
+    summaries = [_budget_to_status_summary(e) for e in evaluations if e.budget.currency == currency]
+
+    total_budgeted = sum(
+        (e.budget.amount for e in evaluations if e.budget.currency == currency), Decimal(0)
+    )
+    total_spent = sum(
+        (e.current_spend for e in evaluations if e.budget.currency == currency), Decimal(0)
+    )
+    total_remaining = total_budgeted - total_spent
+
+    alert_repo = AlertRepository(db)
+    budget_alerts = []
+    for alert_type in (AlertType.BUDGET_THRESHOLD, AlertType.BUDGET_EXCEEDED):
+        budget_alerts.extend(
+            await alert_repo.list_for_org(
+                organization_id, status=AlertStatus.OPEN, alert_type=alert_type, limit=200
+            )
+        )
+    active_alert_count = len(budget_alerts)
+    critical_alert_count = sum(
+        1 for a in budget_alerts if a.severity in (AlertSeverity.HIGH, AlertSeverity.CRITICAL)
+    )
+
+    # Organization-wide monthly spend projection, independent of any
+    # configured Budget row — reuses the exact same evaluation machinery
+    # (resolve_period_window + UsageCostRecordRepository.get_totals_by_org
+    # via BudgetEvaluationService.evaluate_budget) against an in-memory,
+    # never-persisted "virtual" organization-scoped monthly budget. No
+    # second forecast formula, no second aggregation query.
+    virtual_budget = Budget(
+        organization_id=organization_id,
+        name="__organization_projection__",
+        scope_type=BudgetScopeType.ORGANIZATION,
+        amount=Decimal(1),
+        currency=currency,
+        period=BudgetPeriod.MONTHLY,
+        threshold_percentages=[100.0],
+    )
+    projection = await evaluator.evaluate_budget(virtual_budget)
+
+    return BudgetSummaryResponse(
+        budgets=summaries,
+        currency=currency,
+        total_budgeted=str(total_budgeted),
+        total_spent=str(total_spent),
+        total_remaining=str(total_remaining),
+        active_alert_count=active_alert_count,
+        critical_alert_count=critical_alert_count,
+        projected_eom_spend=str(projection.projected_period_spend),
     )

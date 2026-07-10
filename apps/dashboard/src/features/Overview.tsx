@@ -34,6 +34,10 @@ import {
   Upload,
   RotateCw,
   AlertTriangle,
+  Wallet,
+  AlertOctagon,
+  Bell,
+  TrendingUp as TrendingUpIcon,
 } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
@@ -50,6 +54,7 @@ import {
   useActivityFeed,
 } from "../hooks/useDashboard";
 import { useDashboardState, type DashboardSetupState } from "../hooks/useDashboardState";
+import { useBudgetSummary } from "../hooks/useBudgets";
 import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
 import {
   formatCost,
@@ -525,6 +530,7 @@ export default function Overview() {
   const providers = useProviders();
   const models = useModels();
   const activityFeed = useActivityFeed(8);
+  const budgetSummary = useBudgetSummary();
 
   const kpi = overview.data;
   const tsData = timeSeries.data?.data ?? [];
@@ -755,6 +761,56 @@ export default function Overview() {
             icon={Zap}
             gradient="purple"
             loading={overview.isLoading}
+          />
+        </motion.div>
+      </div>
+
+      {/* Budget & Alert Cards — EP-24.2 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
+          <MetricCard
+            label="Budget Remaining"
+            value={budgetSummary.data?.total_remaining ?? "0"}
+            type="currency"
+            currency={currency}
+            subtitle={`of ${budgetSummary.data?.total_budgeted ?? "0"} ${currency} budgeted`}
+            icon={Wallet}
+            gradient="teal"
+            loading={budgetSummary.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
+          <MetricCard
+            label="Active Alerts"
+            value={budgetSummary.data?.active_alert_count ?? 0}
+            type="number"
+            subtitle="open budget alerts"
+            icon={Bell}
+            gradient="blue"
+            loading={budgetSummary.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
+          <MetricCard
+            label="Critical Alerts"
+            value={budgetSummary.data?.critical_alert_count ?? 0}
+            type="number"
+            subtitle="need immediate attention"
+            icon={AlertOctagon}
+            gradient={(budgetSummary.data?.critical_alert_count ?? 0) > 0 ? "amber" : "teal"}
+            loading={budgetSummary.isLoading}
+          />
+        </motion.div>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
+          <MetricCard
+            label="Projected EOM Spend"
+            value={budgetSummary.data?.projected_eom_spend ?? "0"}
+            type="currency"
+            currency={currency}
+            subtitle="deterministic forecast"
+            icon={TrendingUpIcon}
+            gradient="purple"
+            loading={budgetSummary.isLoading}
           />
         </motion.div>
       </div>

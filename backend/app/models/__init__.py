@@ -31,6 +31,9 @@ from app.models.alert import (  # noqa: F401
     AlertType,
     SuppressionScope,
 )
+
+# EP-24.2 - Budgets (import after Organization, Project, User; FK dependency)
+from app.models.budget import Budget, BudgetPeriod, BudgetScopeType  # noqa: F401
 from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401
 from app.models.membership import Membership, MembershipRole  # noqa: F401
 

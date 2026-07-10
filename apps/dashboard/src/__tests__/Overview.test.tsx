@@ -47,6 +47,7 @@ vi.mock("../services/api", async (importOriginal) => {
     getModels: vi.fn(),
     getActivityFeed: vi.fn(),
     getRecentActivity: vi.fn(),
+    getBudgetSummary: vi.fn(),
   };
 });
 
@@ -103,6 +104,17 @@ function mockDashboardState() {
   // LiveActivityFeed's own useRecentActivity() hook — unrelated to EP-24.1's
   // useActivityFeed(), given a default so it doesn't warn about undefined data.
   mockedApi.getRecentActivity.mockResolvedValue({ events: [], total: 0, page: 1, page_size: 10 });
+  // EP-24.2 — useBudgetSummary() mounts unconditionally on every render.
+  mockedApi.getBudgetSummary.mockResolvedValue({
+    budgets: [],
+    currency: "USD",
+    total_budgeted: "0",
+    total_spent: "0",
+    total_remaining: "0",
+    active_alert_count: 0,
+    critical_alert_count: 0,
+    projected_eom_spend: "0",
+  });
 }
 
 async function renderOverview() {

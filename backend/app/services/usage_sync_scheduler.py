@@ -84,6 +84,8 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
+from app.alerts.dispatcher import AlertService
+from app.budgets.service import BudgetEvaluationService
 from app.models.usage_collection_run import CollectionRunStatus, CollectionTrigger
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.usage_collection_run_repository import UsageCollectionRunRepository
@@ -91,6 +93,8 @@ from app.services.provider_sync_service import ProviderSyncService
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.realtime.event_bus import EventBus
 
 log = structlog.get_logger(__name__)
 
@@ -231,6 +235,7 @@ class UsageSyncScheduler:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         redis: Any | None = None,  # noqa: ANN401 — redis.asyncio.Redis | None
+        event_bus: EventBus | None = None,
         tick_interval_seconds: int = DEFAULT_TICK_INTERVAL_SECONDS,
         max_concurrent_orgs: int = 5,
         job_history_limit: int = 200,
@@ -238,6 +243,13 @@ class UsageSyncScheduler:
     ) -> None:
         self._session_factory = session_factory
         self._redis = redis
+        # EP-24.2: reused to fire budget alerts right after a successful
+        # sync (see _run_job below) — the same EventBus AlertService.fire()
+        # already publishes through for every other alert type. None is a
+        # valid, tested configuration (e.g. a container built without
+        # real-time delivery wired up yet) — budget evaluation is simply
+        # skipped for that job rather than failing the sync itself.
+        self._event_bus = event_bus
         self._tick_interval_seconds = tick_interval_seconds
         self._semaphore = asyncio.Semaphore(max_concurrent_orgs)
         self._sync_service_factory = sync_service_factory or ProviderSyncService
@@ -425,6 +437,17 @@ class UsageSyncScheduler:
                         organization_id=organization_id,
                         triggered_by=CollectionTrigger.SCHEDULED,
                     )
+                    # EP-24.2: evaluate budgets in the same session/
+                    # transaction as the sync that just ran, right after —
+                    # "After each successful usage synchronization: Evaluate
+                    # budgets -> Generate alerts -> Persist notifications ->
+                    # Update dashboard." A sync with zero successful runs
+                    # still gets evaluated (spend may be unchanged, but a
+                    # newly-created budget or a threshold crossed by a prior
+                    # sync should still surface on the very next tick).
+                    event_bus = self._event_bus
+                    if event_bus is not None:
+                        await self._evaluate_budgets(session, organization_id, event_bus, logger)
                 job.connections_synced = sum(
                     1 for r in runs if r.status == CollectionRunStatus.COMPLETED
                 )
@@ -455,6 +478,28 @@ class UsageSyncScheduler:
                 async with self._lock:
                     self._running_org_ids.discard(organization_id)
                 await self._release_lock(organization_id)
+
+    async def _evaluate_budgets(
+        self,
+        session: AsyncSession,
+        organization_id: uuid.UUID,
+        event_bus: EventBus,
+        logger: structlog.typing.FilteringBoundLogger,
+    ) -> None:
+        """EP-24.2 post-sync hook. Reuses `BudgetEvaluationService` (which
+        itself reuses `UsageCostRecordRepository`'s existing aggregate
+        queries and `AlertService.fire()`'s existing dedup/publish
+        machinery) — this method adds no aggregation or alerting logic of
+        its own, only the "call it after a sync" wiring. A failure here
+        never fails the sync job itself — a budget misconfiguration must
+        not turn into a false "sync failed" for a completely unrelated
+        provider connection."""
+        try:
+            alert_service = AlertService(session, event_bus)
+            evaluator = BudgetEvaluationService(session, alert_service=alert_service)
+            await evaluator.evaluate_and_alert(organization_id)
+        except Exception:
+            logger.warning("scheduler_budget_evaluation_failed", exc_info=True)
 
     # ── Status / monitoring ────────────────────────────────────────────────────
 

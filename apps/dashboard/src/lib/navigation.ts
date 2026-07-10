@@ -13,6 +13,8 @@ import {
   ScrollText,
   Settings,
   LifeBuoy,
+  Wallet,
+  Bell,
   type LucideIcon,
 } from "lucide-react";
 
@@ -31,6 +33,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard/providers",    icon: Cpu,             label: "Providers",      group: "Analytics", keywords: "openai anthropic google azure" },
   { to: "/dashboard/models",       icon: Boxes,           label: "Models",         group: "Analytics", keywords: "gpt claude gemini" },
   { to: "/dashboard/projects",     icon: FolderOpen,      label: "Projects",       group: "Analytics", keywords: "budget team" },
+  { to: "/dashboard/budgets",      icon: Wallet,          label: "Budgets",        group: "Analytics", keywords: "spend alerts thresholds forecast" },
+  { to: "/dashboard/alerts",       icon: Bell,            label: "Alert Center",   group: "Analytics", keywords: "notifications severity history" },
   { to: "/dashboard/organization", icon: Building2,       label: "Organization",   group: "Analytics", keywords: "team members" },
   { to: "/dashboard/pricing",      icon: Receipt,         label: "Pricing",        group: "Analytics", keywords: "cost calculator catalog rates" },
   { to: "/users",                  icon: Users,           label: "Users",          group: "Admin" },

@@ -16,6 +16,8 @@ const Analytics    = lazy(() => import("./features/Analytics"));
 const Providers    = lazy(() => import("./features/Providers"));
 const Models       = lazy(() => import("./features/Models"));
 const Projects     = lazy(() => import("./features/Projects"));
+const Budgets      = lazy(() => import("./features/Budgets"));
+const Alerts       = lazy(() => import("./features/Alerts"));
 const Organization = lazy(() => import("./features/Organization"));
 const Settings     = lazy(() => import("./features/Settings"));
 const Support      = lazy(() => import("./features/Support"));
@@ -118,6 +120,8 @@ export default function App() {
           <Route path="providers"    element={<Page><Providers /></Page>} />
           <Route path="models"       element={<Page><Models /></Page>} />
           <Route path="projects"     element={<Page><Projects /></Page>} />
+          <Route path="budgets"      element={<Page><Budgets /></Page>} />
+          <Route path="alerts"       element={<Page><Alerts /></Page>} />
           <Route path="organization" element={<Page><Organization /></Page>} />
           <Route path="pricing"      element={<Page><Pricing /></Page>} />
         </Route>

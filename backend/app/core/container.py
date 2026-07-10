@@ -78,6 +78,7 @@ class AppContainer:
         usage_sync_scheduler = UsageSyncScheduler(
             session_factory,
             redis=redis,
+            event_bus=event_bus,  # EP-24.2: post-sync budget evaluation
             tick_interval_seconds=settings.scheduler_tick_interval_seconds,
         )
         if settings.scheduler_enabled:

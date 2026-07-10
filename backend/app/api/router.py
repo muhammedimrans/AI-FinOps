@@ -4,6 +4,7 @@ from app.api.v1 import (
     alerts,
     analytics,
     auth,
+    budgets,
     dashboard,
     health,
     ingest,
@@ -55,3 +56,6 @@ api_router.include_router(provider_connections.router, prefix="/v1")
 
 # EP-23 — Projects CRUD
 api_router.include_router(projects.router, prefix="/v1")
+
+# EP-24.2 — Budgets, Spend Alerts & Cost Monitoring
+api_router.include_router(budgets.router, prefix="/v1")

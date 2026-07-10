@@ -31,16 +31,21 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
+import structlog
 from fastapi import APIRouter, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import DbDep, SchedulerDep
+from app.alerts.dispatcher import AlertService
+from app.api.deps import DbDep, EventBusDep, SchedulerDep
 from app.auth.dependencies import RequirePermission
 from app.auth.rbac import Permission
+from app.budgets.service import BudgetEvaluationService
 from app.db.mixins import uuid7
 from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.provider_connection import ProviderConnection, ProviderType
 from app.models.usage_collection_run import UsageCollectionRun
+from app.realtime.event_bus import EventBus
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.provider_connection_repository import ProviderConnectionRepository
 from app.schemas.provider_connections import (
@@ -75,8 +80,29 @@ router = APIRouter(
     prefix="/organizations/{org_id}/provider-connections", tags=["provider-connections"]
 )
 
+log = structlog.get_logger(__name__)
+
 _credentials = ProviderCredentialService()
 _health = ProviderHealthService()
+
+
+async def _evaluate_budgets_after_sync(
+    db: AsyncSession, event_bus: EventBus, org_id: uuid.UUID
+) -> None:
+    """EP-24.2: the manual-sync counterpart to `UsageSyncScheduler`'s
+    post-sync budget-evaluation hook — same `BudgetEvaluationService`, same
+    `AlertService`, so "after each successful usage synchronization"
+    applies equally whether the sync was triggered by the background
+    scheduler or a user clicking Sync Now. A budget-evaluation failure
+    never fails the sync response itself."""
+    try:
+        alert_service = AlertService(db, event_bus)
+        evaluator = BudgetEvaluationService(db, alert_service=alert_service)
+        await evaluator.evaluate_and_alert(org_id)
+    except Exception:
+        log.warning(
+            "manual_sync_budget_evaluation_failed", organization_id=str(org_id), exc_info=True
+        )
 
 
 def _parse_provider_type(value: str) -> ProviderType:
@@ -359,6 +385,7 @@ async def sync_provider_connection(
     org_id: uuid.UUID,
     connection_id: uuid.UUID,
     db: DbDep,
+    event_bus: EventBusDep,
     _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_WRITE)],
 ) -> TriggerSyncResponse:
     repo = ProviderConnectionRepository(db)
@@ -367,6 +394,7 @@ async def sync_provider_connection(
     sync_service = ProviderSyncService(db)
     run = await sync_service.sync_connection(organization_id=org_id, connection=conn)
     sync_status = await sync_service.get_sync_status(organization_id=org_id, connection=conn)
+    await _evaluate_budgets_after_sync(db, event_bus, org_id)
 
     return TriggerSyncResponse(
         run=_to_run_response(run, conn),
@@ -387,11 +415,13 @@ async def sync_provider_connection(
 async def sync_all_provider_connections(
     org_id: uuid.UUID,
     db: DbDep,
+    event_bus: EventBusDep,
     _member: Annotated[Membership, RequirePermission(Permission.PROVIDER_WRITE)],
 ) -> SyncAllResponse:
     conn_repo = ProviderConnectionRepository(db)
     sync_service = ProviderSyncService(db)
     runs = await sync_service.sync_all_connections(organization_id=org_id)
+    await _evaluate_budgets_after_sync(db, event_bus, org_id)
 
     responses: list[SyncRunResponse] = []
     succeeded = 0

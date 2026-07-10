@@ -238,6 +238,17 @@ class OpenRouterProvider(AIProvider):
         cursor: str | None = None,
         limit: int = 100,
     ) -> UsagePage:
+        """OpenRouter's only usage-adjacent endpoint (``GET /api/v1/credits``)
+        returns a single account-wide lifetime total, not a paginated list
+        of per-request/per-model records — there is nothing to normalize
+        into dated, model-attributed ``NormalizedUsageEvent``s without
+        fabricating the breakdown this codebase's cost/analytics pipeline
+        assumes (one event = one identifiable model + timestamp). Rather
+        than synthesize fake per-model attribution from an aggregate
+        number, this returns an honest empty page; see CLAUDE.md's
+        EP-24.3 section for the full per-provider accounting. The sync
+        pipeline (checkpoint, retry, scheduler) still runs normally.
+        """
         from app.providers.models import UsagePage
 
         return UsagePage()

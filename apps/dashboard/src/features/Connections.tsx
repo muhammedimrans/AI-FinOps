@@ -47,7 +47,7 @@ import {
   type ProviderConnectionRecord,
   type SyncStatusResponse,
 } from "../services/api";
-import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, connectableLabel } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, connectableLabel, hasKnownUsageApi } from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
 import { useOrgStore } from "../stores/org";
@@ -378,7 +378,8 @@ function SyncStatusPanel({
         {lastSyncLabel && <span className="text-[11px] text-tx-muted">Last sync {lastSyncLabel}</span>}
         {data && !data.supports_usage_sync && (
           <span className="text-[11px] text-tx-muted">
-            Usage synchronization isn't available for this provider yet.
+            This provider has no bulk usage-history API — sync runs normally (checkpoint, retry,
+            scheduler) but will import 0 records until one exists.
           </span>
         )}
 
@@ -393,7 +394,7 @@ function SyncStatusPanel({
           </button>
           <button
             onClick={() => sync.mutate()}
-            disabled={sync.isPending || (data ? !data.supports_usage_sync : false)}
+            disabled={sync.isPending}
             className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-60"
           >
             {sync.isPending ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
@@ -699,6 +700,23 @@ function ConnectionRow({
           <HealthBadge status={connection.health_status} />
           <span className={cn("badge text-[10px]", connection.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
             {connection.is_active ? "Active" : "Inactive"}
+          </span>
+          {/* EP-24.3 — informational capability badge, mirrors the backend's
+              _KNOWN_USAGE_API_PROVIDERS list; never gates any action. */}
+          <span
+            className={cn(
+              "badge text-[10px]",
+              hasKnownUsageApi(connection.provider_type)
+                ? "bg-app-muted text-tx-secondary"
+                : "bg-app-muted text-tx-muted",
+            )}
+            title={
+              hasKnownUsageApi(connection.provider_type)
+                ? "This provider has a bulk usage-history API — syncs import real usage records."
+                : "This provider has no bulk usage-history API — syncs run normally but import 0 records."
+            }
+          >
+            {hasKnownUsageApi(connection.provider_type) ? "Usage API" : "No usage API"}
           </span>
 
           {editing ? (

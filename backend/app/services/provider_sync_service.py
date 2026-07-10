@@ -86,11 +86,19 @@ log = structlog.get_logger(__name__)
 # one request. Subsequent runs are incremental from the checkpoint.
 DEFAULT_LOOKBACK_DAYS = 30
 
-# Providers with a real (non-stub) get_usage() implementation as of this EP
-# — see CLAUDE.md §13's adapter table. Syncing any other provider type
-# returns an honest zero-events COMPLETED run rather than an error, matching
-# this codebase's "no adapter yet" precedent (app.api.v1.providers).
-_PRODUCTION_USAGE_PROVIDERS = frozenset({"openai", "anthropic"})
+# EP-24.3: every provider now goes through the exact same real collection
+# pipeline below — there is no longer a skip/shortcut for "unsupported"
+# providers (see the removed `_record_unsupported_provider_run` in git
+# history and CLAUDE.md's EP-24.3 section for why). This set is purely
+# informational now: it names the providers whose adapters have a bulk
+# usage-history API to call, for `SyncStatus.supports_usage_sync`'s
+# UI-messaging purpose only. A provider outside this set still syncs for
+# real on every scheduled/manual trigger — its adapter's `get_usage()`
+# just honestly returns zero events every time, because no such API
+# exists for it to call (documented per-adapter in
+# app/providers/adapters/*.py). This is never used to gate whether
+# `UsageCollectionService.collect()` runs.
+_KNOWN_USAGE_API_PROVIDERS = frozenset({"openai", "anthropic"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,14 +176,6 @@ class ProviderSyncService:
             connection_id=str(connection.id),
             provider=provider,
         )
-
-        if provider not in _PRODUCTION_USAGE_PROVIDERS:
-            logger.info("usage_sync_skipped_unsupported_provider")
-            return await self._record_unsupported_provider_run(
-                organization_id=organization_id,
-                connection=connection,
-                triggered_by=triggered_by,
-            )
 
         checkpoint_repo = UsageCollectionCheckpointRepository(self._session)
         checkpoint = await checkpoint_repo.get_by_org_provider(
@@ -315,7 +315,7 @@ class ProviderSyncService:
                 }
                 for row in cost_totals
             ],
-            supports_usage_sync=connection.provider_type.value in _PRODUCTION_USAGE_PROVIDERS,
+            supports_usage_sync=connection.provider_type.value in _KNOWN_USAGE_API_PROVIDERS,
         )
 
     # ── Private helpers ────────────────────────────────────────────────────────
@@ -333,36 +333,3 @@ class ProviderSyncService:
         if checkpoint is not None and checkpoint.last_collected_at < end_date:
             return max(checkpoint.last_collected_at, default_start)
         return default_start
-
-    async def _record_unsupported_provider_run(
-        self,
-        *,
-        organization_id: UUID,
-        connection: ProviderConnection,
-        triggered_by: CollectionTrigger,
-    ) -> UsageCollectionRun:
-        """For providers without a real get_usage() yet (5 of 7 — see
-        CLAUDE.md §13's adapter table), record an honest zero-events
-        COMPLETED run rather than fabricating activity or raising an error
-        the user can't act on."""
-        run_repo = UsageCollectionRunRepository(self._session)
-        now = datetime.now(UTC)
-        run = UsageCollectionRun()
-        run.organization_id = organization_id
-        run.provider_connection_id = connection.id
-        run.provider = connection.provider_type.value
-        run.status = CollectionRunStatus.COMPLETED
-        run.triggered_by = triggered_by
-        run.started_at = now
-        run.completed_at = now
-        run.collection_start = now
-        run.collection_end = now
-        run.events_collected = 0
-        run.events_failed = 0
-        run.pages_fetched = 0
-        run.error_message = (
-            f"{connection.provider_type.value} does not have usage synchronization "
-            "support yet — no data was imported."
-        )
-        run.collection_config = {"reason": "provider_not_yet_supported_for_usage_sync"}
-        return await run_repo.create(run)

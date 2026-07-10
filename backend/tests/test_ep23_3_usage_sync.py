@@ -97,39 +97,50 @@ def _make_run(
 
 class TestSyncConnection:
     @pytest.mark.asyncio
-    async def test_unsupported_provider_records_honest_zero_events_run(self) -> None:
-        """Ollama has no real get_usage() yet — sync should record a
-        COMPLETED, zero-events run with an explanatory message, never fake
-        activity and never error."""
+    async def test_provider_without_usage_api_still_goes_through_real_pipeline(self) -> None:
+        """EP-24.3: a provider whose adapter has no bulk usage-history API
+        (e.g. Ollama) no longer takes a skip/shortcut — it goes through the
+        exact same `UsageCollectionService.collect()` call every other
+        provider does. The adapter's own `get_usage()` is what honestly
+        returns zero events; `sync_connection()` itself no longer special-
+        cases any provider type."""
         conn = make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OLLAMA)
         session = _make_session()
         mock_credentials = MagicMock()
-        mock_collection = AsyncMock()
 
-        created_run = _make_run(
+        completed_run = _make_run(
             status=CollectionRunStatus.COMPLETED,
             provider="ollama",
             events_collected=0,
             connection_id=conn.id,
         )
-        mock_run_repo = AsyncMock()
-        mock_run_repo.create.return_value = created_run
+        mock_collection = AsyncMock()
+        mock_collection.collect.return_value = completed_run
 
-        with patch(
-            "app.services.provider_sync_service.UsageCollectionRunRepository",
-            return_value=mock_run_repo,
+        mock_checkpoint_repo = AsyncMock()
+        mock_checkpoint_repo.get_by_org_provider.return_value = None
+
+        with (
+            patch(
+                "app.services.provider_sync_service.UsageCollectionCheckpointRepository",
+                return_value=mock_checkpoint_repo,
+            ),
+            patch(
+                "app.services.provider_sync_service.build_provider_config", return_value=MagicMock()
+            ) as build_config_mock,
         ):
             service = ProviderSyncService(
                 session, credentials=mock_credentials, collection_service=mock_collection
             )
             run = await service.sync_connection(organization_id=_ORG_ID, connection=conn)
 
+        assert run is completed_run
         assert run.status == CollectionRunStatus.COMPLETED
         assert run.events_collected == 0
-        mock_run_repo.create.assert_awaited_once()
-        # Never even attempts to decrypt or call collect() for an unsupported provider.
-        mock_credentials.decrypt.assert_not_called()
-        mock_collection.collect.assert_not_awaited()
+        build_config_mock.assert_called_once()
+        mock_collection.collect.assert_awaited_once()
+        call_kwargs = mock_collection.collect.call_args.kwargs
+        assert call_kwargs["provider"] == "ollama"
 
     @pytest.mark.asyncio
     async def test_supported_provider_success_calls_collect_with_decrypted_config(self) -> None:
@@ -184,12 +195,19 @@ class TestSyncConnection:
         session = _make_session()
         mock_credentials = MagicMock()
         mock_collection = AsyncMock()
-        mock_run_repo = AsyncMock()
-        mock_run_repo.create.return_value = _make_run(provider="ollama", connection_id=conn.id)
+        mock_collection.collect.return_value = _make_run(provider="ollama", connection_id=conn.id)
 
-        with patch(
-            "app.services.provider_sync_service.UsageCollectionRunRepository",
-            return_value=mock_run_repo,
+        mock_checkpoint_repo = AsyncMock()
+        mock_checkpoint_repo.get_by_org_provider.return_value = None
+
+        with (
+            patch(
+                "app.services.provider_sync_service.UsageCollectionCheckpointRepository",
+                return_value=mock_checkpoint_repo,
+            ),
+            patch(
+                "app.services.provider_sync_service.build_provider_config", return_value=MagicMock()
+            ),
         ):
             service = ProviderSyncService(
                 session, credentials=mock_credentials, collection_service=mock_collection
@@ -492,7 +510,10 @@ class TestGetSyncStatus:
         assert status.estimated_cost_imported[0]["record_count"] == 42
 
     @pytest.mark.asyncio
-    async def test_unsupported_provider_flagged_in_status(self) -> None:
+    async def test_provider_without_usage_api_flagged_in_status(self) -> None:
+        """`supports_usage_sync` (EP-24.3: purely informational — never
+        gates whether sync runs) is False for a provider with no known
+        bulk usage-history API, even though sync itself executes fine."""
         conn = make_provider_connection(org_id=_ORG_ID, provider_type=ProviderType.OLLAMA)
         session = _make_session()
 

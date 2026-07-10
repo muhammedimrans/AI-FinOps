@@ -236,6 +236,19 @@ class GoogleProvider(AIProvider):
         cursor: str | None = None,
         limit: int = 100,
     ) -> UsagePage:
+        """No bulk usage-history endpoint exists for an AI-Studio API key.
+
+        Google's per-request usage/cost data is only available through
+        Cloud Billing export (BigQuery), which requires a GCP project and
+        service-account credentials distinct from the Gemini API key this
+        connection stores — there is no ``GET .../usage`` call this
+        adapter's credential can make. Returning an honest empty page
+        (rather than fabricating events) matches this codebase's standing
+        "no fake functionality" rule; see CLAUDE.md's EP-24.3 section for
+        the full per-provider accounting. The sync pipeline (checkpoint,
+        retry, scheduler) still runs normally for this provider — it is
+        simply the correct, honest outcome that runs 0 records every time.
+        """
         from app.providers.models import UsagePage
 
         return UsagePage()

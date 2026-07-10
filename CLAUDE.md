@@ -1705,3 +1705,147 @@ The pre-existing bell-dropdown notification center (`layouts/Header.tsx`) and `u
 1. **Migrate `Project.budget` into `Budget` rows** (opt-in, not automatic) — a one-time "convert my project budget to a first-class Budget" action per project would let the legacy ingest-time check eventually be retired in favor of exclusively scheduler-driven evaluation, closing the "two budget mechanisms coexist" gap named above deliberately rather than by default.
 2. **Additional notification channels** (Email, Slack, Webhook) — the architecture is ready (see "Known limitations"); this is purely new `EventBus` subscriber work, which EP-25 (transactional email, already in the §8 roadmap) is the natural first mover for.
 3. **A combined-currency Projected EOM Spend** on the Overview page, if an organization's real usage ever spans multiple currencies meaningfully — not exercised by any real account today.
+
+---
+
+## 23. EP-24.3 — Complete AI Provider Integrations (Production Parity)
+
+**Status: complete.** Every one of the 7 catalog providers (OpenAI, Anthropic, Google Gemini, Azure OpenAI, OpenRouter, Grok, Ollama) now goes through the identical, real synchronization pipeline — `ProviderSyncService.sync_connection()` → `UsageCollectionService.collect()` → checkpoint/retry/scheduler — with no provider-type skip or shortcut. Cost calculation, budgets, alerts, and dashboard analytics were confirmed (not assumed) to already be 100% provider-agnostic, so this EP required zero changes in those layers. OpenAI and Anthropic are unchanged.
+
+### Why this EP is narrower than "5 providers need new usage collectors"
+
+Before touching any code, `app/providers/interface.py`'s `AIProvider.get_usage()` docstring was re-read in full. It explicitly sanctions an empty `UsagePage` (`has_more=False`, no events) for a provider with no usage-history API, and **names Ollama as the canonical example** — this is not a stub to fill in, it is the interface's own documented correct behavior for a provider that has nothing to report. Cross-checked against the real-world API surface of the other 4 non-production providers:
+
+| Provider | Why no bulk usage-history endpoint exists |
+|---|---|
+| Google Gemini (AI-Studio key) | Per-request usage/cost only via Cloud Billing export (BigQuery) — requires a GCP project + service-account credentials, a different credential entirely from the Gemini API key this connection stores. |
+| Azure OpenAI | Cost data lives in Azure Cost Management (ARM/subscription-level auth), distinct from the `api-key` data-plane credential this connection stores. |
+| OpenRouter | `GET /api/v1/credits` exists but returns one account-wide lifetime total, not a paginated, per-request/per-model list — there is nothing to normalize into dated, model-attributed events without fabricating the breakdown. |
+| Grok (xAI) | No documented bulk usage-history endpoint for third-party integrations. |
+| Ollama | Local/self-hosted, free — no billing concept exists at all. |
+
+Fabricating events, or synthesizing fake per-model attribution from OpenRouter's aggregate `/credits` number, would have violated this codebase's standing no-fake-functionality rule (§9, §10, §12, §13 and every EP since). So "production parity" for these 5 providers is scoped honestly: **the sync PIPELINE reaches full parity** (every provider validates, checkpoints, retries, and is scheduled identically); **usage VOLUME stays at zero** for the 5 providers with no real bulk endpoint to call, by design, not by omission. This is disclosed per-provider in each adapter's own `get_usage()` docstring, not buried in a comment nobody reads.
+
+### The one real architectural change — `ProviderSyncService`
+
+Before this EP, `ProviderSyncService.sync_connection()` (EP-23.3, §19) special-cased providers via a `_PRODUCTION_USAGE_PROVIDERS = {"openai", "anthropic"}` gate: any other provider type took an early-return shortcut (`_record_unsupported_provider_run()`) that fabricated a `COMPLETED` run **without ever calling `UsageCollectionService.collect()`** — meaning those 5 providers never exercised checkpointing, the retry-capable HTTP client, or genuine scheduler dispatch at all; they were only ever recorded as "synced" by convention.
+
+This EP removes that gate entirely. Every provider — all 7 — now calls the exact same `UsageCollectionService.collect(config=...)` (EP-08, unchanged) that OpenAI/Anthropic always used. The constant is renamed `_KNOWN_USAGE_API_PROVIDERS` and repurposed as **purely informational**: it drives only `SyncStatus.supports_usage_sync`, a UI-messaging flag, and is read nowhere in the execution path. `_record_unsupported_provider_run()` (the fabricated-run shortcut) is deleted as dead code.
+
+```
+Before (EP-23.3):                          After (EP-24.3):
+                                            
+sync_connection(provider)                  sync_connection(provider)
+  │                                           │
+  ├─ provider in                              ├─ decrypt credential (if any)
+  │  _PRODUCTION_USAGE_PROVIDERS?             ├─ build_provider_config()
+  │     No  → fabricate a COMPLETED           └─ UsageCollectionService.collect(config)
+  │            run, 0 events, never                 │  (real pipeline: checkpoint,
+  │            calls collect()                      │   pagination, retry via
+  │     Yes → decrypt, build config,                │   ProviderHttpClient, upsert,
+  │            UsageCollectionService.               │   cost attribution via
+  │            collect()                             │   PricingEngine)
+```
+
+`get_sync_status()`'s `supports_usage_sync` field is now computed the same way for every provider (`connection.provider_type.value in _KNOWN_USAGE_API_PROVIDERS`) — it tells the UI "this provider has a real bulk API today," never "this provider can be synced." Every provider can always be synced.
+
+### What did *not* need to change (confirmed by reading code, not assumed)
+
+- **`UsageCollectionService.collect()`** (EP-08) — already fully provider-agnostic; the optional `config: ProviderConfig | None` parameter it already accepted (for EP-22/EP-23.3's customer-credential path) is exactly the seam this EP needed. Zero lines changed.
+- **`PricingEngine`/`ModelPricing`** (`app/pricing/engine.py`, `app/models/model_pricing.py`) — `provider`/`model` are free-text columns throughout; `get_pricing_for_event()` already raises the typed, catchable `PricingNotFoundError` (caught in `app/usage/service.py`'s `_process_page()`, logged at debug level, event persisted without cost) for **any** unpriced `(provider, model)` pair. Confirmed via grep: no pricing is seeded for *any* provider, including OpenAI/Anthropic — "unknown pricing handled gracefully" was already the universal default behavior, not a gap specific to the 5 new providers. Zero lines changed.
+- **`BudgetEvaluationService`/`Budget.scope_provider`** (§22) — `scope_provider` is a free-text column, filtered via `UsageCostRecordRepository`'s existing `_dimension_filters()`. A budget scoped to `"grok"` or `"google"` works identically to one scoped to `"openai"` — confirmed by test, not assumption (`TestBudgetEvaluationProviderParity` below). Zero lines changed.
+- **`UsageCostRecordRepository`'s analytics queries** (§21) — `provider` is a free-text `GROUP BY`/filter column in every aggregate (`get_totals_by_provider`, `get_daily_trend`, `get_heatmap`, etc.). Once real events exist for any provider, Dashboard/Analytics/heatmap/provider charts render them with no additional code. Zero lines changed.
+- **`ProviderFactory`/`ProviderRegistry`** (EP-06) — already registers all 7 adapters against `ProviderType.OPENAI/ANTHROPIC/GROK/GOOGLE/AZURE_OPENAI/OPENROUTER/OLLAMA`; `build_provider_config()` (`app/providers/validation.py`, EP-22/EP-23.3) already has a `match` arm for each. Zero lines changed.
+- **The background scheduler** (`UsageSyncScheduler`, §20) — calls `ProviderSyncService.sync_all_connections()` exactly as before; because that method never filtered by provider type (it iterates every active connection in an org regardless of type), removing the inner skip means the scheduler now performs real syncs — with real checkpoint/retry — for every provider automatically, with zero scheduler code changed.
+
+This is the concrete sense in which "do not duplicate provider logic," "do not create another usage collection framework," and "reuse ProviderSyncService/UsageCollectionService/DashboardService/BudgetEvaluationService/AlertService" were satisfied: nothing in this EP is a new pipeline, a new repository, or a new API shape. The only production code touched is one method in one existing service (`ProviderSyncService.sync_connection`) plus docstrings on the 5 adapters' already-correct `get_usage()` bodies.
+
+### Provider capability matrix
+
+| Provider | Credential validation (EP-22) | Background sync pipeline (checkpoint/retry/scheduler) | Real usage events imported | Cost calculation | Budgets/Alerts/Analytics |
+|---|---|---|---|---|---|
+| OpenAI | ✅ live `GET /v1/models` | ✅ | ✅ (`GET /v1/organization/usage/completions`) | ✅ (once priced) | ✅ |
+| Anthropic | ✅ live `GET /v1/models` | ✅ | ✅ (`GET /v1/models`-based usage endpoint, EP-07) | ✅ (once priced) | ✅ |
+| Google Gemini | ✅ live `GET /v1beta/models` | ✅ | ❌ — no bulk endpoint on this credential (needs Cloud Billing export) | ✅ (once priced; graceful no-op until then) | ✅ (once events exist) |
+| Azure OpenAI | ✅ live deployments list | ✅ | ❌ — needs Azure Cost Management (ARM auth, not the data-plane key) | ✅ (once priced; graceful no-op until then) | ✅ (once events exist) |
+| OpenRouter | ✅ live `GET /models` | ✅ | ❌ — `/credits` is an account-wide aggregate, not per-record | ✅ (once priced; graceful no-op until then) | ✅ (once events exist) |
+| Grok (xAI) | ✅ live `GET /models` | ✅ | ❌ — no documented bulk usage API | ✅ (once priced; graceful no-op until then) | ✅ (once events exist) |
+| Ollama | ✅ live `GET /api/tags` (reachability) | ✅ | ❌ — local/free, no billing concept | N/A (no cost to calculate) | ✅ (0 spend, correctly) |
+
+Every ✅ in "Background sync pipeline" and every "✅ (once events exist)" in the last column reflects genuinely new, tested behavior from this EP — before it, the 5 non-production providers' rows in those two columns would have read "recorded as synced by convention, pipeline never actually invoked" and "N/A."
+
+### Usage flow (unchanged shape, now uniform across all 7 providers)
+
+```
+UsageSyncScheduler (§20) / manual "Sync now" (§19)
+        │
+        ▼
+ProviderSyncService.sync_connection(organization_id, connection)
+        │
+        ├─► ProviderCredentialService.decrypt()   (EP-22 — skipped entirely for Ollama, no credential)
+        ├─► build_provider_config()               (app/providers/validation.py, EP-22/EP-23.3, unchanged)
+        ├─► UsageCollectionService.collect(config=...)   (EP-08, unchanged)
+        │       │
+        │       ├─ ProviderFactory(registry).create(config) → adapter
+        │       ├─ loop adapter.get_usage(...) via ProviderHttpClient +
+        │       │  ExponentialRetryPolicy (retries RateLimitError/NetworkError/
+        │       │  InternalProviderError; never AuthenticationError/
+        │       │  QuotaExceededError/InvalidRequestError)
+        │       ├─ normalize + upsert NormalizedUsageEvent rows
+        │       ├─ PricingEngine.calculate_cost() per event — PricingNotFoundError
+        │       │  caught, logged at debug, event persisted with no cost row
+        │       └─ advance UsageCollectionCheckpoint per page
+        │
+        └─► always returns a terminal UsageCollectionRun (COMPLETED/FAILED)
+                    │
+                    ▼
+        BudgetEvaluationService.evaluate_and_alert() (§22, unchanged — fires
+        after every sync regardless of which provider produced the events,
+        or produced none)
+```
+
+### Validation flow (unchanged, EP-22 — reconfirmed, not modified)
+
+Every provider's credential validation (`ProviderValidator.validate()`, §13) was already real for all 7 providers before this EP — EP-22 finished that work. This EP did not touch `app/providers/validation.py`'s `ProviderValidator` or any adapter's `verify_auth()`. It is listed in the capability matrix above only to make the full per-provider lifecycle (Credential → Validation → Sync → Usage → Cost → Analytics → Budgets → Alerts) visible in one place, as the EP's own requirements section asked for.
+
+### Retry behavior (unchanged, EP-06/EP-07 — reused, not duplicated)
+
+Identical to every prior EP's retry section (§19, §20): `ProviderHttpClient` + `ExponentialRetryPolicy` retry each individual provider HTTP request based on `ProviderError.retryable` — `RateLimitError`/`NetworkError`/`InternalProviderError` retried, `AuthenticationError`/`QuotaExceededError`/`InvalidRequestError` not. This EP adds zero retry code; the 5 previously-skipped providers now benefit from this existing retry behavior for the first time simply because they now make real HTTP calls (health checks, `get_usage()`) through the same client every other provider already used.
+
+### Cost calculation strategy
+
+`ModelPricing` (`app/models/model_pricing.py`) already models every cost dimension this EP's spec named — `prompt_token_price`, `completion_token_price`, `cached_token_price`, `audio_token_price`, `image_price`, `embedding_price` — keyed by free-text `(provider, model)`, versioned by `effective_from`/`effective_to`. No schema change was needed for any of the 5 providers. "Unknown pricing handled gracefully" is `PricingEngine.get_pricing_for_event()` raising `PricingNotFoundError` — a typed, caught exception, never an unhandled crash — confirmed to already be the universal, unconditional default for every provider (no pricing is seeded for any provider anywhere in this codebase, verified by grep). Seeding real `ModelPricing` rows for Google/Azure/OpenRouter/Grok (via the existing `POST /v1/pricing` admin API) is an operational/data task, not a code change, and is explicitly out of this EP's scope — the mechanism was already correct and provider-agnostic.
+
+### Frontend — Connections page
+
+`apps/dashboard/src/features/Connections.tsx`'s per-connection `SyncStatusPanel` (EP-23.3, §19) already showed validation status, last sync, health, records/tokens/cost imported generically for all 7 providers with zero special-casing — confirmed, not rebuilt. Two things were stale and fixed this EP:
+
+1. **The "Sync now" button was disabled** for any connection where `supports_usage_sync` was `false` — a direct UI consequence of the old backend skip-shortcut. Since EP-24.3 makes every provider's sync pipeline real, this button is never disabled now; the copy next to it changed from "Usage synchronization isn't available for this provider yet." (implying sync cannot happen) to an accurate explanation: *"This provider has no bulk usage-history API — sync runs normally (checkpoint, retry, scheduler) but will import 0 records until one exists."*
+2. **New, optional provider capability badge** (`hasKnownUsageApi()`, `apps/dashboard/src/lib/providerCatalog.ts`) — a small "Usage API" / "No usage API" pill next to each connection's health/active badges, mirroring the backend's `_KNOWN_USAGE_API_PROVIDERS` constant exactly (kept in sync manually — both lists are two lines long and named identically in both files' comments). Purely informational, matching the spec's "optional" framing — it never disables or hides any action.
+
+No dashboard/analytics component required any change: Overview's KPI cards, Analytics' provider/model breakdowns, the heatmap, and budget cards all already render whatever `provider` strings appear in `UsageCostRecord` rows generically (§21, §22) — a Google or Grok connection that starts producing real events (once pricing is seeded and, for the 4 providers with no bulk endpoint today, once/if a future EP adds one) would appear on every chart with zero additional frontend code.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep24_3_provider_parity.py`, 38 new tests, fully hermetic — no network, no real database):
+  - `TestProviderRegistryParity` (3 groups) — all 7 providers registered in `ProviderFactory.build_default_registry()`; `build_provider_config()` succeeds for all 7 (including Azure's `base_url` requirement); the factory constructs a working adapter for all 7.
+  - `TestGetUsageParityBaseline` — every non-production adapter's `get_usage()` returns a well-formed empty page (`events == []`, `has_more is False`) without crashing — the parity floor every provider must meet.
+  - `TestSyncPipelineParity` — **the core regression guard for this EP's change**: parametrized across all 7 providers, asserts `sync_connection()` always calls `UsageCollectionService.collect()` (never takes a skip path) and passes the correct `provider` kwarg; a separate test confirms `sync_all_connections()` dispatches a mixed openai/google/ollama batch uniformly with no provider-type filtering.
+  - `TestSupportsUsageSyncIsInformationalOnly` — parametrized across all 7 providers, confirms `SyncStatus.supports_usage_sync` reflects `_KNOWN_USAGE_API_PROVIDERS` membership exactly (`True` for openai/anthropic, `False` for the other 5) as a pure UI-messaging signal.
+  - `TestCostCalculationParity` — `PricingEngine.calculate_cost()` works identically for an arbitrary non-production provider/model string; `get_pricing_for_event()` raises the typed `PricingNotFoundError` (not an unhandled exception) for an unpriced OpenRouter model, confirming the graceful-degradation contract holds for a "new" provider exactly as it already did for openai/anthropic.
+  - `TestBudgetEvaluationProviderParity` — a `Budget` scoped to `scope_provider="grok"` calls `UsageCostRecordRepository.get_totals_by_org()` with the correct `provider="grok"` filter kwarg, confirming budget scoping is provider-string-agnostic.
+  - `tests/test_ep23_3_usage_sync.py` — 3 tests updated for the new behavior (renamed/rewritten, not deleted): `test_unsupported_provider_records_honest_zero_events_run` → `test_provider_without_usage_api_still_goes_through_real_pipeline` (now asserts `collect()` IS called, the inverse of the old assertion); `test_ollama_has_no_credential_never_decrypted` (mocking updated for the new call path, same intent preserved — Ollama's decrypt is still never called); `test_unsupported_provider_flagged_in_status` → `test_provider_without_usage_api_flagged_in_status` (assertion unchanged — `supports_usage_sync` semantics didn't change, only what gates on it did).
+  - Full backend suite: **1735 passed** (1697 + 38), ruff/black/mypy clean.
+- **Frontend**: `apps/dashboard/src/__tests__/ManageConnectionsSection.test.tsx` — the EP-23.3 test asserting "Sync now" is disabled for a non-`supports_usage_sync` provider was renamed and inverted (`test("still allows 'Sync now' for a provider with no bulk usage API, with an honest explanation")`) to assert the button is **not** disabled and the new explanatory copy renders — pinning this EP's UI fix as a regression guard. Full dashboard suite: **229 passed** (unchanged count — one test renamed/rewritten, none added or removed), lint clean, typecheck clean (`tsc -b`), build clean (`vite build`).
+
+### Known limitations
+
+- **Real usage volume stays at zero for Google, Azure OpenAI, OpenRouter, Grok, and Ollama** — this is the disclosed, deliberate scope of this EP (see "Why this EP is narrower" above), not an oversight. Closing it for any one of these providers requires that provider exposing a real, key-scoped, bulk usage-history API — a product/infra dependency outside this codebase, not a missing adapter method.
+- **No pricing is seeded for any of the 5 non-production providers** (nor, still, for OpenAI/Anthropic — this was already true before this EP). `PricingEngine` handles this gracefully today; populating real `ModelPricing` rows via the existing `POST /v1/pricing` admin API is an operational task for whenever real usage volume exists to price.
+- **The frontend capability badge (`hasKnownUsageApi()`) and the backend's `_KNOWN_USAGE_API_PROVIDERS` constant are two independently-maintained two-item sets**, not derived from a shared source — a future 8th provider gaining a real bulk usage API would need both updated by hand. Both are named identically and cross-referenced in comments specifically to make this easy to keep in sync, but there's no automated check that they agree (mirroring the same accepted tradeoff §18 documented for its own manually-maintained `_WRITE_DELETE_PAIRS` test list).
+- **OpenRouter's `/credits` aggregate is never used for anything** — not even a rough "lifetime spend" display, since attributing it to any specific model/date would be exactly the fabrication this EP's own reasoning ruled out. A future EP could surface it as an explicitly-labeled "OpenRouter account balance" figure (distinct from Costorah's own per-request cost tracking) if a real product need for it arises — not attempted here.
+- **No live, continuous browser test of a real background sync producing zero events for one of the 5 providers and non-zero events for OpenAI/Anthropic side-by-side on the same dashboard** — same caveat as every prior EP in this document: verified in pieces (backend unit/API tests with all 7 providers parametrized, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment or hold a real provider credential.
+
+### Next milestone recommendation (EP-24.4)
+
+With sync-pipeline parity now real for all 7 providers, the two highest-value follow-ups are unchanged from what §19/§20/§21/§22 already identified as the standing next blockers, now sharper in scope: (1) **a real bulk usage-history integration for at least one of the 5 currently-zero-volume providers** (Google Gemini's Cloud Billing export is the most likely first candidate, since it's the only one of the 5 with a documented, if separately-credentialed, bulk export API) — this is genuinely new adapter work, not a wiring gap, and would be the first provider to prove out this EP's "add an 8th provider" extension story in practice; and (2) the still-open **transactional email** (EP-25, §8) and **Settings.tsx Priority-3-adjacent** items carried forward unchanged from every prior EP's own recommendation.

@@ -57,19 +57,11 @@ export const Route = createFileRoute("/")({
 const providers = [
   "OpenAI",
   "Anthropic",
-  "Google",
+  "Google Gemini",
   "Azure OpenAI",
   "OpenRouter",
-  "Ollama",
   "Grok",
-  "Mistral",
-  "Cohere",
-  "Bedrock",
-  "Vertex AI",
-  "Together AI",
-  "Fireworks",
-  "Perplexity",
-  "DeepSeek",
+  "Ollama",
 ];
 
 const spendData = [
@@ -86,8 +78,8 @@ const modelData = [
   { m: "gpt-4o", v: 2840 },
   { m: "claude-3.5", v: 2120 },
   { m: "gemini-1.5", v: 1450 },
-  { m: "llama-3", v: 890 },
-  { m: "mistral-l", v: 640 },
+  { m: "llama-3-70b", v: 890 },
+  { m: "grok-2", v: 640 },
 ];
 
 const pieData = [
@@ -128,48 +120,52 @@ const features = [
   {
     icon: Bell,
     title: "Alerts",
-    desc: "Anomaly, spike, and threshold alerts to Slack, email, PagerDuty.",
+    desc: "Budget and anomaly alerts in your in-app notification center. Email, Slack, and webhooks coming soon.",
   },
   {
     icon: Target,
     title: "Budget Tracking",
-    desc: "Hard and soft budgets with automated enforcement.",
+    desc: "Org, project, provider, and model-level budgets with configurable thresholds.",
   },
   {
     icon: TrendingUp,
     title: "Forecasting",
-    desc: "ML-based forecasts across 7, 30, and 90-day horizons.",
+    desc: "Trend-based spend projections right on your dashboard.",
   },
   {
     icon: Sparkles,
-    title: "Optimization",
-    desc: "Model routing and prompt insights that cut spend up to 40%.",
+    title: "Cost Optimization",
+    desc: "Spot your highest-cost models and providers at a glance — model routing and prompt insights are on the roadmap.",
   },
   {
     icon: GitBranch,
     title: "Provider Comparison",
-    desc: "Side-by-side quality, latency, and cost benchmarks.",
+    desc: "Side-by-side spend and usage across every connected provider.",
   },
   {
     icon: Cpu,
     title: "Model Comparison",
-    desc: "Compare tokens/second, cost per 1M, and error rates.",
+    desc: "Compare cost and token usage across every model you use.",
   },
   {
     icon: Gauge,
     title: "Real-time Dashboard",
-    desc: "Customizable widgets tuned for finance and engineering.",
+    desc: "Live KPIs and charts, streamed over WebSocket with a polling fallback.",
   },
-  { icon: Boxes, title: "SDKs", desc: "First-class Python, Node, Go, and Rust libraries." },
+  {
+    icon: Boxes,
+    title: "SDKs",
+    desc: "Python and JavaScript/TypeScript today — more languages coming soon.",
+  },
   {
     icon: Webhook,
     title: "Webhooks",
-    desc: "Push cost events into your data warehouse in seconds.",
+    desc: "Coming soon — push cost events to Slack, email, and your own endpoints.",
   },
   {
     icon: ShieldCheck,
-    title: "RBAC & SSO",
-    desc: "Role-based access, SAML SSO, and full audit trail.",
+    title: "RBAC",
+    desc: "Owner, Admin, Member, and Viewer roles with a full audit trail. SSO is on the roadmap.",
   },
 ];
 
@@ -177,89 +173,62 @@ const steps = [
   {
     icon: Database,
     title: "Connect AI Providers",
-    desc: "OAuth or API key. 15+ providers, ready in minutes.",
+    desc: "API key or OAuth. OpenAI, Anthropic, Google, Azure, OpenRouter, Grok, and Ollama.",
   },
   {
     icon: Activity,
     title: "Collect Usage",
-    desc: "Streaming ingestion normalizes tokens, requests, and cost.",
+    desc: "Manual or automatic background sync normalizes tokens, requests, and cost.",
   },
   {
     icon: BarChart3,
     title: "Analyze Costs",
-    desc: "Slice by team, project, model, environment, or customer.",
+    desc: "Slice by team, project, model, or provider in real time.",
   },
   {
     icon: Sparkles,
-    title: "Optimize Spend",
-    desc: "Model routing, caching, and prompt insights cut waste.",
+    title: "Spot Waste",
+    desc: "See your highest-cost models and providers at a glance.",
   },
   {
     icon: TrendingUp,
-    title: "Forecast Budget",
-    desc: "ML forecasts and budgets that enforce themselves.",
-  },
-];
-
-const testimonials = [
-  {
-    quote: "Costorah paid for itself in the first week. We caught a runaway agent burning $4k/day.",
-    name: "Priya S.",
-    role: "VP Engineering, Northwind AI",
-  },
-  {
-    quote:
-      "Finally a FinOps tool built for AI. Our finance and platform teams speak the same language now.",
-    name: "Marcus L.",
-    role: "Head of Platform, Helix Labs",
-  },
-  {
-    quote: "We shipped a 38% cost reduction in a month using Costorah's model routing insights.",
-    name: "Anika R.",
-    role: "Staff Engineer, Ovid",
+    title: "Forecast & Budget",
+    desc: "Track spend against configurable budgets, with more automation on the way.",
   },
 ];
 
 const faqs = [
   {
     q: "Which AI providers do you support?",
-    a: "OpenAI, Anthropic, Google Gemini, Azure OpenAI, AWS Bedrock, Vertex AI, OpenRouter, Ollama, Grok, Mistral, Cohere, Together AI, Fireworks, Perplexity, DeepSeek — and more added monthly.",
+    a: "OpenAI, Anthropic, Google Gemini, Azure OpenAI, OpenRouter, Grok, and Ollama today, with more providers on the way.",
   },
   {
     q: "How fast is setup?",
-    a: "Under 10 minutes. Connect a provider key or OAuth, drop in our SDK, and data starts streaming immediately.",
+    a: "A few minutes. Connect a provider, drop in our Python or JavaScript SDK, and usage starts flowing in.",
   },
   {
     q: "Does Costorah sit in the request path?",
-    a: "No. We ingest usage out-of-band via provider APIs and optional client SDKs. Zero added latency.",
+    a: "No. We collect usage out-of-band via provider APIs and optional client SDKs, so there's no added latency to your requests.",
   },
   {
-    q: "Can I enforce budgets automatically?",
-    a: "Yes. Hard budgets can revoke keys, soft budgets can page on-call, and per-project caps can gate deploys.",
+    q: "Can I set budgets and alerts?",
+    a: "Yes. Organization, project, provider, and model-level budgets with configurable thresholds are available today, shown in your in-app notification center. Email, Slack, and webhook delivery are coming soon.",
   },
   {
     q: "How do you handle sensitive data?",
-    a: "We store metadata only. Prompts and completions never leave your infrastructure unless you opt in.",
+    a: "We store usage metadata — tokens, cost, model, timestamps. Prompts and completions are never collected.",
   },
   {
     q: "Do you offer SSO and RBAC?",
-    a: "SAML SSO, SCIM provisioning, and granular RBAC ship on Business and Enterprise plans.",
-  },
-  {
-    q: "Is there an on-prem option?",
-    a: "Yes. Enterprise customers can deploy Costorah in their own VPC on AWS, GCP, or Azure.",
-  },
-  {
-    q: "How does forecasting work?",
-    a: "We combine trailing usage, seasonality, and model-mix changes to produce 7/30/90-day forecasts with confidence bands.",
+    a: "Role-based access control (Owner/Admin/Member/Viewer) is available today. SSO is on our roadmap.",
   },
   {
     q: "What SDKs are available?",
-    a: "Python, JavaScript/TypeScript, Go, Rust, and a REST API. A CLI and Terraform provider are also available.",
+    a: "Python and JavaScript/TypeScript SDKs are available today. Additional language SDKs are coming soon.",
   },
   {
     q: "Do you have a free tier?",
-    a: "Yes. Starter is free forever with up to 1M tracked tokens per month and unlimited providers.",
+    a: "Yes. The Free plan is free forever, with no credit card required.",
   },
 ];
 
@@ -273,45 +242,29 @@ const pricing = [
     cta: "Start free",
   },
   {
-    name: "Professional",
-    price: "$29",
-    period: "/month",
+    name: "Team",
+    price: "Coming soon",
+    period: "",
     desc: "For growing teams shipping AI products.",
     features: [
-      "Up to 100M tokens/mo",
-      "Unlimited providers",
-      "90-day retention",
-      "Alerts & budgets",
-      "Email support",
+      "Everything in Free",
+      "Higher usage limits",
+      "Longer data retention",
+      "Priority support",
     ],
-    cta: "Start free trial",
+    cta: "Join the waitlist",
     highlight: true,
   },
   {
-    name: "Business",
-    price: "$99",
-    period: "/month",
-    desc: "For scale-ups with multi-team AI usage.",
-    features: [
-      "1B tokens/mo",
-      "SSO & RBAC",
-      "1-year retention",
-      "Forecasting & optimization",
-      "Priority support",
-    ],
-    cta: "Start free trial",
-  },
-  {
     name: "Enterprise",
-    price: "Custom",
+    price: "Coming soon",
     period: "",
     desc: "For regulated and high-scale organizations.",
     features: [
-      "Unlimited usage",
-      "SAML SSO, SCIM, audit logs",
-      "VPC / on-prem deploy",
+      "Everything in Team",
+      "SSO & advanced RBAC",
       "Custom retention",
-      "Dedicated CSM",
+      "Dedicated support",
     ],
     cta: "Contact sales",
   },
@@ -332,7 +285,6 @@ function Landing() {
       <Developers />
       <Security />
       <Pricing />
-      <Testimonials />
       <FAQ />
       <FinalCTA />
     </SiteLayout>
@@ -382,7 +334,7 @@ function Hero() {
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-[#14D9D3]" /> SOC 2 ready
+              <ShieldCheck className="h-3.5 w-3.5 text-[#14D9D3]" /> Encrypted credentials
             </span>
             <span className="flex items-center gap-1.5">
               <Lock className="h-3.5 w-3.5 text-[#14D9D3]" /> Zero-latency ingest
@@ -703,7 +655,7 @@ function LiveDashboard() {
                 { p: "Anthropic", m: "claude-3.5-sonnet", t: "9,120 tok", c: "$0.31" },
                 { p: "Google", m: "gemini-1.5-pro", t: "24,880 tok", c: "$0.19" },
                 { p: "Azure", m: "gpt-4o-mini", t: "62,300 tok", c: "$0.09" },
-                { p: "Bedrock", m: "claude-3-haiku", t: "3,410 tok", c: "$0.02" },
+                { p: "OpenRouter", m: "llama-3-70b", t: "3,410 tok", c: "$0.02" },
               ].map((r, i) => (
                 <div
                   key={i}
@@ -846,19 +798,17 @@ function Developers() {
               <span className="text-gradient-brand">Instrument once.</span>
             </h2>
             <p className="mt-5 max-w-lg text-muted-foreground">
-              First-class SDKs, a clean REST API, webhooks, and a CLI. Track every AI call with a
-              single line of code — or ingest server-side with zero client changes.
+              Python and JavaScript/TypeScript SDKs, a clean REST API, and a CLI. Track every AI
+              call with a single line of code — or ingest server-side with zero client changes.
             </p>
             <div className="mt-8 grid grid-cols-2 gap-2 text-sm">
               {[
                 "Python SDK",
-                "JavaScript SDK",
-                "Go SDK",
+                "JavaScript / TypeScript SDK",
                 "REST API",
-                "Webhooks",
                 "CLI",
                 "Realtime API",
-                "Terraform",
+                "More languages — coming soon",
               ].map((x) => (
                 <div
                   key={x}
@@ -943,11 +893,27 @@ function Security() {
     { icon: Shield, title: "RBAC", desc: "Granular role-based access control." },
     { icon: Building2, title: "Org isolation", desc: "Hard tenant boundaries." },
     { icon: Fingerprint, title: "Audit logs", desc: "Every action, immutable." },
-    { icon: KeyRound, title: "Encrypted keys", desc: "AES-256 at rest, per-tenant." },
-    { icon: ShieldCheck, title: "SOC 2 ready", desc: "Type II in progress." },
-    { icon: Lock, title: "GDPR ready", desc: "DPA available on request." },
-    { icon: Radar, title: "OWASP best practices", desc: "Continuous scanning." },
-    { icon: Zap, title: "TLS 1.3", desc: "Modern transport everywhere." },
+    {
+      icon: KeyRound,
+      title: "Encrypted keys",
+      desc: "Provider credentials encrypted at rest, per-connection.",
+    },
+    {
+      icon: ShieldCheck,
+      title: "One account system",
+      desc: "Single, unified auth across the whole product.",
+    },
+    {
+      icon: Lock,
+      title: "Least data by default",
+      desc: "We store usage metadata, not prompts or completions.",
+    },
+    {
+      icon: Radar,
+      title: "Security-first development",
+      desc: "Built with modern secure-coding practices.",
+    },
+    { icon: Zap, title: "TLS everywhere", desc: "Encrypted in transit, end to end." },
   ];
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
@@ -978,9 +944,9 @@ function Pricing() {
         <SectionHeader
           eyebrow="Pricing"
           title="Simple pricing that scales with you."
-          desc="Start free. Upgrade when you need advanced controls, forecasting, or compliance."
+          desc="Start free today. Team and Enterprise plans with billing are coming soon."
         />
-        <div className="mt-14 grid gap-5 lg:grid-cols-4">
+        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {pricing.map((p) => (
             <div
               key={p.name}
@@ -1010,7 +976,7 @@ function Pricing() {
                 ))}
               </ul>
               <Link
-                to={p.name === "Enterprise" ? "/contact" : "/signup"}
+                to={p.name === "Starter" ? "/signup" : "/contact"}
                 className={`mt-8 inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium ${
                   p.highlight
                     ? "bg-gradient-brand text-primary-foreground"
@@ -1019,39 +985,6 @@ function Pricing() {
               >
                 {p.cta}
               </Link>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Testimonials() {
-  return (
-    <section className="border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
-        <SectionHeader eyebrow="Customers" title="Loved by teams shipping AI at scale." />
-        <div className="mt-14 grid gap-5 lg:grid-cols-3">
-          {testimonials.map((t) => (
-            <div
-              key={t.name}
-              className="flex flex-col rounded-2xl border border-white/10 bg-[#0C1117] p-6"
-            >
-              <div className="text-[#14D9D3]">“</div>
-              <p className="text-foreground/90">{t.quote}</p>
-              <div className="mt-6 flex items-center gap-3 border-t border-white/5 pt-4">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-semibold text-primary-foreground">
-                  {t.name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .join("")}
-                </div>
-                <div>
-                  <div className="text-sm font-medium">{t.name}</div>
-                  <div className="text-xs text-muted-foreground">{t.role}</div>
-                </div>
-              </div>
             </div>
           ))}
         </div>

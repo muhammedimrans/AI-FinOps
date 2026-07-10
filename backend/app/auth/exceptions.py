@@ -67,3 +67,19 @@ class OrganizationSuspendedError(AuthError):
 
 class InsufficientApiKeyPermissionsError(AuthError):
     """The API key is valid but was not granted the required permission scope."""
+
+
+# ── Google OAuth (EP-24.5) ───────────────────────────────────────────────────
+
+
+class GoogleAccountAlreadyLinkedError(AuthError):
+    """This Google account (by `sub`) is already linked to a different Costorah user."""
+
+
+class LastAuthMethodError(AuthError):
+    """Refused to unlink Google because it is the account's only login method.
+
+    A user with no password set (a Google-only account) must always retain
+    at least one way to authenticate — Part 4's "do not allow removing the
+    final authentication method."
+    """

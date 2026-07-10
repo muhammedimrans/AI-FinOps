@@ -274,6 +274,43 @@ class Settings(BaseSettings):
             )
         return self
 
+    # ─── Google OAuth (EP-24.5) ─────────────────────────────────────────────────
+    # Optional here for the same reason resend_api_key/email_from are optional
+    # above — local dev/CI/most of the test suite have no Google app
+    # registered. The /v1/auth/google/* endpoints return a clear 503 rather
+    # than crashing when unconfigured (see app/auth/google_oauth.py).
+    google_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_ID", "google_client_id"),
+    )
+    google_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_SECRET", "google_client_secret"),
+    )
+    # This backend's own public URL — needed to build the OAuth redirect_uri
+    # Google calls back to (`{api_base_url}/v1/auth/google/callback`), which
+    # must exactly match one of the URIs registered in Google Cloud Console.
+    # Distinct from dashboard_url (the frontend), which the callback itself
+    # redirects *to* once the session is established.
+    api_base_url: str = Field(
+        default="http://localhost:8000",
+        validation_alias=AliasChoices("API_BASE_URL", "api_base_url"),
+    )
+
+    @property
+    def google_oauth_configured(self) -> bool:
+        """True once both Google credentials are present.
+
+        Deliberately NOT enforced at startup the way resend_api_key/email_from
+        are (§ EP-24.4's `_enforce_email_config_in_production`) — Google
+        sign-in is an additive, optional login method (Part 1's "Continue
+        with Google" augments, never replaces, password login), so a
+        production deploy without a Google Cloud Console app registered yet
+        must still start cleanly. The /v1/auth/google/* endpoints check this
+        property themselves and return 503 rather than crashing.
+        """
+        return bool(self.google_client_id) and bool(self.google_client_secret)
+
     # ─── Observability ────────────────────────────────────────────────────────
     otel_service_name: str = "aifinops-api"
     metrics_port: int = Field(default=9090, ge=1, le=65535)

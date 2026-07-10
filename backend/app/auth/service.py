@@ -13,8 +13,10 @@ from app.auth.exceptions import (
     AccountDisabledError,
     EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
+    GoogleAccountAlreadyLinkedError,
     InvalidCredentialsError,
     InvalidTokenError,
+    LastAuthMethodError,
     OwnerOfSharedWorkspaceError,
     UsernameAlreadyTakenError,
 )
@@ -127,6 +129,33 @@ class AuthService:
 
     # ── Registration ──────────────────────────────────────────────────────────
 
+    async def _create_personal_workspace(self, user: User) -> Organization:
+        """Create a personal workspace (Organization, is_personal=True) with
+        an OWNER Membership for `user`. Extracted so `register()` and
+        `login_or_register_with_google()` (EP-24.5) share exactly one
+        implementation of "what a brand-new Costorah account's first
+        workspace looks like" — never two copies of this logic.
+        """
+        org = Organization()
+        org.id = uuid7()
+        org.name = f"{user.display_name}'s Workspace"
+        org.slug = await unique_slug(
+            f"{user.display_name}-workspace", slug_exists=self._org_repo.slug_exists
+        )
+        org.is_personal = True
+        org.status = OrganizationStatus.ACTIVE
+        await self._org_repo.create(org)
+
+        membership = Membership()
+        membership.id = uuid7()
+        membership.organization_id = org.id
+        membership.user_id = user.id
+        membership.user_email = user.email
+        membership.role = MembershipRole.OWNER
+        await self._membership_repo.create(membership)
+
+        return org
+
     async def register(
         self,
         *,
@@ -163,26 +192,11 @@ class AuthService:
         user.password_hash = hash_password(password)
         await self._user_repo.create(user)
 
-        org = Organization()
-        org.id = uuid7()
-        org.name = f"{display_name}'s Workspace"
-        org.slug = await unique_slug(
-            f"{display_name}-workspace", slug_exists=self._org_repo.slug_exists
-        )
-        org.is_personal = True
-        org.status = OrganizationStatus.ACTIVE
-        await self._org_repo.create(org)
-
-        membership = Membership()
-        membership.id = uuid7()
-        membership.organization_id = org.id
-        membership.user_id = user.id
-        membership.user_email = user.email
-        membership.role = MembershipRole.OWNER
-        await self._membership_repo.create(membership)
+        org = await self._create_personal_workspace(user)
 
         pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
         await self._user_repo.update_last_login(user.id)
+        user.last_login_provider = "password"
 
         log_auth_event(
             AuditEvent.REGISTRATION, user_id=user.id, email=user.email, ip_address=ip_address
@@ -215,8 +229,166 @@ class AuthService:
         await self._membership_repo.link_pending_by_email(user.email, user.id)
 
         pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
-        await self._user_repo.update_last_login(user.id)
+        await self._user_repo.update_last_login(user.id, provider="password")
         return pair, user
+
+    # ── Google OAuth (EP-24.5) ────────────────────────────────────────────────
+
+    async def find_by_google_sub(self, google_sub: str) -> User | None:
+        """Return the User already linked to this Google account, or None."""
+        return await self._user_repo.get_by_google_sub(google_sub)
+
+    async def get_by_id(self, user_id: uuid.UUID) -> User | None:
+        """Return the active (non-deleted) User with the given id, or None."""
+        return await self._user_repo.get(user_id)
+
+    async def login_or_register_with_google(
+        self,
+        *,
+        google_sub: str,
+        email: str,
+        display_name: str,
+        avatar_url: str | None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> tuple[TokenPair, User, Organization | None, bool]:
+        """
+        Resolve a validated Google identity to a Costorah session — the one
+        call site every "Continue with Google" login/registration goes
+        through (Part 11: "should eventually call the same internal
+        AuthService used by email/password authentication").
+
+        Three-way branch (Part 2 / Part 3):
+          1. `google_sub` already linked to a user  -> log them in.
+          2. No link, but `email` matches an existing account -> auto-link
+             Google to that account (never a duplicate user), then log in.
+          3. Neither matches -> register a brand-new User + personal
+             workspace, mark `email_verified=True` immediately (Google
+             already verified it), skip the verification email entirely.
+
+        Returns `(pair, user, org, is_new_user)` — `org` is only populated
+        for a brand-new registration (mirrors `register()`'s return shape,
+        which the API layer uses to build the signup-style dashboard
+        handoff); an existing user's session handoff never needs to attach
+        a workspace, exactly like the password `login()` path today.
+        """
+        user = await self.find_by_google_sub(google_sub)
+        is_new_user = False
+
+        if user is None:
+            existing = await self._user_repo.get_by_email(email)
+            if existing is not None:
+                # Part 3: automatic account linking — never create a
+                # duplicate user for an email that already has a password
+                # account. Existing password login keeps working unchanged;
+                # Google login now also works for this same account.
+                user = existing
+                user.google_sub = google_sub
+                user.google_email = email
+                user.google_linked_at = datetime.now(UTC)
+                await self._session.flush()
+                log_auth_event(
+                    AuditEvent.GOOGLE_ACCOUNT_LINKED,
+                    user_id=user.id,
+                    email=user.email,
+                    ip_address=ip_address,
+                    reason="auto_linked_on_login",
+                )
+            else:
+                is_new_user = True
+                user = User()
+                user.id = uuid7()
+                user.email = email
+                user.display_name = display_name
+                user.status = UserStatus.ACTIVE
+                # Google already verified this address — Part 2: "Mark
+                # email_verified = true. Do NOT send verification email."
+                user.email_verified = True
+                user.avatar_url = avatar_url
+                user.google_sub = google_sub
+                user.google_email = email
+                user.google_linked_at = datetime.now(UTC)
+                await self._user_repo.create(user)
+
+        if user.status == UserStatus.DISABLED:
+            raise AccountDisabledError
+
+        org: Organization | None = None
+        if is_new_user:
+            org = await self._create_personal_workspace(user)
+
+        # Any organization invitations created before this account existed
+        # (invite-by-email) — same reconciliation `login()` already does.
+        await self._membership_repo.link_pending_by_email(user.email, user.id)
+
+        pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
+        await self._user_repo.update_last_login(user.id, provider="google")
+
+        if is_new_user:
+            log_auth_event(
+                AuditEvent.GOOGLE_REGISTRATION,
+                user_id=user.id,
+                email=user.email,
+                ip_address=ip_address,
+            )
+            # Google-verified accounts skip the verification-token email
+            # entirely (Part 2) but still get the same welcome email a
+            # freshly-verified password account receives.
+            await self._email.send_welcome_email(to=user.email, display_name=user.display_name)
+        else:
+            log_auth_event(
+                AuditEvent.GOOGLE_LOGIN, user_id=user.id, email=user.email, ip_address=ip_address
+            )
+
+        return pair, user, org, is_new_user
+
+    async def link_google(
+        self, *, user: User, google_sub: str, google_email: str, ip_address: str | None = None
+    ) -> User:
+        """Link a Google account to an already-authenticated user (Part 4).
+
+        Refuses if this Google account (`sub`) is already linked to a
+        *different* Costorah user — the DB-level unique constraint on
+        `google_sub` (see app/models/user.py) is the actual last line of
+        defense; this check exists to raise a clean, actionable error
+        instead of surfacing a raw `IntegrityError` to the API layer.
+        """
+        other = await self._user_repo.get_by_google_sub(google_sub)
+        if other is not None and other.id != user.id:
+            raise GoogleAccountAlreadyLinkedError
+
+        user.google_sub = google_sub
+        user.google_email = google_email
+        user.google_linked_at = datetime.now(UTC)
+        await self._session.flush()
+        log_auth_event(
+            AuditEvent.GOOGLE_ACCOUNT_LINKED,
+            user_id=user.id,
+            email=user.email,
+            ip_address=ip_address,
+        )
+        return user
+
+    async def unlink_google(self, *, user: User, ip_address: str | None = None) -> User:
+        """Unlink Google from `user` (Part 4).
+
+        Refuses (`LastAuthMethodError`) when the user has no password set —
+        a Google-only account must never be left with zero ways to sign in.
+        """
+        if user.password_hash is None:
+            raise LastAuthMethodError
+
+        user.google_sub = None
+        user.google_email = None
+        user.google_linked_at = None
+        await self._session.flush()
+        log_auth_event(
+            AuditEvent.GOOGLE_ACCOUNT_UNLINKED,
+            user_id=user.id,
+            email=user.email,
+            ip_address=ip_address,
+        )
+        return user
 
     # ── Logout ────────────────────────────────────────────────────────────────
 

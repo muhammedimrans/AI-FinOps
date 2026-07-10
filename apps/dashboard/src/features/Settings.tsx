@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -9,6 +10,7 @@ import {
   CheckCircle,
   Clock,
   KeyRound,
+  Link2,
   Loader2,
   Mail,
   MailCheck,
@@ -18,6 +20,7 @@ import {
   Timer,
   Trash2,
   Triangle,
+  Unlink,
   User,
 } from "lucide-react";
 import { useUIStore } from "../stores/ui";
@@ -28,6 +31,7 @@ import { ApiKeysManager } from "./ApiKeys";
 import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
 import ConfirmDialog from "../components/ConfirmDialog";
+import GoogleGlyph from "../components/GoogleGlyph";
 import { cn, formatDateTime } from "../utils";
 import { toast } from "../stores/toast";
 import {
@@ -35,9 +39,12 @@ import {
   changePassword,
   deleteAccount,
   deleteOrganization,
+  getMe,
   getOrganizations,
   getSchedulerStatus,
   resendVerification,
+  startGoogleLink,
+  unlinkGoogle,
   updateOrganization,
   updatePreferences,
   updateProfile,
@@ -139,34 +146,136 @@ function SectionCard({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       className={cn(
-        "glass-card rounded-card-lg border p-5 relative overflow-hidden",
+        "glass-card relative overflow-hidden rounded-card-lg border p-5",
         danger ? "border-danger/30" : "border-border-subtle",
       )}
     >
       <div
         className={cn(
-          "absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent to-transparent",
+          "absolute left-0 right-0 top-0 h-px bg-gradient-to-r from-transparent to-transparent",
           danger ? "via-danger/50" : "via-brand/40",
         )}
         aria-hidden="true"
       />
-      <div className="flex items-start justify-between gap-4 mb-5">
+      <div className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h3
             className={cn(
-              "text-sm font-semibold flex items-center gap-2",
+              "flex items-center gap-2 text-sm font-semibold",
               danger ? "text-danger" : "text-tx-primary",
             )}
           >
             <Icon size={14} className={danger ? "text-danger" : "text-tx-muted"} />
             {title}
           </h3>
-          {description && <p className="text-xs text-tx-muted mt-1">{description}</p>}
+          {description && <p className="mt-1 text-xs text-tx-muted">{description}</p>}
         </div>
         {actions}
       </div>
       <div className="space-y-5">{children}</div>
     </motion.div>
+  );
+}
+
+/**
+ * EP-24.5 Part 7 — "Linked accounts": Google connected email, last login
+ * provider, Link/Unlink actions. A separate SectionCard from Profile (not
+ * nested in its form) since Link/Unlink are their own top-level-navigation
+ * / mutation flows, not part of the profile-save submit.
+ */
+function LinkedAccountsCard() {
+  const { user, updateUser } = useAuthStore();
+
+  const linkMutation = useMutation({
+    mutationFn: startGoogleLink,
+    onSuccess: (data) => {
+      window.location.href = data.authorize_url;
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not start Google linking. Please try again.",
+      );
+      toast.error(title, description);
+    },
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: unlinkGoogle,
+    onSuccess: (updated) => {
+      updateUser({ google_linked: updated.google_linked, google_email: updated.google_email });
+      toast.success("Google account unlinked");
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not unlink Google. Set a password first if this is your only sign-in method.",
+      );
+      toast.error(title, description);
+    },
+  });
+
+  return (
+    <SectionCard
+      title="Linked Accounts"
+      icon={Link2}
+      description="Sign in faster with a connected provider."
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-app-bg/60 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <GoogleGlyph className="h-5 w-5 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-tx-primary">Google</p>
+            <p className="truncate text-xs text-tx-muted">
+              {user?.google_linked ? (user.google_email ?? "Connected") : "Not connected"}
+            </p>
+          </div>
+        </div>
+        {user?.google_linked ? (
+          <button
+            type="button"
+            onClick={() => unlinkMutation.mutate()}
+            disabled={unlinkMutation.isPending}
+            className="btn-outline inline-flex h-8 items-center gap-1.5 px-3 text-xs disabled:opacity-60"
+          >
+            {unlinkMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Unlink size={12} />
+            )}
+            Unlink
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => linkMutation.mutate()}
+            disabled={linkMutation.isPending}
+            className="btn-outline inline-flex h-8 items-center gap-1.5 px-3 text-xs disabled:opacity-60"
+          >
+            {linkMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <Link2 size={12} />
+            )}
+            Link Google account
+          </button>
+        )}
+      </div>
+      <div>
+        <label className="mb-1.5 block text-xs text-tx-muted">Last login provider</label>
+        <input
+          readOnly
+          value={
+            user?.last_login_provider
+              ? user.last_login_provider === "google"
+                ? "Google"
+                : "Password"
+              : "—"
+          }
+          className="w-full cursor-not-allowed rounded-lg border border-border-subtle bg-app-muted px-3 py-2 text-sm text-tx-muted"
+        />
+      </div>
+    </SectionCard>
   );
 }
 
@@ -213,22 +322,29 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
   const data = schedulerQuery.data;
 
   return (
-    <SectionCard title="Automatic Sync" description="Keep provider usage data up to date without manually clicking Sync." icon={Timer}>
+    <SectionCard
+      title="Automatic Sync"
+      description="Keep provider usage data up to date without manually clicking Sync."
+      icon={Timer}
+    >
       {schedulerQuery.isLoading ? (
         <div className="space-y-2">
-          {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-9 skeleton rounded-lg" />)}
+          {Array.from({ length: 2 }, (_, i) => (
+            <div key={i} className="skeleton h-9 rounded-lg" />
+          ))}
         </div>
       ) : !data ? (
         <p className="text-xs text-tx-muted">Couldn't load scheduler settings.</p>
       ) : (
         <>
-          <SettingRow label="Auto Sync" description="Automatically sync usage from every connected provider in the background.">
+          <SettingRow
+            label="Auto Sync"
+            description="Automatically sync usage from every connected provider in the background."
+          >
             <button
               role="switch"
               aria-checked={data.auto_sync_enabled}
-              onClick={() =>
-                updateMutation.mutate({ auto_sync_enabled: !data.auto_sync_enabled })
-              }
+              onClick={() => updateMutation.mutate({ auto_sync_enabled: !data.auto_sync_enabled })}
               disabled={updateMutation.isPending}
               className={cn(
                 "relative h-6 w-11 rounded-full transition-colors disabled:opacity-60",
@@ -245,14 +361,17 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
           </SettingRow>
 
           {data.auto_sync_enabled && (
-            <SettingRow label="Interval" description="How often the scheduler checks for new usage.">
+            <SettingRow
+              label="Interval"
+              description="How often the scheduler checks for new usage."
+            >
               <select
                 value={data.interval}
                 onChange={(e) =>
                   updateMutation.mutate({ interval: e.target.value as SchedulerInterval })
                 }
                 disabled={updateMutation.isPending}
-                className="bg-app-bg border border-border rounded-lg px-3 py-1.5 text-sm text-tx-primary focus:outline-none focus:border-brand disabled:opacity-60"
+                className="rounded-lg border border-border bg-app-bg px-3 py-1.5 text-sm text-tx-primary focus:border-brand focus:outline-none disabled:opacity-60"
               >
                 {SCHEDULER_INTERVAL_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -263,7 +382,7 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
             </SettingRow>
           )}
 
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-tx-muted pt-1 border-t border-border-subtle">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-border-subtle pt-1 text-xs text-tx-muted">
             <span className="inline-flex items-center gap-1.5">
               <Clock size={12} />
               Last sync: {data.last_sync_at ? formatDateTime(data.last_sync_at) : "never"}
@@ -274,7 +393,9 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
                 Next sync: {data.next_sync_at ? formatDateTime(data.next_sync_at) : "—"}
               </span>
             )}
-            <span>Scheduler: {SCHEDULER_HEALTH_LABEL[data.scheduler_health] ?? data.scheduler_health}</span>
+            <span>
+              Scheduler: {SCHEDULER_HEALTH_LABEL[data.scheduler_health] ?? data.scheduler_health}
+            </span>
           </div>
         </>
       )}
@@ -293,9 +414,9 @@ function SettingRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-6">
-      <div className="flex-1 min-w-0">
-        <p className="text-sm text-tx-primary font-medium">{label}</p>
-        {description && <p className="text-xs text-tx-muted mt-0.5">{description}</p>}
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-tx-primary">{label}</p>
+        {description && <p className="mt-0.5 text-xs text-tx-muted">{description}</p>}
       </div>
       <div className="flex-shrink-0">{children}</div>
     </div>
@@ -315,8 +436,8 @@ function Toggle({
     <button
       onClick={() => onChange(!value)}
       className={cn(
-        "relative w-10 h-5.5 rounded-full border transition-colors duration-base flex-shrink-0",
-        value ? "bg-brand border-brand" : "bg-app-muted border-border",
+        "h-5.5 relative w-10 flex-shrink-0 rounded-full border transition-colors duration-base",
+        value ? "border-brand bg-brand" : "border-border bg-app-muted",
       )}
       aria-checked={value}
       aria-label={label}
@@ -324,7 +445,7 @@ function Toggle({
     >
       <span
         className={cn(
-          "absolute top-0.5 w-4 h-4 rounded-full bg-white shadow-md transition-transform duration-base",
+          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-base",
           value ? "translate-x-5" : "translate-x-0.5",
         )}
       />
@@ -339,18 +460,20 @@ const TextField = forwardRef<
   const fieldId = id ?? `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div>
-      <label htmlFor={fieldId} className="text-xs text-tx-muted block mb-1.5">{label}</label>
+      <label htmlFor={fieldId} className="mb-1.5 block text-xs text-tx-muted">
+        {label}
+      </label>
       <input
         ref={ref}
         id={fieldId}
         {...rest}
         className={cn(
-          "w-full bg-app-bg border rounded-lg px-3 py-2 text-sm text-tx-primary",
-          "placeholder:text-tx-muted focus:outline-none focus:border-brand transition-colors",
+          "w-full rounded-lg border bg-app-bg px-3 py-2 text-sm text-tx-primary",
+          "transition-colors placeholder:text-tx-muted focus:border-brand focus:outline-none",
           error ? "border-danger" : "border-border",
         )}
       />
-      {error && <p className="text-danger text-xs mt-1">{error}</p>}
+      {error && <p className="mt-1 text-xs text-danger">{error}</p>}
     </div>
   );
 });
@@ -369,8 +492,31 @@ export default function Settings() {
   const { user, updateUser, clearAuth } = useAuthStore();
   const { organizationId, organizationName, setOrganization, clearOrganization } = useOrgStore();
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const preferences = user?.preferences ?? {};
+
+  // EP-24.5: the Google OAuth callback redirects back here after a
+  // successful link with `?google_linked=1` — the handoff payload itself
+  // carries no updated user fields (it's a plain redirect, not a fetch
+  // response), so refetch /me once to pick up google_linked/google_email,
+  // then strip the query param so a page refresh doesn't re-toast.
+  useEffect(() => {
+    if (searchParams.get("google_linked") !== "1") return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("google_linked");
+        return next;
+      },
+      { replace: true },
+    );
+    void getMe().then((me) => {
+      updateUser({ google_linked: me.google_linked, google_email: me.google_email });
+      toast.success("Google account linked");
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   // ── Profile ────────────────────────────────────────────────────────────────
 
@@ -420,7 +566,10 @@ export default function Settings() {
       setTimeout(() => setProfileSaved(false), 2500);
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not save your profile. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not save your profile. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -428,7 +577,10 @@ export default function Settings() {
   function onSaveProfile(data: ProfileForm) {
     const result = profileSchema.safeParse(data);
     if (!result.success) {
-      toast.error("Couldn't save profile", result.error.issues[0]?.message ?? "Fix the highlighted fields.");
+      toast.error(
+        "Couldn't save profile",
+        result.error.issues[0]?.message ?? "Fix the highlighted fields.",
+      );
       return;
     }
     profileMutation.mutate(result.data);
@@ -442,7 +594,10 @@ export default function Settings() {
       toast.success("Verification email sent", "Check your inbox for the link.");
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not send the email. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not send the email. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -482,7 +637,10 @@ export default function Settings() {
       setTimeout(() => setWorkspaceSaved(false), 2500);
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not save workspace settings. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not save workspace settings. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -490,7 +648,10 @@ export default function Settings() {
   function onSaveWorkspace(data: WorkspaceForm) {
     const result = workspaceSchema.safeParse(data);
     if (!result.success) {
-      toast.error("Couldn't save workspace", result.error.issues[0]?.message ?? "Fix the highlighted fields.");
+      toast.error(
+        "Couldn't save workspace",
+        result.error.issues[0]?.message ?? "Fix the highlighted fields.",
+      );
       return;
     }
     if (!organizationId) return;
@@ -514,11 +675,17 @@ export default function Settings() {
     onSuccess: () => {
       setPasswordSaved(true);
       resetPassword();
-      toast.success("Password updated", "You're still signed in here — every other session was signed out.");
+      toast.success(
+        "Password updated",
+        "You're still signed in here — every other session was signed out.",
+      );
       setTimeout(() => setPasswordSaved(false), 2500);
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not update your password. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not update your password. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -526,7 +693,10 @@ export default function Settings() {
   function onSavePassword(data: PasswordForm) {
     const result = passwordSchema.safeParse(data);
     if (!result.success) {
-      toast.error("Couldn't update password", result.error.issues[0]?.message ?? "Check the fields and try again.");
+      toast.error(
+        "Couldn't update password",
+        result.error.issues[0]?.message ?? "Check the fields and try again.",
+      );
       return;
     }
     passwordMutation.mutate(result.data);
@@ -540,7 +710,10 @@ export default function Settings() {
       updateUser({ preferences: updated.preferences });
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not save this preference. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not save this preference. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -605,7 +778,10 @@ export default function Settings() {
       void queryClient.invalidateQueries({ queryKey: ["organizations"] });
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not delete this workspace. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not delete this workspace. Please try again.",
+      );
       toast.error(title, description);
       setDeleteWorkspaceOpen(false);
     },
@@ -618,7 +794,10 @@ export default function Settings() {
       clearAuth();
     },
     onError: (err: unknown) => {
-      const { title, description } = apiErrorMessage(err, "Could not delete your account. Please try again.");
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not delete your account. Please try again.",
+      );
       toast.error(title, description);
     },
   });
@@ -626,24 +805,27 @@ export default function Settings() {
   const displayName = user?.display_name ?? "";
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl">
-      <PageHeader title="Settings" description="Manage your profile, workspace, and account preferences." />
+    <div className="max-w-5xl p-4 sm:p-6">
+      <PageHeader
+        title="Settings"
+        description="Manage your profile, workspace, and account preferences."
+      />
 
-      <div className="flex flex-col lg:flex-row gap-6 mt-6">
+      <div className="mt-6 flex flex-col gap-6 lg:flex-row">
         {/* Tab list */}
-        <div className="lg:w-52 flex-shrink-0">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible bg-app-card lg:bg-transparent rounded-lg lg:rounded-none p-1 lg:p-0 border lg:border-0 border-border-subtle">
+        <div className="flex-shrink-0 lg:w-52">
+          <div className="flex gap-1 overflow-x-auto rounded-lg border border-border-subtle bg-app-card p-1 lg:flex-col lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
             {SECTIONS.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setActive(s.id)}
                 className={cn(
-                  "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-shrink-0",
+                  "flex flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-all",
                   active === s.id
                     ? s.id === "danger"
                       ? "bg-danger-dim text-danger"
                       : "bg-brand-subtle text-brand"
-                    : "text-tx-secondary hover:text-tx-primary hover:bg-app-hover",
+                    : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
                 )}
               >
                 <s.icon size={15} className="flex-shrink-0" />
@@ -656,142 +838,169 @@ export default function Settings() {
         {/* Panel */}
         <div className="min-w-0 flex-1 space-y-5">
           {active === "profile" && (
-            <form onSubmit={(e) => { void handleProfileSubmit(onSaveProfile)(e); }}>
-              <SectionCard title="Profile" icon={User}>
-                <div className="flex items-center gap-4">
-                  <Avatar name={displayName || "Account"} size={64} />
-                  <div>
-                    <p className="text-sm font-medium text-tx-primary">{displayName}</p>
-                    <p className="text-xs text-tx-muted">{user?.email}</p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <TextField
-                    label="Display name"
-                    {...registerProfile("displayName")}
-                    error={profileErrors.displayName?.message}
-                  />
-                  <TextField
-                    label="Username"
-                    {...registerProfile("username")}
-                    error={profileErrors.username?.message}
-                  />
-                </div>
-
-                <TextField
-                  label="Avatar URL"
-                  placeholder="https://example.com/avatar.png"
-                  {...registerProfile("avatarUrl")}
-                  error={profileErrors.avatarUrl?.message}
-                />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-xs text-tx-muted block mb-1.5">Email address</label>
-                    <input
-                      readOnly
-                      value={user?.email ?? ""}
-                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-tx-muted block mb-1.5">Account status</label>
-                    <input
-                      readOnly
-                      value={user?.status ?? ""}
-                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed capitalize"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="text-xs text-tx-muted block mb-1.5">Email verification</label>
-                  {user?.email_verified ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-dim px-3 py-2">
-                      <MailCheck size={14} className="text-success flex-shrink-0" />
-                      <span className="text-sm text-success">Verified</span>
+            <>
+              <form
+                onSubmit={(e) => {
+                  void handleProfileSubmit(onSaveProfile)(e);
+                }}
+              >
+                <SectionCard title="Profile" icon={User}>
+                  <div className="flex items-center gap-4">
+                    <Avatar name={displayName || "Account"} size={64} />
+                    <div>
+                      <p className="text-sm font-medium text-tx-primary">{displayName}</p>
+                      <p className="text-xs text-tx-muted">{user?.email}</p>
                     </div>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/20 bg-warning-dim px-3 py-2">
-                      <Mail size={14} className="text-warning flex-shrink-0" />
-                      <span className="text-sm text-warning flex-1 min-w-[10rem]">Not verified</span>
-                      <button
-                        type="button"
-                        onClick={() => resendVerificationMutation.mutate()}
-                        disabled={resendVerificationMutation.isPending}
-                        className="btn-outline h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
-                      >
-                        {resendVerificationMutation.isPending ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : null}
-                        {resendVerificationMutation.isPending ? "Sending…" : "Resend verification email"}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                  </div>
 
-                {user?.created_at && (
-                  <div>
-                    <label className="text-xs text-tx-muted block mb-1.5">Member since</label>
-                    <input
-                      readOnly
-                      value={formatDateTime(user.created_at)}
-                      className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed"
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <TextField
+                      label="Display name"
+                      {...registerProfile("displayName")}
+                      error={profileErrors.displayName?.message}
+                    />
+                    <TextField
+                      label="Username"
+                      {...registerProfile("username")}
+                      error={profileErrors.username?.message}
                     />
                   </div>
-                )}
 
-                <div>
-                  <label htmlFor="bio" className="text-xs text-tx-muted block mb-1.5">Bio (optional)</label>
-                  <textarea
-                    id="bio"
-                    rows={3}
-                    {...registerProfile("bio")}
-                    placeholder="Tell us a little about yourself"
-                    className={cn(
-                      "w-full bg-app-bg border rounded-lg px-3 py-2 text-sm text-tx-primary resize-none",
-                      "placeholder:text-tx-muted focus:outline-none focus:border-brand transition-colors",
-                      profileErrors.bio ? "border-danger" : "border-border",
+                  <TextField
+                    label="Avatar URL"
+                    placeholder="https://example.com/avatar.png"
+                    {...registerProfile("avatarUrl")}
+                    error={profileErrors.avatarUrl?.message}
+                  />
+
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1.5 block text-xs text-tx-muted">Email address</label>
+                      <input
+                        readOnly
+                        value={user?.email ?? ""}
+                        className="w-full cursor-not-allowed rounded-lg border border-border-subtle bg-app-muted px-3 py-2 text-sm text-tx-muted"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs text-tx-muted">Account status</label>
+                      <input
+                        readOnly
+                        value={user?.status ?? ""}
+                        className="w-full cursor-not-allowed rounded-lg border border-border-subtle bg-app-muted px-3 py-2 text-sm capitalize text-tx-muted"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="mb-1.5 block text-xs text-tx-muted">Email verification</label>
+                    {user?.email_verified ? (
+                      <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-dim px-3 py-2">
+                        <MailCheck size={14} className="flex-shrink-0 text-success" />
+                        <span className="text-sm text-success">Verified</span>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/20 bg-warning-dim px-3 py-2">
+                        <Mail size={14} className="flex-shrink-0 text-warning" />
+                        <span className="min-w-[10rem] flex-1 text-sm text-warning">
+                          Not verified
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => resendVerificationMutation.mutate()}
+                          disabled={resendVerificationMutation.isPending}
+                          className="btn-outline inline-flex h-8 items-center gap-1.5 px-3 text-xs disabled:opacity-60"
+                        >
+                          {resendVerificationMutation.isPending ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : null}
+                          {resendVerificationMutation.isPending
+                            ? "Sending…"
+                            : "Resend verification email"}
+                        </button>
+                      </div>
                     )}
-                  />
-                  {profileErrors.bio && (
-                    <p className="text-danger text-xs mt-1">{profileErrors.bio.message}</p>
-                  )}
-                </div>
+                  </div>
 
-                <button
-                  type="submit"
-                  disabled={profileMutation.isPending}
-                  className={cn("btn-primary w-fit", profileSaved && "bg-success hover:bg-success")}
-                >
-                  {profileMutation.isPending ? (
-                    <Loader2 size={14} className="animate-spin" />
-                  ) : profileSaved ? (
-                    <CheckCircle size={14} />
-                  ) : (
-                    <Save size={14} />
+                  {user?.created_at && (
+                    <div>
+                      <label className="mb-1.5 block text-xs text-tx-muted">Member since</label>
+                      <input
+                        readOnly
+                        value={formatDateTime(user.created_at)}
+                        className="w-full cursor-not-allowed rounded-lg border border-border-subtle bg-app-muted px-3 py-2 text-sm text-tx-muted"
+                      />
+                    </div>
                   )}
-                  {profileSaved ? "Saved!" : "Save Changes"}
-                </button>
-              </SectionCard>
-            </form>
+
+                  <div>
+                    <label htmlFor="bio" className="mb-1.5 block text-xs text-tx-muted">
+                      Bio (optional)
+                    </label>
+                    <textarea
+                      id="bio"
+                      rows={3}
+                      {...registerProfile("bio")}
+                      placeholder="Tell us a little about yourself"
+                      className={cn(
+                        "w-full resize-none rounded-lg border bg-app-bg px-3 py-2 text-sm text-tx-primary",
+                        "transition-colors placeholder:text-tx-muted focus:border-brand focus:outline-none",
+                        profileErrors.bio ? "border-danger" : "border-border",
+                      )}
+                    />
+                    {profileErrors.bio && (
+                      <p className="mt-1 text-xs text-danger">{profileErrors.bio.message}</p>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={profileMutation.isPending}
+                    className={cn(
+                      "btn-primary w-fit",
+                      profileSaved && "bg-success hover:bg-success",
+                    )}
+                  >
+                    {profileMutation.isPending ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : profileSaved ? (
+                      <CheckCircle size={14} />
+                    ) : (
+                      <Save size={14} />
+                    )}
+                    {profileSaved ? "Saved!" : "Save Changes"}
+                  </button>
+                </SectionCard>
+              </form>
+              <LinkedAccountsCard />
+            </>
           )}
 
           {active === "workspace" && (
-            <form onSubmit={(e) => { void handleWorkspaceSubmit(onSaveWorkspace)(e); }}>
+            <form
+              onSubmit={(e) => {
+                void handleWorkspaceSubmit(onSaveWorkspace)(e);
+              }}
+            >
               <SectionCard title="Workspace" icon={Building2}>
                 {orgsQuery.isLoading ? (
                   <div className="space-y-2">
-                    {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-9 skeleton rounded-lg" />)}
+                    {Array.from({ length: 3 }, (_, i) => (
+                      <div key={i} className="skeleton h-9 rounded-lg" />
+                    ))}
                   </div>
                 ) : !currentOrg ? (
-                  <p className="text-xs text-tx-muted">Select a workspace to manage its settings.</p>
+                  <p className="text-xs text-tx-muted">
+                    Select a workspace to manage its settings.
+                  </p>
                 ) : (
                   <>
                     <TextField label="Workspace name" {...registerWorkspace("name")} />
                     <div>
-                      <label htmlFor="ws-description" className="text-xs text-tx-muted block mb-1.5">
+                      <label
+                        htmlFor="ws-description"
+                        className="mb-1.5 block text-xs text-tx-muted"
+                      >
                         Description (optional)
                       </label>
                       <textarea
@@ -799,30 +1008,32 @@ export default function Settings() {
                         rows={3}
                         {...registerWorkspace("description")}
                         placeholder="What is this workspace for?"
-                        className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary resize-none placeholder:text-tx-muted focus:outline-none focus:border-brand transition-colors"
+                        className="w-full resize-none rounded-lg border border-border bg-app-bg px-3 py-2 text-sm text-tx-primary transition-colors placeholder:text-tx-muted focus:border-brand focus:outline-none"
                       />
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                       <div>
-                        <label className="text-xs text-tx-muted block mb-1.5">Slug</label>
+                        <label className="mb-1.5 block text-xs text-tx-muted">Slug</label>
                         <input
                           readOnly
                           value={currentOrg.slug}
-                          className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed font-mono"
+                          className="w-full cursor-not-allowed rounded-lg border border-border-subtle bg-app-muted px-3 py-2 font-mono text-sm text-tx-muted"
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-tx-muted block mb-1.5">Organization ID</label>
+                        <label className="mb-1.5 block text-xs text-tx-muted">
+                          Organization ID
+                        </label>
                         <input
                           readOnly
                           value={currentOrg.id}
-                          className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed font-mono truncate"
+                          className="w-full cursor-not-allowed truncate rounded-lg border border-border-subtle bg-app-muted px-3 py-2 font-mono text-sm text-tx-muted"
                         />
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {currentOrg.is_personal && (
-                        <span className="badge bg-brand-subtle text-brand text-[10px] uppercase tracking-wide">
+                        <span className="badge bg-brand-subtle text-[10px] uppercase tracking-wide text-brand">
                           Personal workspace
                         </span>
                       )}
@@ -835,7 +1046,10 @@ export default function Settings() {
                     <button
                       type="submit"
                       disabled={workspaceMutation.isPending}
-                      className={cn("btn-primary w-fit", workspaceSaved && "bg-success hover:bg-success")}
+                      className={cn(
+                        "btn-primary w-fit",
+                        workspaceSaved && "bg-success hover:bg-success",
+                      )}
                     >
                       {workspaceMutation.isPending ? (
                         <Loader2 size={14} className="animate-spin" />
@@ -852,12 +1066,22 @@ export default function Settings() {
             </form>
           )}
 
-          {active === "workspace" && currentOrg && <AutomaticSyncCard organizationId={currentOrg.id} />}
+          {active === "workspace" && currentOrg && (
+            <AutomaticSyncCard organizationId={currentOrg.id} />
+          )}
 
           {active === "password" && (
-            <form onSubmit={(e) => { void handlePasswordSubmit(onSavePassword)(e); }}>
-              <SectionCard title="Password" icon={Shield} description="Changing your password signs out every other session.">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <form
+              onSubmit={(e) => {
+                void handlePasswordSubmit(onSavePassword)(e);
+              }}
+            >
+              <SectionCard
+                title="Password"
+                icon={Shield}
+                description="Changing your password signs out every other session."
+              >
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <TextField
                     label="Current password"
                     type="password"
@@ -884,7 +1108,10 @@ export default function Settings() {
                 <button
                   type="submit"
                   disabled={passwordMutation.isPending}
-                  className={cn("btn-primary w-fit", passwordSaved && "bg-success hover:bg-success")}
+                  className={cn(
+                    "btn-primary w-fit",
+                    passwordSaved && "bg-success hover:bg-success",
+                  )}
                 >
                   {passwordMutation.isPending ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -902,16 +1129,21 @@ export default function Settings() {
           {active === "preferences" && (
             <>
               <SectionCard title="Appearance" icon={Palette}>
-                <SettingRow label="Theme" description="Neon Cyber, Professional Light, or Professional Dark">
-                  <div className="flex gap-1 bg-app-bg rounded-lg p-0.5 border border-border-subtle">
+                <SettingRow
+                  label="Theme"
+                  description="Neon Cyber, Professional Light, or Professional Dark"
+                >
+                  <div className="flex gap-1 rounded-lg border border-border-subtle bg-app-bg p-0.5">
                     {THEMES.map((t) => (
                       <button
                         key={t.id}
                         onClick={() => onChangeTheme(t.id)}
                         aria-pressed={theme === t.id}
                         className={cn(
-                          "px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap",
-                          theme === t.id ? "bg-brand text-app-bg" : "text-tx-muted hover:text-tx-secondary",
+                          "whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all",
+                          theme === t.id
+                            ? "bg-brand text-app-bg"
+                            : "text-tx-muted hover:text-tx-secondary",
                         )}
                       >
                         {t.label}
@@ -923,15 +1155,21 @@ export default function Settings() {
                   <select
                     value={currency}
                     onChange={(e) => onChangeCurrency(e.target.value as Currency)}
-                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                    className="rounded-lg border border-border bg-app-bg px-3 py-2 text-sm text-tx-primary focus:border-brand focus:outline-none"
                   >
                     {["USD", "EUR", "GBP"].map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </select>
                 </SettingRow>
                 <SettingRow label="Collapse sidebar" description="Start with the sidebar collapsed">
-                  <Toggle value={sidebarCollapsed} onChange={onToggleSidebar} label="Collapse sidebar" />
+                  <Toggle
+                    value={sidebarCollapsed}
+                    onChange={onToggleSidebar}
+                    label="Collapse sidebar"
+                  />
                 </SettingRow>
               </SectionCard>
 
@@ -940,24 +1178,31 @@ export default function Settings() {
                   <select
                     value={pref(preferences, "timezone", "UTC")}
                     onChange={(e) => onChangeTimezone(e.target.value)}
-                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                    className="rounded-lg border border-border bg-app-bg px-3 py-2 text-sm text-tx-primary focus:border-brand focus:outline-none"
                   >
                     {(TIMEZONES.includes(pref(preferences, "timezone", "UTC"))
                       ? TIMEZONES
                       : [pref(preferences, "timezone", "UTC"), ...TIMEZONES]
                     ).map((tz) => (
-                      <option key={tz} value={tz}>{tz}</option>
+                      <option key={tz} value={tz}>
+                        {tz}
+                      </option>
                     ))}
                   </select>
                 </SettingRow>
-                <SettingRow label="Date format" description="How dates are displayed across the dashboard">
+                <SettingRow
+                  label="Date format"
+                  description="How dates are displayed across the dashboard"
+                >
                   <select
                     value={pref(preferences, "date_format", "MM/DD/YYYY")}
                     onChange={(e) => onChangeDateFormat(e.target.value)}
-                    className="bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary focus:outline-none focus:border-brand"
+                    className="rounded-lg border border-border bg-app-bg px-3 py-2 text-sm text-tx-primary focus:border-brand focus:outline-none"
                   >
                     {DATE_FORMATS.map((f) => (
-                      <option key={f.value} value={f.value}>{f.label}</option>
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
                     ))}
                   </select>
                 </SettingRow>
@@ -965,10 +1210,22 @@ export default function Settings() {
 
               <SectionCard title="Notification Preferences" icon={Bell}>
                 {[
-                  { key: "budget", label: "Budget alerts", desc: "Alert when projects exceed 80% budget" },
-                  { key: "anomaly", label: "Anomaly detection", desc: "Notify on unusual cost spikes" },
+                  {
+                    key: "budget",
+                    label: "Budget alerts",
+                    desc: "Alert when projects exceed 80% budget",
+                  },
+                  {
+                    key: "anomaly",
+                    label: "Anomaly detection",
+                    desc: "Notify on unusual cost spikes",
+                  },
                   { key: "weekly", label: "Weekly digest", desc: "Weekly cost summary email" },
-                  { key: "security", label: "Security events", desc: "Sign-ins and permission changes" },
+                  {
+                    key: "security",
+                    label: "Security events",
+                    desc: "Sign-ins and permission changes",
+                  },
                 ].map((n) => (
                   <SettingRow key={n.key} label={n.label} description={n.desc}>
                     <Toggle
@@ -983,7 +1240,11 @@ export default function Settings() {
           )}
 
           {active === "api-keys" && (
-            <SectionCard title="API Keys" icon={KeyRound} description="Programmatic access to your organization's data.">
+            <SectionCard
+              title="API Keys"
+              icon={KeyRound}
+              description="Programmatic access to your organization's data."
+            >
               <ApiKeysManager compact />
             </SectionCard>
           )}
@@ -1004,7 +1265,7 @@ export default function Settings() {
                   <button
                     onClick={() => setDeleteWorkspaceOpen(true)}
                     disabled={!organizationId}
-                    className="h-9 text-xs px-3.5 rounded-lg font-semibold flex items-center gap-1.5 bg-danger text-white hover:bg-danger-light disabled:opacity-50 w-fit"
+                    className="flex h-9 w-fit items-center gap-1.5 rounded-lg bg-danger px-3.5 text-xs font-semibold text-white hover:bg-danger-light disabled:opacity-50"
                   >
                     <Trash2 size={13} />
                     Delete workspace
@@ -1020,7 +1281,7 @@ export default function Settings() {
               >
                 <button
                   onClick={() => setDeleteAccountOpen(true)}
-                  className="h-9 text-xs px-3.5 rounded-lg font-semibold flex items-center gap-1.5 bg-danger text-white hover:bg-danger-light w-fit"
+                  className="flex h-9 w-fit items-center gap-1.5 rounded-lg bg-danger px-3.5 text-xs font-semibold text-white hover:bg-danger-light"
                 >
                   <Trash2 size={13} />
                   Delete account
@@ -1065,7 +1326,7 @@ export default function Settings() {
           placeholder="Your password"
           value={deleteAccountPassword}
           onChange={(e) => setDeleteAccountPassword(e.target.value)}
-          className="w-full bg-app-bg border border-border rounded-lg px-3 py-2 text-sm text-tx-primary placeholder:text-tx-muted focus:outline-none focus:border-danger mt-3"
+          className="mt-3 w-full rounded-lg border border-border bg-app-bg px-3 py-2 text-sm text-tx-primary placeholder:text-tx-muted focus:border-danger focus:outline-none"
         />
       </ConfirmDialog>
     </div>

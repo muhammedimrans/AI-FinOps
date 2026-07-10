@@ -474,7 +474,7 @@ class TestAuthServiceLogin:
     def setup_method(self) -> None:
         self.settings = _test_settings()
         self.mock_session = AsyncMock()
-        self.user = make_user(password_hash=hash_password(_TEST_PASSWORD))
+        self.user = make_user(password_hash=hash_password(_TEST_PASSWORD), email_verified=True)
 
     def _make_svc(self) -> Any:
         from app.auth.service import AuthService

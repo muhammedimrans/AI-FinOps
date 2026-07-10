@@ -5,7 +5,12 @@ import { useForm } from "react-hook-form";
 import { GoogleButton } from "@/components/site/GoogleButton";
 import { SiteLayout } from "@/components/site/SiteLayout";
 import { LogoMark } from "@/components/site/SiteNav";
-import { ApiError, buildDashboardHandoffUrl, login as loginRequest } from "@/lib/api";
+import {
+  ApiError,
+  buildDashboardHandoffUrl,
+  login as loginRequest,
+  resendVerification,
+} from "@/lib/api";
 import { type LoginFormValues, loginSchema } from "@/lib/authSchemas";
 
 export const Route = createFileRoute("/login")({
@@ -21,15 +26,23 @@ export const Route = createFileRoute("/login")({
 function Login() {
   const [formError, setFormError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
+  // EP-24.4.1: a 403 "verify your email" rejection gets its own affordance
+  // (a resend button) instead of just an error string — same pattern as
+  // apps/dashboard's Login.tsx.
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [resendState, setResendState] = useState<"idle" | "sending" | "sent">("idle");
 
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
 
   const onSubmit = async (values: LoginFormValues) => {
     setFormError(null);
+    setNeedsVerification(false);
+    setResendState("idle");
     try {
       const session = await loginRequest(values);
       setSucceeded(true);
@@ -37,6 +50,9 @@ function Login() {
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         setFormError("Incorrect email or password.");
+      } else if (err instanceof ApiError && err.status === 403 && err.message.includes("verify")) {
+        setFormError(err.message);
+        setNeedsVerification(true);
       } else if (err instanceof ApiError && err.status === 429) {
         setFormError("Too many attempts. Please wait a moment and try again.");
       } else if (err instanceof ApiError) {
@@ -44,6 +60,16 @@ function Login() {
       } else {
         setFormError("Could not reach the server. Check your connection and try again.");
       }
+    }
+  };
+
+  const handleResend = async () => {
+    setResendState("sending");
+    try {
+      await resendVerification(getValues("email"));
+      setResendState("sent");
+    } catch {
+      setResendState("idle");
     }
   };
 
@@ -67,12 +93,26 @@ function Login() {
           className="mt-4 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
         >
           {formError && (
-            <p
+            <div
               role="alert"
               className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300"
             >
-              {formError}
-            </p>
+              <p>{formError}</p>
+              {needsVerification && (
+                <button
+                  type="button"
+                  onClick={() => void handleResend()}
+                  disabled={resendState !== "idle"}
+                  className="mt-1.5 text-xs font-medium text-red-300 underline underline-offset-2 disabled:no-underline disabled:opacity-70"
+                >
+                  {resendState === "sent"
+                    ? "Verification email sent — check your inbox"
+                    : resendState === "sending"
+                      ? "Sending…"
+                      : "Resend verification email"}
+                </button>
+              )}
+            </div>
           )}
           {succeeded && (
             <p

@@ -1,17 +1,25 @@
-"""Organizations API — EP-12.1, EP-13, EP-14, EP-15, EP-21.3.
+"""Organizations API — EP-12.1, EP-13, EP-14, EP-15, EP-21.3, EP-24.6.
 
 Endpoints:
   GET    /v1/organizations                — orgs the current user belongs to
   PATCH  /v1/organizations/{org_id}       — update name/description of a workspace
   DELETE /v1/organizations/{org_id}       — delete a workspace (EP-22.2, not personal)
   GET    /v1/organizations/{org_id}/members                 — list members
-  POST   /v1/organizations/{org_id}/members                 — add/invite a member
+  POST   /v1/organizations/{org_id}/members                 — add/invite a member (immediate, EP-13)
   PATCH  /v1/organizations/{org_id}/members/{membership_id} — change a member's role
   DELETE /v1/organizations/{org_id}/members/{membership_id} — remove a member
+  GET    /v1/organizations/{org_id}/invitations              — list pending invitations
+  POST   /v1/organizations/{org_id}/invitations              — send a real, email-token invite
+  POST   /v1/organizations/{org_id}/transfer-ownership        — hand OWNER to another member
   GET    /v1/organizations/{org_id}/api-keys                — list API keys
   POST   /v1/organizations/{org_id}/api-keys                — create an API key
   PATCH  /v1/organizations/{org_id}/api-keys/{key_id}        — rename an API key (EP-22.2)
   DELETE /v1/organizations/{org_id}/api-keys/{key_id}        — revoke an API key
+
+Token-based invitation accept/decline/resend/cancel live in
+``app/api/v1/invitations.py`` instead — they're addressed by invitation
+token or id, not by ``org_id`` path parameter, so they can't use this
+router's ``RequirePermission`` (which requires an ``org_id`` path segment).
 
 Authorization
 --------------
@@ -21,6 +29,18 @@ granted to ADMIN and OWNER. Only an existing OWNER may grant the OWNER role
 to someone else — otherwise an ADMIN could invite a co-equal owner, a
 privilege escalation. The organization's last remaining OWNER can never be
 demoted or removed, to prevent an organization becoming ownerless.
+EP-24.6 adds two further restrictions RequirePermission alone can't
+express: an OWNER can never demote *themselves* (transfer ownership is the
+correct path — see ``ORG_TRANSFER_OWNERSHIP`` below), and an ADMIN can
+never remove an OWNER even when other owners exist.
+
+Invitations (EP-24.6): create/list/cancel/resend require ORG_MANAGE_MEMBERS
+(same as the pre-existing member-management endpoints — inviting a real
+person is the same privilege level as directly adding one). Transferring
+ownership requires the new, OWNER-only ``ORG_TRANSFER_OWNERSHIP``
+permission — never granted to ADMIN, mirroring ``ORG_DELETE``'s precedent
+that an organization's most irreversible actions require its most senior
+role.
 
 API keys (EP-14): read requires API_KEY_READ (every role); create/revoke
 require API_KEY_WRITE, granted only to ADMIN and OWNER. The raw key is
@@ -37,29 +57,40 @@ JWT-only; a key cannot mint or revoke other keys in this phase.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import structlog
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts.dedup import api_key_scope, membership_scope
 from app.alerts.dispatcher import AlertService
-from app.api.deps import DbDep, EventBusDep
+from app.api.deps import DbDep, EventBusDep, SettingsDep
 from app.auth.api_key_auth import RequireMembershipOrApiKeyPermission
 from app.auth.dependencies import CurrentMembership, CurrentUser, RequirePermission
+from app.auth.rate_limit import EmailRateLimiter
 from app.auth.rbac import Permission
 from app.db.mixins import uuid7
 from app.models.alert import AlertSeverity, AlertType
+from app.models.invitation import Invitation, InvitationStatus
 from app.models.membership import Membership, MembershipRole
 from app.models.organization_api_key import OrganizationApiKey
 from app.models.user import User
+from app.organizations.audit import OrgAuditEvent, log_org_event
 from app.realtime.event_bus import EventBus
+from app.repositories.invitation_repository import InvitationRepository
 from app.repositories.membership_repository import MembershipRepository
 from app.repositories.organization_api_key_repository import OrganizationApiKeyRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.user_repository import UserRepository
+from app.schemas.invitations import (
+    CreateInvitationRequest,
+    InvitationResponse,
+    InvitationsListResponse,
+    TransferOwnershipRequest,
+)
 from app.schemas.organization_api_keys import (
     ApiKeyCreatedResponse,
     ApiKeyResponse,
@@ -77,6 +108,12 @@ from app.schemas.organizations import (
     UpdateOrganizationRequest,
 )
 from app.services.api_key_auth_service import ApiKeyAuthContext
+from app.services.invitation_service import (
+    AlreadyMemberError,
+    CannotInviteSelfError,
+    DuplicatePendingInvitationError,
+    InvitationService,
+)
 from app.services.organization_api_key_service import (
     InvalidPermissionError,
     OrganizationApiKeyService,
@@ -154,6 +191,40 @@ async def _count_owners(repo: MembershipRepository, org_id: uuid.UUID) -> int:
             Membership.role == MembershipRole.OWNER,
         )
     )
+
+
+def _to_invitation_response(inv: Invitation, creator: User | None = None) -> InvitationResponse:
+    # "expired" is never persisted (see Invitation model's own docstring) —
+    # derived here, the one place every reader of this response sees it.
+    effective_status = inv.status.value
+    if inv.status == InvitationStatus.PENDING and inv.expires_at <= datetime.now(UTC):
+        effective_status = "expired"
+    return InvitationResponse(
+        id=inv.id,
+        organization_id=inv.organization_id,
+        email=inv.email,
+        role=inv.role.value,
+        status=effective_status,
+        invited_by_name=creator.display_name if creator else None,
+        invited_by_email=creator.email if creator else None,
+        created_at=inv.created_at,
+        expires_at=inv.expires_at,
+        accepted_at=inv.accepted_at,
+        cancelled_at=inv.cancelled_at,
+    )
+
+
+def _get_invitation_rate_limiter(request: Request) -> EmailRateLimiter:
+    """App-wide invitation-send rate limiter — same lazily-created,
+    app.state-cached, Redis-backed pattern as auth.py's
+    ``_get_email_rate_limiter`` (EP-24.4), a distinct instance because the
+    scope key (org_id:email, not just email) and call sites differ."""
+    limiter = getattr(request.app.state, "invitation_rate_limiter", None)
+    if limiter is None:
+        container = getattr(request.app.state, "container", None)
+        limiter = EmailRateLimiter(redis=getattr(container, "redis", None))
+        request.app.state.invitation_rate_limiter = limiter
+    return limiter
 
 
 @router.get(
@@ -351,14 +422,33 @@ async def update_member_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
     if target.role == MembershipRole.OWNER and new_role != MembershipRole.OWNER:
+        # EP-24.6: an OWNER can never demote themselves, even if other
+        # owners exist — transfer ownership (POST .../transfer-ownership)
+        # is the only sanctioned way to hand off the role, so this can
+        # never leave a workspace with zero owners as a side effect of an
+        # accidental self-demotion.
+        if target.id == caller.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Owners cannot demote themselves — transfer ownership instead",
+            )
         if await _count_owners(repo, org_id) <= 1:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Cannot change the role of the organization's only owner",
             )
 
+    old_role = target.role
     updated = await repo.update(target, role=new_role)
     user = await UserRepository(db).get(updated.user_id) if updated.user_id else None
+    log_org_event(
+        OrgAuditEvent.MEMBER_ROLE_CHANGED,
+        organization_id=org_id,
+        actor_user_id=caller.user_id,
+        target_email=updated.user_email,
+        old_role=old_role.value,
+        new_role=new_role.value,
+    )
     return _to_member_response(updated, user)
 
 
@@ -372,22 +462,37 @@ async def remove_member(
     membership_id: uuid.UUID,
     db: DbDep,
     event_bus: EventBusDep,
-    _caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
+    caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
 ) -> None:
     repo = MembershipRepository(db)
     target = await repo.get(membership_id)
     if target is None or target.organization_id != org_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-    if target.role == MembershipRole.OWNER and await _count_owners(repo, org_id) <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot remove the organization's only owner",
-        )
+    if target.role == MembershipRole.OWNER:
+        # EP-24.6: an ADMIN can never remove an OWNER, regardless of how
+        # many owners exist — only an OWNER may remove another OWNER.
+        if caller.role != MembershipRole.OWNER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an owner can remove another owner",
+            )
+        if await _count_owners(repo, org_id) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot remove the organization's only owner",
+            )
 
     removed_email, removed_role = target.user_email, target.role
     await repo.soft_delete(target)
 
+    log_org_event(
+        OrgAuditEvent.MEMBER_REMOVED,
+        organization_id=org_id,
+        actor_user_id=caller.user_id,
+        target_email=removed_email,
+        role=removed_role.value,
+    )
     await _fire_alert_safely(
         db,
         event_bus,
@@ -400,6 +505,135 @@ async def remove_member(
         scope=membership_scope(org_id, removed_email),
         metadata={"email": removed_email, "role": removed_role.value},
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Invitations (EP-24.6) — the real, email-token invite flow. Token-addressed
+# accept/decline/resend/cancel live in app/api/v1/invitations.py instead.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@router.get(
+    "/{org_id}/invitations",
+    response_model=InvitationsListResponse,
+    summary="List pending invitations",
+)
+async def list_invitations(
+    org_id: uuid.UUID,
+    db: DbDep,
+    _caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
+) -> InvitationsListResponse:
+    repo = InvitationRepository(db)
+    invitations = await repo.list_pending_by_org(org_id)
+    items = [_to_invitation_response(inv, inv.creator) for inv in invitations]
+    return InvitationsListResponse(invitations=items, total=len(items))
+
+
+@router.post(
+    "/{org_id}/invitations",
+    response_model=InvitationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Invite a teammate by email",
+    description=(
+        "Sends a real invitation email containing a one-time accept link. "
+        "Nothing is granted until the invitee actively accepts — unlike "
+        "POST /members, which creates a membership immediately."
+    ),
+)
+async def create_invitation(
+    org_id: uuid.UUID,
+    body: CreateInvitationRequest,
+    request: Request,
+    db: DbDep,
+    settings: SettingsDep,
+    current_user: CurrentUser,
+    caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
+) -> InvitationResponse:
+    role = _parse_role(body.role)
+    if role == MembershipRole.OWNER and caller.role != MembershipRole.OWNER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an organization owner can grant the owner role",
+        )
+
+    normalized_email = body.email.strip().lower()
+    limiter = _get_invitation_rate_limiter(request)
+    decision = await limiter.check_and_record(
+        scope="invitation", key=f"{org_id}:{normalized_email}"
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many invitations sent to this address. Please wait before retrying.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
+
+    org = await OrganizationRepository(db).get(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+
+    service = InvitationService(db, settings)
+    try:
+        created = await service.create_invitation(
+            organization=org, email=body.email, role=role, inviter=current_user
+        )
+    except CannotInviteSelfError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="You cannot invite yourself",
+        ) from exc
+    except AlreadyMemberError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This email is already a member of the organization",
+        ) from exc
+    except DuplicatePendingInvitationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This email already has a pending invitation",
+        ) from exc
+
+    return _to_invitation_response(created, current_user)
+
+
+@router.post(
+    "/{org_id}/transfer-ownership",
+    response_model=MemberResponse,
+    summary="Transfer organization ownership to another member",
+    description=(
+        "OWNER only. The caller's own membership becomes ADMIN and the "
+        "target member's becomes OWNER, in one transaction — an "
+        "organization is never briefly ownerless."
+    ),
+)
+async def transfer_ownership(
+    org_id: uuid.UUID,
+    body: TransferOwnershipRequest,
+    db: DbDep,
+    caller: Annotated[Membership, RequirePermission(Permission.ORG_TRANSFER_OWNERSHIP)],
+) -> MemberResponse:
+    repo = MembershipRepository(db)
+    new_owner = await repo.get(body.new_owner_membership_id)
+    if new_owner is None or new_owner.organization_id != org_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+    if new_owner.id == caller.id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="You are already the owner",
+        )
+
+    await repo.update(new_owner, role=MembershipRole.OWNER)
+    await repo.update(caller, role=MembershipRole.ADMIN)
+
+    log_org_event(
+        OrgAuditEvent.OWNERSHIP_TRANSFERRED,
+        organization_id=org_id,
+        actor_user_id=caller.user_id,
+        target_email=new_owner.user_email,
+    )
+
+    user = await UserRepository(db).get(new_owner.user_id) if new_owner.user_id else None
+    return _to_member_response(new_owner, user)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

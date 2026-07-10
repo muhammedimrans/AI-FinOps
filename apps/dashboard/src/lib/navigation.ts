@@ -37,7 +37,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard/alerts",       icon: Bell,            label: "Alert Center",   group: "Analytics", keywords: "notifications severity history" },
   { to: "/dashboard/organization", icon: Building2,       label: "Organization",   group: "Analytics", keywords: "team members" },
   { to: "/dashboard/pricing",      icon: Receipt,         label: "Pricing",        group: "Analytics", keywords: "cost calculator catalog rates" },
-  { to: "/users",                  icon: Users,           label: "Users",          group: "Admin" },
+  { to: "/users",                  icon: Users,           label: "Members",        group: "Admin", keywords: "users invite team invitations" },
   { to: "/rbac",                   icon: ShieldCheck,     label: "RBAC",           group: "Admin", keywords: "roles permissions access" },
   { to: "/api-keys",               icon: Key,             label: "API Keys",       group: "Admin", keywords: "credentials secrets" },
   { to: "/connections",            icon: PlugZap,         label: "Connections",    group: "Admin", keywords: "provider integration" },

@@ -15,6 +15,19 @@ class AccountDisabledError(AuthError):
     """The user account has been disabled by an administrator."""
 
 
+class EmailNotVerifiedError(AuthError):
+    """Password login was attempted before the account's email was verified.
+
+    EP-24.4.1 — closes the login-time bypass: `register()` deliberately
+    issues a session immediately for a brand-new (unverified) account (an
+    existing, documented activation-funnel decision — see EP-21.2's note on
+    `register()`), but a *separate* `login()` call with email+password must
+    never succeed until that email is verified. Google OAuth logins are
+    exempt (EP-24.5) — Google already verifies the address, so
+    `login_or_register_with_google()` never raises this.
+    """
+
+
 class InvalidTokenError(AuthError):
     """The provided token is invalid, expired, already used, or revoked."""
 

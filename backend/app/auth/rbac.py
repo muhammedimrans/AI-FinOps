@@ -22,6 +22,10 @@ class Permission(enum.StrEnum):
     ORG_WRITE = "org:write"
     ORG_DELETE = "org:delete"
     ORG_MANAGE_MEMBERS = "org:manage_members"
+    # EP-24.6 — OWNER-only, mirrors ORG_DELETE's "most irreversible actions
+    # require the most senior role" precedent below. Never granted to
+    # _ADMIN_PERMS; automatically included in _OWNER_PERMS (= frozenset(Permission)).
+    ORG_TRANSFER_OWNERSHIP = "org:transfer_ownership"
 
     # Project
     PROJECT_READ = "project:read"
@@ -58,6 +62,10 @@ class Permission(enum.StrEnum):
 # but never remove it — fixed by adding PROJECT_DELETE to _MEMBER_PERMS.
 #
 # Documented exceptions (deliberately asymmetric, not oversights):
+#   - ORG_TRANSFER_OWNERSHIP (EP-24.6) is OWNER-only, granted to no other
+#     role — an ADMIN can manage members (invite/role-change/remove) but
+#     can never make themselves or anyone else the OWNER; only the current
+#     OWNER can hand that role to someone else.
 #   - ORG_DELETE is OWNER-only even though ADMIN holds ORG_WRITE. Deleting
 #     an organization is categorically more destructive than any other
 #     delete in this table — it cascades to every project, provider

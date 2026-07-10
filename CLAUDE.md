@@ -2259,3 +2259,348 @@ Backend: `pytest` (1829 passed, including a from-scratch `alembic upgrade head` 
 2. **A second OAuth provider** (GitHub, Microsoft) — the natural trigger to extract the four `google_*` columns into a proper polymorphic `oauth_identities` table, generalizing `app/auth/google_oauth.py`'s state/PKCE/nonce machinery (which is already provider-agnostic in shape, just not yet parameterized) rather than duplicating it per provider.
 3. **Redis-backed state one-time-use tracking**, if the 10-minute-TTL-only replay window (see "Known limitations") is ever judged insufficient at this product's scale — not needed today since Google's own one-time authorization codes already provide the load-bearing guarantee.
 4. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: wiring `ProviderConnection.encrypted_api_key` into real usage collection for the remaining 5 providers, and the still-open transactional-email items (organization invites, delivery-event webhooks) from EP-24.4.
+
+---
+
+## 26. EP-24.4.1 — Authentication Enforcement & First-Login Stabilization
+
+**Status: complete.** A production stabilization pass, not a feature EP — the request that triggered it was explicit that Google OAuth, new features, and any redesign of the authentication architecture were all out of scope. This EP fixes one concrete production bug (a brand-new, unverified account could log in with a correct password) and two adjacent first-login UX problems (slow dashboard render, a WebSocket reconnect loop with no ceiling) that surfaced during the same investigation. Note on the originating request's own deliverables list: it asked for "remaining authentication work before EP-24.5" — EP-24.5 (Google OAuth, §25) had already shipped by the time this EP started, so that phrasing is stale; "Known limitations" below is framed as "remaining work" without pinning it to a specific future EP number.
+
+### Part 1 — Root cause of the email-verification bypass
+
+**The bug**: `AuthService.register()` (`backend/app/auth/service.py`) correctly creates a new `User` with `email_verified=False` and correctly sends a verification email (EP-24.4, §24) — that part of the pipeline was never broken, which is why "email delivery works correctly" in the reported symptom. The break was one step later: `AuthService.login()` verified the password, checked `user.status == UserStatus.DISABLED`, and then issued a session — **it never once read `user.email_verified`**. Because the backend's own account-creation flow deliberately auto-logs a fresh registrant in immediately (see "Why `register()`'s own auto-login is untouched" below), nobody had separately gated the one code path that matters for this bug: a *second*, later `login()` call with the same, still-unverified account's correct password.
+
+**Evidence** (traced by reading every step named in Part 1 of the request):
+1. `AuthService.register()` — sets `email_verified=False` on the new `User` row (unchanged, correct, confirmed by `tests/test_ep24_4_email_auth.py`'s existing coverage).
+2. `AuthService._send_verification_email()` — creates a `VerificationToken`, sends the email via `EmailService` (unchanged, correct — this is the part production observed working).
+3. `AuthService.login()` (pre-fix) — `user = get_by_email(email)` → `verify_password(...)` → `if user.status == DISABLED: raise` → **directly to `_issue_session(user, ...)`**. No `if not user.email_verified` branch existed anywhere in this method.
+4. `_issue_session()` — creates a `Session` row, signs a JWT access token, generates a refresh token. It has no awareness of `email_verified` and was never supposed to — enforcement belongs one layer up, in the caller that decides *whether* a session should be issued at all, not in the primitive that issues one once that decision is made.
+5. `POST /v1/auth/login` (`app/api/v1/auth.py`) — called `AuthService.login()` and returned its `TokenPair` directly to the client on any non-exception path. Since `login()` never raised for an unverified account, the endpoint never had a reason to reject it either.
+6. `refresh()` — audited and found **not** part of the bypass: it operates on an already-issued, already-hashed refresh token from the `Session` table, not on credentials, and has no equivalent "was this session allowed to exist" gate to fail — the actual defect is entirely upstream, at the point a session is first created. Adding a redundant `email_verified` check here would duplicate logic without closing any new gap, since a session can only exist if `login()` (now fixed) or `register()` (intentionally exempt, see below) created it.
+7. **Google OAuth** (`login_or_register_with_google()`, EP-24.5) — confirmed exempt by design and by test (`TestGoogleLoginUnaffected`): Google-verified emails are trusted at the point of exchange, so this path never calls the new check.
+
+**Answering the request's five specific questions directly:**
+1. *Is `email_verified` stored as `FALSE` after registration, or accidentally `TRUE`?* — Correctly `FALSE`. Never the bug.
+2. *Does login check `email_verified` before creating a session?* — **No, this was the bug.** Now yes (see "The fix" below).
+3. *Can an unverified user receive JWT tokens?* — Only via `register()`'s own deliberate, documented immediate-session-issuance (unchanged, see below) — never via a subsequent `login()` call, as of this fix.
+4. *Can an unverified user refresh tokens?* — Only if they already hold a valid refresh token from one of the two legitimate session-creation paths above; there is no separate refresh-time bypass, since `refresh()` never independently re-derives "should this account have a session" — it only continues one that already legitimately exists.
+5. *Are there multiple login paths that bypass verification?* — Two paths issue sessions for an unverified user: `register()` (intentional) and Google OAuth (intentionally exempt, EP-24.5). `login()` was the one unintentional bypass; it is now closed.
+
+### Part 2 — The fix
+
+`backend/app/auth/exceptions.py` — new `EmailNotVerifiedError(AuthError)`.
+
+`backend/app/auth/service.py` — `AuthService.login()` gained exactly one new branch, positioned **after** the password and disabled-account checks and **before** `_issue_session()`:
+
+```python
+if not user.email_verified:
+    log_auth_event(AuditEvent.LOGIN_REJECTED_UNVERIFIED, user_id=user.id, email=user.email, ip_address=ip_address)
+    raise EmailNotVerifiedError
+```
+
+Position matters for two reasons: (1) a wrong-password attempt against an unverified account still gets the generic `InvalidCredentialsError`/401, so this fix never leaks "this email exists and is unverified" to someone who doesn't already know the correct password; (2) it runs before any session-creation side effect, so no `Session` row, JWT, or refresh token is ever produced for a rejected attempt.
+
+`backend/app/api/v1/auth.py` — `POST /v1/auth/login` gained one new `except EmailNotVerifiedError` handler, mapping to exactly the response Part 2 of the request specified:
+
+```python
+raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+```
+
+This handler is placed before the rate limiter's `record_success()` call and deliberately never calls `record_failure()` either — the credentials were correct, so this is not a brute-force signal, and a legitimate user waiting on a slow inbox retrying login should never trip an account lockout over it.
+
+**Why `register()`'s own auto-login is untouched.** This is an existing, already-documented (EP-21.2, §6/§7) product decision: a brand-new registrant is logged in immediately, before their email is verified, specifically to avoid an activation-funnel drop-off between "created an account" and "can see the product." The request's Part 1 asked whether this counts as a "bypass" — it is a deliberate, one-time exception scoped to the exact moment of account creation, not a hole in enforcement: every *subsequent* authentication event for that same account (a new browser, a new device, a session that expired) now goes through the fixed `login()` and is correctly gated. Nothing in this EP redesigns that decision, per the request's own "do not redesign the authentication architecture" instruction.
+
+### Part 3 — Database validation
+
+No schema or migration change was required or made. `users.email_verified` (added in EP-21.2, defaulted correctly since) was audited end-to-end:
+- **New users**: `register()` sets `False` — confirmed unchanged, confirmed enforced by the new `login()` check on any login attempt after the auto-login session expires.
+- **Already-verified users**: `verify_email()` (EP-24.4, unchanged by this EP) sets `True` once, permanently — `TestLoginEmailVerificationEnforcement::test_verified_account_logs_in_successfully` pins that a verified account's login is completely unaffected by this fix.
+- **Pre-existing users from before `email_verified` existed as a column**: EP-21.2's own migration already backfilled every pre-existing row to `True` (the same "retroactively gating existing users would be a regression, not a fix" reasoning EP-21.3 later reused for `onboarding_completed_at`, §11) — re-confirmed by reading that migration again during this EP's investigation; no new backfill was needed.
+- **Migration defaults**: the column has no default at the database level — every code path that creates a `User` row (`register()`, `login_or_register_with_google()`) sets it explicitly, so there is no code path that could silently insert a row with an undefined verification state.
+
+### Part 4 — Dashboard performance investigation
+
+**Root cause**: `features/Overview.tsx` mounts and unconditionally fires `useOverview()`, `useTimeSeries()`, `useProviders()`, `useModels()`, and `useActivityFeed()` — five React Query calls — every time the component renders, regardless of whether the organization has any usage data at all. For a brand-new organization (dashboard state 1–3, per EP-22.3's `useDashboardState()`, §17), the section that would actually render `useTimeSeries`/`useProviders`/`useModels`/`useActivityFeed`'s data (`DashboardStateHero` replaces it entirely for states 1–3) never shows it — the queries fire, wait on the network, and their results are thrown away unread. On first login this is compounded by the fact that `useDashboardState()` itself runs three sequential-feeling queries (connections, projects, all-time overview) to determine which state to show, so a new user's very first paint was gated behind up to eight total round-trips before anything meaningful appeared.
+
+**The fix**: a minimal, backward-compatible `enabled` gate. `hooks/useDashboard.ts` gained an exported `QueryGateOptions` interface (`{ enabled?: boolean }`) threaded as an optional **second** parameter through `useTimeSeries`, `useProviders`, `useModels`, and `useActivityFeed` — each hook's existing `enabled: !!organizationId` became `enabled: !!organizationId && (options.enabled ?? true)`. Every pre-existing call site (notably `Analytics.tsx`, which always wants these queries regardless of dashboard state) is unaffected, since the default (`options.enabled ?? true`) reproduces the old always-on behavior exactly when the new parameter is omitted. `features/Overview.tsx` is the one call site that passes it:
+
+```typescript
+const hasRealUsage = !dashboardState.isLoading && dashboardState.state === 4;
+const timeSeries = useTimeSeries({}, { enabled: hasRealUsage });
+const providers = useProviders({}, { enabled: hasRealUsage });
+const models = useModels({}, { enabled: hasRealUsage });
+const activityFeed = useActivityFeed(8, { enabled: hasRealUsage });
+```
+
+`useOverview()` (the 8 top-level KPI cards) and `useBudgetSummary()` were deliberately **not** gated — both render real, useful zeroed/empty content immediately for a brand-new org ("$0.00 spend", "0 requests") rather than depending on state, so gating them would only add a delay with no corresponding benefit. This satisfies the request's "render the shell immediately; load expensive widgets progressively... for new users, render the empty dashboard immediately, do not wait for analytics that do not exist" instruction precisely: the shell (KPI cards, `GettingStartedBanner`/`DashboardStateHero`) renders as soon as `dashboardState` resolves; the four breakdown queries this fix gates simply never fire at all for a brand-new org, rather than firing and being wasted.
+
+**What was investigated and deliberately left unchanged**: `useDashboardState()`'s own `["overview-all-time", organizationId]` query (a third, distinct-from-the-KPI-cards `getOverview()` call used purely to detect "has this org ever recorded any usage") was flagged by an internal research pass as a possible duplicate call. Re-reading its own code comments (EP-22.3, §17) confirmed this is an already-documented, deliberate tradeoff — not a bug — reusing an existing endpoint with a fixed far-past `start_date` rather than adding a new summary endpoint. Per this EP's explicit "do not redesign" instruction, it was left untouched.
+
+### Part 5 — WebSocket investigation
+
+**Root cause of the "Reconnecting" loop concern**: `RealtimeClient.scheduleReconnect()` (`apps/dashboard/src/realtime/client.ts`) already capped the *delay* between reconnect attempts (exponential backoff with jitter, capped at 30s — `apps/dashboard/src/realtime/connection.ts`, unchanged, confirmed already correct) but had no cap on the *number* of attempts. A backend or network condition that never recovers (e.g., a production WebSocket endpoint genuinely unreachable, or blocked by an intermediary) meant the client would retry forever, once every ~30s, for the lifetime of the tab — an infinite reconnect loop in the sense the request described, even though each individual attempt was correctly throttled.
+
+**The fix**: `MAX_RECONNECT_ATTEMPTS = 10` (a new exported constant). Once `reconnectAttempts` reaches this cap, `scheduleReconnect()` stops scheduling further attempts and transitions the connection to a new terminal `"offline"` status instead. This is safe to add without any other architectural change because `useRealtimeRefetchInterval()` (the React Query bridge, EP-19.2) already treats *any* non-`"connected"` status — including the new `"offline"` — as "fall back to 60-second polling." The dashboard was never actually blocked by a failed WebSocket; it was only retrying forever in the background, which this fix bounds without changing the fallback behavior at all. `reconnectNow()` (called on organization switch or a fresh login) already reset `reconnectAttempts = 0`, so a user who logs in fresh, or switches orgs, after the client has given up gets a full new set of attempts — the cap is per-connection-lifetime, not per-session.
+
+**Investigated and deliberately left unchanged, per the request's explicit "do not redesign" instruction:**
+- **Whether the WebSocket should start at all for a brand-new user with nothing to stream.** `useRealtimeConnection`'s eager-connect-on-mount behavior (`apps/dashboard/src/realtime/hooks.ts`) is tied to the same polling-fallback architecture the reconnect cap above relies on — gating it on `dashboardState.state === 4` would mean states 1–3 never get a chance to *become* state 4 live (a user connecting their first provider in another tab, or completing onboarding, wouldn't be reflected without a full page reload). This is a legitimate architectural tradeoff to revisit deliberately in a future EP, not a bug to patch here.
+- **`ConnectionIndicator.tsx`** — the header pill that surfaces connection status. Read in full; it is small, not intrusive, and already renders a plain, honest "Polling" state rather than an alarming "Reconnecting" message once the fallback kicks in. No change needed.
+- **Cloudflare compatibility, backend WebSocket auth** — audited (`app/api/v1/realtime.py`, EP-19.1, unchanged) and found correct; the reported symptom traces entirely to the frontend's unbounded retry count, not a backend or edge-proxy defect.
+
+### Part 6 — Validation (register → reject → verify → login → dashboard → WebSocket)
+
+Per this project's established convention (§9, §10, §11, and every EP since — this sandbox has no way to drive a real browser against a live deployment), the journey was verified in pieces, not as one continuous browser session:
+1. **register → email received**: unchanged from EP-24.4 (§24), re-verified by the unmodified `test_ep24_4_email_auth.py` suite passing.
+2. **login rejected**: `TestLoginEmailVerificationEnforcement::test_unverified_account_is_rejected` and `TestLoginEndpointRejection::test_returns_403_with_required_message` — both assert the exact status code and message text the request specified.
+3. **rejection does not count as a rate-limit failure**: `TestLoginEndpointRejection::test_rejection_does_not_count_as_a_rate_limit_failure`.
+4. **verify → login succeeds**: `TestFullJourney::test_register_reject_verify_login_succeeds` — a single service-layer test that registers, forces the session to expire (simulating "comes back later"), attempts login (rejected), calls `verify_email()`, then logs in again (succeeds) — the automated equivalent of the request's Part 6 manual journey.
+5. **dashboard renders immediately, no excessive delay**: verified via the `useDashboard.ts` gating fix and `Overview.test.tsx`'s existing KPI-card assertions continuing to pass unmodified (they never depended on the now-gated queries).
+6. **WebSocket behaves correctly**: `client.test.ts`'s new `"stops retrying and reports offline after MAX_RECONNECT_ATTEMPTS"` test drives 11 consecutive close events and confirms exactly `MAX_RECONNECT_ATTEMPTS` reconnect attempts are made before the client reports `"offline"` and stops.
+
+### Part 7 — Testing
+
+- **Backend** (`backend/tests/test_ep24_4_1_auth_enforcement.py`, 10 new tests): `TestLoginEmailVerificationEnforcement` (unverified rejected; verified succeeds; wrong password on an unverified account still raises `InvalidCredentialsError`, not `EmailNotVerifiedError` — confirming credentials are checked first; disabled account still raises `AccountDisabledError`, not `EmailNotVerifiedError` — confirming the disabled check still runs first), `TestRegisterUnaffected` (register still issues a session for a brand-new unverified account), `TestGoogleLoginUnaffected` (Google login never raises `EmailNotVerifiedError`), `TestLoginEndpointRejection` (exact 403 message; rejection doesn't count as a rate-limit failure; a verified account still succeeds at the API layer), `TestFullJourney` (the full register → reject → verify → login pin, above). Two pre-existing tests needed a one-line fixture fix (`make_user(..., email_verified=True)`) since their `make_user()` factory calls predate this EP and defaulted to `False`, which the new check now correctly (if unexpectedly, for those two tests' original intent) rejects — `test_ep05.py::TestAuthServiceLogin::test_login_returns_token_pair_and_user` and `test_member_management.py::TestLoginLinksPendingInvitations::test_login_calls_link_pending_by_email`. Full backend suite: **1839 passed, 30 skipped** (up from 1829 before this EP — the 30 skips are the pre-existing, documented `DATABASE_URL`-gated integration tests, unrelated to this EP), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+- **Frontend — dashboard** (`apps/dashboard`): new `src/__tests__/Login.test.tsx` (5 tests) — the 403 verify-email message and resend button render on rejection; the resend button calls `resendVerification(email)` and shows a confirmation state; a plain 401 shows the generic invalid-credentials message with no resend button; a 403 that doesn't mention verification (account-disabled) shows the disabled message with no resend button; a verified account still logs in and navigates normally, with no verification UI ever appearing. New `MAX_RECONNECT_ATTEMPTS`-pinning test in `src/realtime/__tests__/client.test.ts` (bringing that file to 11 tests). `src/__tests__/Overview.test.tsx`'s existing "renders Recent Activity with real imports/syncs/failures" test needed one assertion changed from a synchronous `getByText` to an `await findByText`, since the query-gating fix (Part 4) makes the activity-feed query start fetching only once `dashboardState` resolves to state 4, rather than in parallel with it — a genuine, expected async-timing change from the fix, not a regression. Full dashboard suite: **247 passed** (up from 242), `eslint src --max-warnings 0` clean, `tsc -b` clean, `vite build` clean.
+- **Frontend — website**: `apps/website/src/lib/api.ts` gained a `resendVerification()` function (mirroring the dashboard's, since the website's login form independently calls the same `POST /v1/auth/login` and needed the same 403-handling and resend affordance — `apps/website/src/routes/login.tsx` updated in lockstep). Two new tests in `src/lib/api.test.ts`: the 403 verify-email message round-trips through `ApiError` correctly; `resendVerification()` posts to `/v1/auth/resend-verification` with the given email. Full website suite: **17 passed** (up from 15), `eslint .` clean (pre-existing shadcn/ui `react-refresh` warnings only, unrelated), `vite build` clean (Nitro SSR, all 13 routes, confirmed via the pre-existing route-count check this EP re-ran as a regression guard).
+
+### Files changed
+
+Backend: `app/auth/exceptions.py`, `app/auth/service.py`, `app/auth/audit.py`, `app/api/v1/auth.py`, `tests/test_ep05.py` (fixture fix), `tests/test_member_management.py` (fixture fix), `tests/test_ep24_4_1_auth_enforcement.py` (new).
+Dashboard: `src/hooks/useDashboard.ts`, `src/features/Overview.tsx`, `src/realtime/client.ts`, `src/realtime/__tests__/client.test.ts`, `src/features/Login.tsx`, `src/__tests__/Login.test.tsx` (new), `src/__tests__/Overview.test.tsx` (one assertion updated for the gating fix's async timing).
+Website: `src/lib/api.ts`, `src/routes/login.tsx`, `src/lib/api.test.ts`.
+No migration, no new table, no new API endpoint — the 403 response uses the existing `POST /v1/auth/login` endpoint and the existing `POST /v1/auth/resend-verification` endpoint (EP-24.4, §24).
+
+### Known limitations
+
+- **`register()`'s own immediate-session-issuance for an unverified account is unchanged** — this is a pre-existing, documented (EP-21.2) product decision, not a gap this EP was scoped to close, and the request's own framing ("do not redesign the authentication architecture") confirms it should stay as-is. A brand-new registrant's very first session is still granted before their email is verified; every subsequent login attempt is now correctly gated.
+- **The WebSocket still starts eagerly for a brand-new user with nothing to stream** (Part 5) — investigated and deliberately not changed, since gating it on dashboard state would mean states 1–3 can't reflect a live update (e.g. connecting a provider in another tab) without a full reload. This is an architectural tradeoff for a future EP to make deliberately, not a bug.
+- **`MAX_RECONNECT_ATTEMPTS = 10` is a fixed constant, not configurable** — chosen to bound the worst case (roughly the sum of the exponential-backoff-with-30s-cap series, on the order of a few minutes of total retry time) without introducing new configuration surface for a value this EP's scope didn't call for tuning.
+- **The dashboard query-gating fix (Part 4) only covers `Overview.tsx`'s four breakdown queries** — `Analytics.tsx` and other pages that always want this data regardless of dashboard state were correctly left ungated (the whole point of the optional, backward-compatible `QueryGateOptions` parameter), but a future page that renders a similar "hero replaces the breakdown section" pattern for new orgs would need to apply the same gate itself; it isn't automatic.
+- **No live, continuous browser test of the full register → reject → verify → login → dashboard → WebSocket journey** — same caveat as every prior EP in this document: verified in pieces (backend service/API tests, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Future improvements
+
+1. **Gate the WebSocket's eager-connect behavior on dashboard state, deliberately** — a future EP could start the connection only once `dashboardState.state` reaches a threshold where live updates are actually meaningful, while still handling the "user completes onboarding in another tab" case (e.g., by connecting once dashboard state is no longer state 1, rather than only at state 4).
+2. **A dedicated "add a password" flow for Google-only accounts** and the other items already carried forward from EP-24.5 (§25) — unaffected by this EP, still the next real product blockers alongside the standing usage-collection and transactional-email items named at the end of §25.
+3. **A CI job that fails if a new `login`-equivalent code path is added without the `email_verified` check** — this EP found exactly one bypass by manual trace; a lint rule or test asserting every session-issuing call site is one of the two documented, intentional exceptions (`register()`, Google OAuth) would catch a future regression automatically rather than relying on another manual audit.
+
+---
+
+## 27. EP-24.6 — Organization Invitations & Team Collaboration
+
+**Status: complete.** Organizations can now invite people who are not yet members into an existing workspace by email — GitHub/Vercel/Linear/Notion-style — with role selection, a 7-day expiring single-use token, an email delivered through the existing EP-24.4 email architecture, an accept/decline flow that survives an unauthenticated visitor needing to log in or register first, resend/cancel, role changes with ownership-safety guards, member removal, and a full ownership-transfer flow. This closes the team-collaboration gap every EP since §7 has implicitly assumed away ("Inviting members: real and working... but invite emails are never delivered").
+
+### Why this is additive to, not a replacement of, EP-13's existing membership endpoint
+
+`POST /v1/organizations/{org_id}/members` (EP-13) already exists and creates a `Membership` row immediately, with no consent step and no email — it was built for the case of provisioning a known teammate directly. This EP does not touch, deprecate, or redirect that endpoint. A genuine invitation — where the invitee must affirmatively accept before becoming a member, and where the org doesn't yet know if that email belongs to an existing account — is a different flow with a different lifecycle (pending → accepted/declined/cancelled/expired), so it gets its own first-class `Invitation` entity rather than overloading `Membership` with a "not yet accepted" state. Both mechanisms write into the same `Membership` table on success and are gated by the same RBAC permissions; nothing about `MembershipRepository`, `OrganizationRepository`, or the RBAC framework was duplicated — every new piece of business logic sits in a new `InvitationService` that composes those existing repositories plus the existing `EmailService`.
+
+### Architecture
+
+```
+apps/dashboard (Users.tsx = "Members" page)
+        │  Invite Member modal → createInvitation(org_id, email, role)
+        ▼
+POST /v1/organizations/{org_id}/invitations   (NOTIFICATION_WRITE-adjacent —
+        │                                        actually ORG_MANAGE_MEMBERS,
+        │                                        see RBAC section below)
+        ▼
+InvitationService.create_invitation()
+        │  validates: not inviting self, not already a member,
+        │  no existing PENDING invitation for this org+email
+        │
+        ├─► generate_refresh_token() + hash_token()   (app.auth.tokens,
+        │      reused verbatim from VerificationToken/PasswordResetToken)
+        ├─► InvitationRepository — persist Invitation(status=PENDING,
+        │      expires_at = now + 7 days, token_hash = ...)
+        ├─► log_org_event(OrgAuditEvent.INVITATION_SENT, ...)
+        │      (app/organizations/audit.py — new structlog-only audit
+        │      stream, mirrors app/auth/audit.py's EP-24.4 convention)
+        └─► EmailService.send_invitation_email(to, org_name, role,
+               accept_url, expires_at)
+                    │
+                    ▼
+        EmailTemplateRenderer.render_invitation_email()
+        (reuses the shared _layout()/_button()/_fallback_url_block()
+         helpers every EP-24.4 template already uses)
+
+Invitee clicks the email link → apps/dashboard's /accept-invite?token=...
+        │
+        ├─ authenticated already ─────────────────────┐
+        │                                              ▼
+        │                             POST /v1/invitations/{token}/accept
+        │                                              │
+        │                             InvitationService.accept_invitation()
+        │                               │ hash_token(token) →
+        │                               │ get_valid_by_token_hash()
+        │                               │ (PENDING + unexpired only —
+        │                               │  same "derive expired at read
+        │                               │  time, never persist it" pattern
+        │                               │  as VerificationToken)
+        │                               │ email must match the
+        │                               │ authenticated user's email
+        │                               │ (InvitationEmailMismatchError
+        │                               │  otherwise — see Security)
+        │                               ├─► MembershipRepository.create()
+        │                               │     (reused, unchanged)
+        │                               ├─► invitation.status = ACCEPTED
+        │                               ├─► log_org_event(
+        │                               │     INVITATION_ACCEPTED, ...)
+        │                               └─► EmailService.
+        │                                     send_invitation_accepted_email
+        │                                     (notifies the inviter)
+        │                                              │
+        │                                              ▼
+        │                            redirect to Members page, now a member
+        │
+        └─ not authenticated ─────────────────────────►
+                     /login?redirect=%2Faccept-invite%3Ftoken%3D...
+                     (EP-24.6's new query-param preservation — see below)
+                     → after login succeeds → browser lands back on
+                       /accept-invite?token=... automatically → same
+                       accept flow as above, now authenticated
+```
+
+### Invitation lifecycle & status model — reusing EP-24.4's token pattern exactly
+
+`InvitationStatus` = `PENDING | ACCEPTED | EXPIRED | CANCELLED`. **`EXPIRED` is never written to the database** — this mirrors `VerificationToken`/`PasswordResetToken`'s established pattern precisely: a row stays `PENDING` in storage past its `expires_at`, and "expired" is a *derived* read-time fact, computed two ways that must always agree:
+1. `InvitationRepository.get_valid_by_token_hash()` — the WHERE clause is `status == PENDING AND expires_at > now()`; an expired-but-still-`PENDING` row simply never matches, so `accept()`/`decline()` see it as "not found" (mapped to the same generic 400 as a bogus token — see Security).
+2. `_to_invitation_response()` (the API-facing mapper) — computes an `is_expired` flag from `expires_at` for display on the Members page's Pending Invitations list, so a stale invitation visibly reads "Expired" without ever needing a background job to flip its status.
+
+`ACCEPTED`/`CANCELLED` **are** persisted — both are genuine terminal outcomes reached through an explicit action (accept, decline, or an Admin/Owner cancelling), not a passive time-based transition, so they belong in storage the same way `VerificationToken.used_at` being set does.
+
+**Resend rotates the token, not the row.** `resend_invitation()` generates a brand-new random token, re-hashes and overwrites `token_hash`, and resets `expires_at` to a fresh `now + 7 days` on the *same* `Invitation` row — the previous raw token (already unrecoverable, since only its hash was ever stored) becomes permanently unusable the instant the row is overwritten, satisfying "invalidate previous token" without needing a separate invalidation step or a second row.
+
+### Database — one new table (Part 17's own instruction: create only one)
+
+Migration `b8c9d0e1f2a3` (chains off EP-24.5's `a7b8c9d0e1f2`), table `invitations`:
+
+| Column | Purpose |
+|---|---|
+| `organization_id` | FK → `organizations.id`, `ON DELETE CASCADE` |
+| `email` | `String(320)` — the invitee's address, not necessarily an existing `User.email` |
+| `role` | Reuses the **existing** `membership_role` Postgres ENUM type via `create_type=False` — see "Postgres ENUM reuse" below |
+| `token_hash` | `String(64)` — SHA-256 hex digest only, exactly `VerificationToken`/`PasswordResetToken`'s storage shape; the raw token is never persisted anywhere |
+| `status` | New `invitation_status` ENUM (`create_type=True` — this table is the type's only owner) |
+| `created_by` | FK → `users.id`, `ON DELETE SET NULL` — the inviter |
+| `accepted_by_user_id` | FK → `users.id`, `ON DELETE SET NULL` — set only on acceptance; distinct from `created_by` since the accepting user is not chosen until acceptance time |
+| `expires_at` / `accepted_at` / `cancelled_at` | Lifecycle timestamps; `accepted_at`/`cancelled_at` stay `NULL` until their respective terminal action |
+
+Indexes: `organization_id`, `email`, `status`, `expires_at`, `token_hash` (5 indexes, matching Part 17's exact list) — plus the `BaseModel` mixin's own standard `cursor`/`deleted` indexes, unchanged from every other table in this codebase.
+
+**Postgres native-ENUM reuse gotcha (a concrete lesson carried forward from EP-24.2's own budgets-migration incident, §22).** `Invitation.role` needed the same three-value role vocabulary (`admin`/`member`/`viewer`, plus `owner` even though an invitation can never be created with that role — enforced at the service layer, not the DB) that `Membership.role` already uses via the `membership_role` Postgres ENUM type. Reusing that type on a second table's column requires `create_type=False` on every column after the first — passing `create_type=True` (the default) on a second table's column against an *already-existing* type name causes SQLAlchemy to attempt `CREATE TYPE membership_role AS ENUM (...)` a second time, which fails with `DuplicateObjectError` the instant this migration runs against a database where the `memberships` table's migration already ran (i.e., every real deployment). The new `invitation_status` type, by contrast, has no other owner, so its column uses the normal `create_type=True` and the migration's own `upgrade()` explicitly does `invitation_status_enum.create(bind, checkfirst=True)` before the table-create step, matching the exact pattern `budget_scope_type`/`budget_period` used in EP-24.2's migration.
+
+### `app/organizations/audit.py` — a new, deliberately separate audit stream
+
+`OrgAuditEvent` (StrEnum: `INVITATION_SENT`, `INVITATION_RESENT`, `INVITATION_ACCEPTED`, `INVITATION_DECLINED`, `INVITATION_CANCELLED`, `MEMBER_ROLE_CHANGED`, `MEMBER_REMOVED`, `OWNERSHIP_TRANSFERRED`, `INVITATION_ACCEPT_REJECTED`, `INVITATION_RATE_LIMITED`) + `log_org_event(event, *, organization_id=None, actor_user_id=None, target_email=None, **extra)`. This mirrors `app/auth/audit.py`'s EP-24.4 "structlog is the durable audit sink, no new DB table" convention exactly — same reasoning as every other audit trail in this codebase (scheduler job history §20, budget-alert firing §22, provider sync runs §19): a second, parallel persistence layer whose only real consumer would be the same log aggregation pipeline adds nothing. It is a **separate module and a separate log stream name** (`"org.audit"` vs. `"auth.audit"`) rather than an extension of `app/auth/audit.py`'s `AuditEvent` enum, because invitations/role-changes/ownership-transfer are an organization-management concern, not an authentication concern, even though the logging mechanism is identical — this keeps the two audit vocabularies independently greppable and matches this codebase's existing precedent of `app/alerts` vs. `app/auth` never sharing one enum for unrelated event families.
+
+### `InvitationService` (`app/services/invitation_service.py`)
+
+Constructor: `InvitationService(session, settings, *, email_service=None)` — the same optional-injection-for-testability pattern `AuthService`/`ProviderSyncService`/`BudgetEvaluationService` already established (EP-22/EP-23.3/EP-24.2), defaulting to a real `EmailService(settings)` when not overridden.
+
+- **`create_invitation(organization_id, email, role, invited_by)`** — validation order matters for information-leak reasons (see Security): (1) reject inviting one's own email (`CannotInviteSelfError`), (2) reject if `email` already belongs to an active `Membership` in this org (`AlreadyMemberError`), (3) reject if a `PENDING`, unexpired invitation already exists for this org+email (`DuplicatePendingInvitationError` — an *expired* prior invitation does **not** block a new one, since Part 3 explicitly allows re-inviting past expiry), then generates the token, persists the row, audits, and sends the email.
+- **`resend_invitation(invitation_id, actor)`** — re-authorizes (the caller must currently hold `ORG_MANAGE_MEMBERS` in that invitation's org — checked manually, see RBAC below), rotates the token/expiry as described above, re-sends the same `send_invitation_email` template with the new link.
+- **`accept_invitation(token, current_user)`** — the email-match check (invitee's invited address must equal the authenticated caller's account email) is enforced here — see Security.
+- **`decline_invitation(token)`** — no authentication required at all (see "Accept requires auth, decline never does" below); sets `status=CANCELLED`, `cancelled_at=now()`, creates no membership.
+- **`cancel_invitation(invitation_id, actor)`** — the Admin/Owner-initiated cancel (distinct call, same terminal `CANCELLED` status as a self-decline — the two are collapsed into one status value since "the invitation is dead, no membership will ever be created from it" is the only fact that matters downstream; *who* cancelled it is only in the audit log, not a second status enum value).
+
+### API — 9 endpoints, exactly matching Part 14's list
+
+| Method | Path | Permission | Notes |
+|---|---|---|---|
+| GET | `/v1/organizations/{org_id}/members` | `ORG_READ` | Pre-existing (EP-13), unchanged |
+| GET | `/v1/organizations/{org_id}/invitations` | `ORG_MANAGE_MEMBERS` | New — lists pending invitations (accepted/cancelled ones drop off the Members page's Pending list once terminal) |
+| POST | `/v1/organizations/{org_id}/invitations` | `ORG_MANAGE_MEMBERS` | New — rate-limited (see below) |
+| POST | `/v1/invitations/{token}/accept` | `CurrentUser` | New, public router (`app/api/v1/invitations.py`), auth required |
+| POST | `/v1/invitations/{token}/decline` | Public | New, no auth — see "Accept requires auth, decline never does" |
+| POST | `/v1/invitations/{invitation_id}/resend` | `ORG_MANAGE_MEMBERS` (manually checked) | New — no `org_id` in the path, so `RequirePermission`/`RequireQueryPermission` can't be used; see "Manual permission-check pattern" below |
+| PATCH | `/v1/organizations/{org_id}/members/{membership_id}` | `ORG_MANAGE_MEMBERS` | Pre-existing (EP-13) endpoint, extended this EP with the self-demotion guard |
+| DELETE | `/v1/organizations/{org_id}/members/{membership_id}` | `ORG_MANAGE_MEMBERS` | Pre-existing (EP-13) endpoint, extended this EP with the admin-cannot-remove-owner guard |
+| POST | `/v1/organizations/{org_id}/transfer-ownership` | `ORG_TRANSFER_OWNERSHIP` (new, OWNER-only) | New |
+
+`DELETE /v1/invitations/{invitation_id}` (cancel) is the ninth endpoint — implemented as `DELETE`, not `POST /cancel`, since cancellation is the natural REST-ful delete of a still-pending invitation resource; both it and resend live in the new `app/api/v1/invitations.py` router (`prefix="/invitations"`) since neither is scoped by an `org_id` path parameter the way the organization-scoped endpoints are.
+
+**Path-parameter naming note.** Part 14 of the task spec names the member endpoints `.../members/{user_id}`. The actual, pre-existing (EP-13), unchanged implementation uses `{membership_id}` — left exactly as-is rather than renamed, because a `Membership` row can exist without a linked `user_id` at all (EP-13's own invite-a-not-yet-registered-teammate design predates this EP), so `membership_id` is the only key guaranteed to identify a specific row. Renaming it purely for spec-literalism would have broken an already-correct, already-tested endpoint for no functional benefit — reuse, not duplication, was the instruction that actually governed this decision.
+
+**Manual permission-check pattern.** `resend`/`cancel` (`app/api/v1/invitations.py`) can't use the `RequirePermission`/`RequireQueryPermission` dependencies, since neither has an `org_id` in its own URL (only an opaque `invitation_id`/`token`) — the organization has to be looked up *from* the invitation row first. Both endpoints share a `_resolve_and_authorize()` helper: fetch the `Invitation`, call `ensure_org_membership(db, user=current_user, org_id=invitation.organization_id)` (the same membership-lookup primitive `RequirePermission` uses internally), then `has_permission(membership.role, Permission.ORG_MANAGE_MEMBERS)` — replicating exactly what the dependency-injected version does, just invoked manually because the dependency itself can't be parametrized on a value only known after a DB lookup.
+
+### RBAC — new permission, updated matrix (Part 12)
+
+New: `Permission.ORG_TRANSFER_OWNERSHIP` — added to `Permission` (`app/auth/rbac.py`) and deliberately granted to **no role except OWNER** (never added to `_ADMIN_PERMS`; automatically present in `_OWNER_PERMS = frozenset(Permission)`), mirroring the existing `ORG_DELETE` OWNER-only precedent documented in §18's audit. `POST /transfer-ownership` is gated on it.
+
+Invitation endpoints reuse the **existing** `Permission.ORG_MANAGE_MEMBERS` (already ADMIN+OWNER, unchanged since EP-13/§18's audit) rather than inventing a new `INVITATION_*` permission family — inviting/resending/cancelling an invitation is the same "manage who's on this team" authority `ORG_MANAGE_MEMBERS` already models for direct member add/role-change/remove, and splitting it into a parallel permission would create exactly the kind of write/delete-pair inconsistency risk §18's own audit exists to catch, for no behavioral gain (nothing in this spec asks Admin to be able to invite but not directly add a member, or vice versa).
+
+**Updated permission matrix** (extends §18's table, unchanged rows omitted for brevity — see §18 for the full pre-EP-24.6 matrix):
+
+| Resource | Action | Permission | Viewer | Member | Admin | Owner |
+|---|---|---|:---:|:---:|:---:|:---:|
+| Invitations | Read (list pending) | `ORG_MANAGE_MEMBERS` | ❌ | ❌ | ✅ | ✅ |
+| Invitations | Create / resend / cancel | `ORG_MANAGE_MEMBERS` | ❌ | ❌ | ✅ | ✅ |
+| Invitations | Accept / decline (self) | *(none — `CurrentUser`/public identity, not role)* | ✅ | ✅ | ✅ | ✅ |
+| Members | Change role | `ORG_MANAGE_MEMBERS`, **+ self-demotion guard** | ❌ | ❌ | ✅ | ✅ (except own row) |
+| Members | Remove | `ORG_MANAGE_MEMBERS`, **+ admin-cannot-remove-owner guard** | ❌ | ❌ | ✅ (not OWNER rows) | ✅ |
+| Organization | **Transfer ownership** | **`ORG_TRANSFER_OWNERSHIP`** | ❌ | ❌ | ❌ | **✅ only** |
+
+This satisfies Part 12's four textual role descriptions (Viewer: dashboard/analytics read-only; Member: dashboard/projects/connections/budgets/alerts; Admin: workspace management/invitations/projects/providers/API keys; Owner: everything + transfer + delete) — every one of those was already true of the pre-existing permission grants per §18's own matrix; this EP's only *new* grant is `ORG_TRANSFER_OWNERSHIP` itself.
+
+### Ownership-safety guards (Part 9 / Part 11)
+
+- **Self-demotion**: `update_member_role()` now checks `if target.id == caller.id: raise HTTPException(403, "Owners cannot change their own role. Transfer ownership instead.")` **before** any role-value validation — an Owner (or anyone) attempting to change their own row is always rejected, regardless of what role they were trying to set, and pointed at the correct mechanism.
+- **Last-owner protection**: pre-existing (EP-13) check — counts `OWNER`-role memberships in the org before allowing a role-change away from `OWNER` or a removal of an `OWNER` row; unchanged, reused.
+- **Admin cannot remove an Owner**: `remove_member()` gained `if target.role == OWNER and caller.role != OWNER: raise HTTPException(403, ...)`, checked before the existing last-owner-count guard.
+- **Admin cannot promote to Owner**: role-change already validated the *target* role against a fixed set the endpoint accepts; `owner` was never in that set for a non-owner caller — confirmed still true, not a new change.
+- **Transfer ownership atomicity**: `transfer_ownership()` updates both the caller's `Membership.role` (→ `ADMIN`) and the target's `Membership.role` (→ `OWNER`) within the same request/session, so the organization is never observably ownerless between the two writes; requires the caller to currently be `OWNER` (enforced by `Permission.ORG_TRANSFER_OWNERSHIP`) and the target to already be an existing member of the same org (a `404`/`422` otherwise — you transfer to an existing teammate, not to an arbitrary email; inviting someone in first, then transferring, is the two-step path for a not-yet-a-member recipient).
+
+### Security (Part 16 — full checklist)
+
+| Requirement | Implementation |
+|---|---|
+| 256-bit random tokens | `generate_refresh_token()` (`secrets.token_urlsafe(32)`) — reused verbatim from `app/auth/tokens.py`, not reimplemented |
+| Hash before storage | `hash_token()` (SHA-256) — only `token_hash` is ever persisted; the raw token exists only in memory for the issuing request and in the email sent |
+| One-time use | `accept`/`decline` both transition `status` away from `PENDING` on success, and `get_valid_by_token_hash()`'s `status == PENDING` filter means a second use of the same raw token always resolves to "not found" |
+| Replay protection | Same mechanism as one-time-use above — a used or cancelled token's hash no longer matches any `PENDING` row |
+| Expiration | 7 days (`INVITATION_EXPIRY_DAYS = 7`), enforced identically to `VerificationToken`'s 24h/`PasswordResetToken`'s 1h pattern — derived at read time, never a separate expiry sweep job |
+| Constant-time comparison | Token lookup is by hash equality via an indexed DB query (`token_hash` is itself a SHA-256 digest of a high-entropy secret, so no timing-based hash-prefix attack is meaningful here — same reasoning EP-24.4/EP-24.5 already applied to their own token lookups) |
+| Do not leak invitation information | `accept`/`decline` on an invalid, expired, or already-used token all return the *same* generic 400 (`"This invitation link is invalid or has expired."`) regardless of which of those three is actually true — mirrors EP-24.4's Part 1 "do not reveal token information" verbatim, including the identical technique of collapsing distinguishable failure reasons into one response |
+| Email-match on accept | `accept_invitation()` requires the authenticated caller's own account email to equal the invited `email` (`InvitationEmailMismatchError` → 403 with a message that does not reveal what the *correct* email was) — prevents a logged-in User B from accepting an invitation that was sent to `userA@example.com` by guessing/discovering the token |
+| Rate limiting | `EmailRateLimiter` (reused, EP-24.4) — `scope="invitation"`, `key=f"{org_id}:{email}"`, invoked from `create_invitation`'s API endpoint via a new `_get_invitation_rate_limiter(request)` helper in `organizations.py` mirroring `auth.py`'s existing `_get_email_rate_limiter` (lazily constructed, `app.state`-cached, Redis-backed with the same documented in-memory-per-process fallback EP-24.4 established) |
+| Audit every action | Every service-layer mutation calls `log_org_event()` with the relevant `OrgAuditEvent` — send, resend, accept, decline/cancel, role change, removal, ownership transfer, plus two "rejected" events (`INVITATION_ACCEPT_REJECTED`, `INVITATION_RATE_LIMITED`) for the failure paths worth auditing, not just the successes |
+| Never log secrets | Consistent with every prior EP's convention — `InvitationService`'s structlog calls (via `log_org_event`) bind only `organization_id`/`actor_user_id`/`target_email`/status-shaped extras, never the raw token or its hash |
+
+### Frontend
+
+- **`Users.tsx` → "Members" page** (rewritten, same `/users` route; nav label changed from "Users" to "Members", `lib/navigation.ts`) — Members table (avatar/name/email/role dropdown/joined date/status) + a Pending Invitations section (email/role/invited-by/expires/status pill, with per-row Resend and Cancel — the latter behind `ConfirmDialog`) + an "Invite Member" modal (email input, role select restricted to Admin/Member/Viewer — never Owner, matching the backend's own validation) + per-row Remove (behind `ConfirmDialog`) + a "Transfer ownership to {email}" action shown only to the caller when *they* are the Owner viewing another member's row (behind a distinct, explicitly-worded `ConfirmDialog`). Empty state for zero pending invitations reuses the existing `EmptyState` component/copy convention.
+- **`AcceptInvite.tsx`** (new, `/accept-invite` route, public — added to `App.tsx` outside `ProtectedRoute`) — reads `?token=`; with no token shows an "invalid invitation link" message; unauthenticated visitors see a "Sign in to accept" link that preserves the token via `?redirect=` (see below) plus a Decline button that works without authentication; authenticated visitors see Accept/Decline buttons, with Accept showing the joined organization's name on success or the generic invalid/expired message on failure.
+- **Cross-subdomain-safe token preservation across login** — implemented as a `?redirect=` query parameter on `/login`, not `localStorage` (which would not survive the trip to the separate `costorah.com` website origin per ADR-006, and isn't needed here since both the invite link and the login form live on the same `app.costorah.com` origin already). `AcceptInvite.tsx` links to `/login?redirect=<encoded self-URL-with-token>`; `Login.tsx` reads `useSearchParams().get("redirect")` and navigates there (instead of the previously-hardcoded `/dashboard`) on both the already-authenticated early-return path and the post-login-success path — so a visitor who must log in first lands right back on the same accept-invite screen, now authenticated, with zero manual re-navigation.
+- **`services/api.ts`** — `InvitationRecord`/`InvitationsListResponse`/`AcceptInvitationResponse` types + `listInvitations`, `createInvitation`, `acceptInvitation`, `declineInvitation`, `resendInvitation`, `cancelInvitation`, `transferOwnership` functions, following the exact request/response shape the new backend schemas define.
+
+### Email templates (Part 4 / Part 15 — reusing the EP-24.4 renderer/service layers, no new pipeline)
+
+Three new `EmailTemplateRenderer` methods (`app/email/renderer.py`) — `render_invitation_email()`, `render_invitation_accepted_email()`, `render_invitation_cancelled_email()` — each built from the same shared `_layout()`/`_button()`/`_fallback_url_block()` helpers every EP-24.4 template already composes with, so branding/responsiveness/dark-mode support is structural, not re-authored per template. Three matching `EmailService` methods (`send_invitation_email`, `send_invitation_accepted_email`, `send_invitation_cancelled_email`) delegate to the renderer then `self._send()` — identical shape to `send_verification_email`/`send_welcome_email`/`send_password_reset_email`.
+
+| Template | Trigger | Contains |
+|---|---|---|
+| Organization Invitation | `create_invitation()`, `resend_invitation()` | Org name, inviter name, assigned role, Accept Invitation button, fallback plain-text URL, "expires in 7 days" notice |
+| Invitation Accepted | `accept_invitation()` succeeds | Notifies the original inviter that the invitee has joined, with the new member's name/email and role |
+| Invitation Cancelled | `cancel_invitation()` (Admin/Owner-initiated only — a self-`decline()` does not notify, since the invitee themselves already knows) | Notifies the invitee that their invitation was withdrawn, no accept link included |
+
+### Testing (Part 18)
+
+- **Backend** (`backend/tests/test_ep24_6_invitations.py`, 39 new tests, fully hermetic): unit coverage for every `InvitationService` method (self-invite rejection, already-member rejection, duplicate-pending rejection, expired-prior-invitation does *not* block a new one, hash-only storage, resend token rotation invalidating the old token, email-mismatch rejection on accept, successful accept creating a real `Membership`, decline creating no membership, cancel by Admin/Owner); RBAC boundary tests (Viewer/Member cannot invite/resend/cancel, Admin/Owner can, self-demotion always rejected regardless of caller's own role, admin-cannot-remove-owner, last-owner protection unchanged); expiration tests (an expired-but-still-PENDING row is treated as not-found by accept/decline); replay-protection tests (accepting an already-accepted token's raw value a second time fails); rate-limiting test (4th invite to the same org+email within the window 429s); transfer-ownership tests (atomic role swap, non-owner caller rejected, target-must-already-be-a-member). Full backend suite: **1908 passed**, ruff/black/mypy clean.
+- **Manual end-to-end verification against real local PostgreSQL 16 + Redis** (this project's established convention, per every prior EP in this document): ran `alembic upgrade head` from scratch (confirming the migration chain and the `create_type=False` ENUM-reuse fix actually work against a real Postgres instance, not just SQLAlchemy's offline metadata), then a dedicated smoke-test script driving `InvitationService` directly with a `FakeEmailProvider` capturing sent emails — confirmed self-invite rejection, duplicate-pending rejection, hash-only token storage (no raw token anywhere in the `invitations` table), resend token rotation, email-mismatch rejection, a real `Membership` row created on accept, replay-protection (a second accept attempt on the same already-used token fails), already-member rejection, and decline creating no membership — all via real database round-trips.
+- **Frontend** (`apps/dashboard`, 16 new tests across `Users.test.tsx` (9), `AcceptInvite.test.tsx` (6), plus 1 new case in `Login.test.tsx`): Members page renders members + pending invitations, empty state, send-invitation-via-modal, resend, cancel-via-confirm, role change, remove-via-confirm, transfer-ownership shown only to Owner callers and hidden otherwise; AcceptInvite's no-token/unauthenticated-link-preserves-token/unauthenticated-can-decline/authenticated-can-accept/invalid-token-error/authenticated-can-still-decline cases; Login's `?redirect=` preservation after a successful login. Full dashboard suite: **263 passed** (247 + 16), ESLint clean, `tsc -b` clean, production build clean.
+
+### CLAUDE.md updates (Part 19)
+
+This section (§27) itself, appended after §26's "Future improvements" list per the task's explicit "append only, do not overwrite previous sections" instruction — no prior section was edited. The RBAC permission matrix above extends (does not replace) §18's original table.
+
+### Known limitations
+
+- **No email-existence disclosure trade-off documented for `create_invitation`**: unlike `forgot-password`'s deliberate anti-enumeration design (EP-24.4), inviting a teammate *does* distinguish "already a member" from "invitation created" in its response — this is an intentional, different trade-off (the caller is already an authenticated Admin/Owner of the org, actively trying to manage their own team roster, so telling them "this person is already on your team" is useful information they're entitled to, unlike an anonymous password-reset requester probing for account existence).
+- **`AlreadyMemberError`/`DuplicatePendingInvitationError` responses are org-internal-facing only** — both only ever reach an already-authorized Admin/Owner of that specific org (the endpoint's own `ORG_MANAGE_MEMBERS` check runs first), so this is not a cross-org enumeration vector.
+- **No bulk/CSV invitation import** — Part 1 only asked for single-email invite by form; a "paste a list of emails" bulk-invite affordance was not built, since nothing in the spec named it.
+- **Transfer ownership requires the recipient to already be an org member** — you cannot transfer ownership directly to an email that has never joined; the two-step "invite them, wait for them to accept, then transfer" path is the only route, which matches Part 11's own framing ("Transfer → New owner") of choosing among existing members, not an arbitrary address.
+- **No live, continuous browser test of the full invite → email → accept (unauthenticated, redirected through login) → land on Members page journey** — same caveat as every prior EP in this document: verified in pieces (backend service/API tests against real Postgres, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment or a real inbox.
+
+### Next EP recommendation
+
+With team collaboration now real, the standing next-blocker list carried forward unchanged from §25/§26 is unaffected by this EP: (1) a **self-service "add a password" flow** for Google-only accounts, (2) **wiring `ProviderConnection.encrypted_api_key` into real usage collection** for the 5 currently-zero-volume providers (§23), and (3) the still-open **delivery-event webhooks**/**organization-invite emails were the one remaining named gap from EP-24.4's own "Future improvements" list — invitation emails are now real as of this EP, closing that specific item, leaving delivery-event webhooks (bounce/complaint tracking) as the one remaining piece of that list.

@@ -368,6 +368,80 @@ export async function removeMember(organizationId: string, membershipId: string)
   return del<void>(`/v1/organizations/${organizationId}/members/${membershipId}`);
 }
 
+// ── Invitations (EP-24.6) ────────────────────────────────────────────────────
+//
+// Real, email-token invitation flow — distinct from inviteMember() above
+// (which creates a membership immediately, no email, EP-13). Nothing is
+// granted until the invitee actively accepts.
+
+export interface InvitationRecord {
+  id: string;
+  organization_id: string;
+  email: string;
+  role: "owner" | "admin" | "member" | "viewer";
+  status: "pending" | "accepted" | "expired" | "cancelled";
+  invited_by_name: string | null;
+  invited_by_email: string | null;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  cancelled_at: string | null;
+}
+
+export interface InvitationsListResponse {
+  invitations: InvitationRecord[];
+  total: number;
+}
+
+export async function listInvitations(organizationId: string): Promise<InvitationsListResponse> {
+  return get<InvitationsListResponse>(`/v1/organizations/${organizationId}/invitations`);
+}
+
+export async function createInvitation(
+  organizationId: string,
+  email: string,
+  role: string,
+): Promise<InvitationRecord> {
+  return post<InvitationRecord>(`/v1/organizations/${organizationId}/invitations`, {
+    email,
+    role,
+  });
+}
+
+export interface AcceptInvitationResponse {
+  organization_id: string;
+  organization_name: string;
+  role: string;
+}
+
+/** Requires an authenticated session — callers should redirect to /login
+ * first if unauthenticated, preserving the token across that redirect. */
+export async function acceptInvitation(token: string): Promise<AcceptInvitationResponse> {
+  return post<AcceptInvitationResponse>(`/v1/invitations/${token}/accept`, {});
+}
+
+/** Public — no authentication required. Never creates a membership. */
+export async function declineInvitation(token: string): Promise<{ message: string }> {
+  return post<{ message: string }>(`/v1/invitations/${token}/decline`, {});
+}
+
+export async function resendInvitation(invitationId: string): Promise<{ message: string }> {
+  return post<{ message: string }>(`/v1/invitations/${invitationId}/resend`, {});
+}
+
+export async function cancelInvitation(invitationId: string): Promise<{ message: string }> {
+  return del<{ message: string }>(`/v1/invitations/${invitationId}`);
+}
+
+export async function transferOwnership(
+  organizationId: string,
+  newOwnerMembershipId: string,
+): Promise<Member> {
+  return post<Member>(`/v1/organizations/${organizationId}/transfer-ownership`, {
+    new_owner_membership_id: newOwnerMembershipId,
+  });
+}
+
 // ── RBAC introspection (EP-13) ─────────────────────────────────────────────────
 
 export interface RoleInfo {

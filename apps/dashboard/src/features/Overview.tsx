@@ -525,11 +525,21 @@ export default function Overview() {
   const connection = useConnectionStatus();
   const dashboardState = useDashboardState();
 
+  // EP-24.4.1: for a brand-new organization (dashboard state 1-3 — no
+  // provider connected, or connected-but-unvalidated, or validated-but-
+  // no-usage-yet), DashboardStateHero replaces this whole section with its
+  // own guidance, so these four breakdown queries would just fetch empty
+  // data nothing renders. Gating them on `state === 4` means a new
+  // account's first dashboard load fires 4 fewer network requests. The KPI
+  // cards below (via `overview`) and the budget summary always render, so
+  // those two stay unconditional.
+  const hasRealUsage = !dashboardState.isLoading && dashboardState.state === 4;
+
   const overview = useOverview();
-  const timeSeries = useTimeSeries();
-  const providers = useProviders();
-  const models = useModels();
-  const activityFeed = useActivityFeed(8);
+  const timeSeries = useTimeSeries({}, { enabled: hasRealUsage });
+  const providers = useProviders({}, { enabled: hasRealUsage });
+  const models = useModels({}, { enabled: hasRealUsage });
+  const activityFeed = useActivityFeed(8, { enabled: hasRealUsage });
   const budgetSummary = useBudgetSummary();
 
   const kpi = overview.data;

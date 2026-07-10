@@ -59,6 +59,7 @@ from app.auth.exceptions import (
     AccountDisabledError,
     EmailAlreadyRegisteredError,
     EmailAlreadyVerifiedError,
+    EmailNotVerifiedError,
     GoogleAccountAlreadyLinkedError,
     InvalidCredentialsError,
     LastAuthMethodError,
@@ -236,6 +237,15 @@ async def login(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been disabled",
+        ) from exc
+    except EmailNotVerifiedError as exc:
+        # EP-24.4.1: the credentials were correct — this is deliberately
+        # not counted as a rate-limiter failure (that's reserved for wrong
+        # passwords), so a legitimate user waiting on their verification
+        # email can retry login without tripping a lockout.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your email before signing in.",
         ) from exc
     await limiter.record_success(email=body.email)
     set_session_cookies(response, pair, settings)

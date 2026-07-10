@@ -87,6 +87,57 @@ class EmailService:
         )
         return await self._send(to=to, rendered=rendered, tag="password_reset")
 
+    # ── Organization invitations (EP-24.6) ──────────────────────────────────
+
+    async def send_invitation_email(
+        self,
+        *,
+        to: str,
+        organization_name: str,
+        inviter_name: str,
+        role: str,
+        accept_url: str,
+        expires_at_display: str,
+    ) -> EmailSendResult:
+        rendered = self._renderer.render_invitation_email(
+            organization_name=organization_name,
+            inviter_name=inviter_name,
+            role=role,
+            accept_url=accept_url,
+            expires_at_display=expires_at_display,
+            year=datetime.now(UTC).year,
+        )
+        return await self._send(to=to, rendered=rendered, tag="invitation")
+
+    async def send_invitation_accepted_email(
+        self,
+        *,
+        to: str,
+        organization_name: str,
+        member_email: str,
+        role: str,
+    ) -> EmailSendResult:
+        rendered = self._renderer.render_invitation_accepted_email(
+            organization_name=organization_name,
+            member_email=member_email,
+            role=role,
+            members_url=f"{self._settings.dashboard_url}/users",
+            year=datetime.now(UTC).year,
+        )
+        return await self._send(to=to, rendered=rendered, tag="invitation_accepted")
+
+    async def send_invitation_cancelled_email(
+        self,
+        *,
+        to: str,
+        organization_name: str,
+    ) -> EmailSendResult:
+        rendered = self._renderer.render_invitation_cancelled_email(
+            organization_name=organization_name,
+            year=datetime.now(UTC).year,
+        )
+        return await self._send(to=to, rendered=rendered, tag="invitation_cancelled")
+
     async def _send(self, *, to: str, rendered: RenderedEmail, tag: str) -> EmailSendResult:
         message = EmailMessage(
             to=to,

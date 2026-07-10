@@ -3,7 +3,8 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, HTTPException, Request
+from fastapi import status as http_status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from app.core.container import AppContainer
 from app.realtime.connection_manager import ConnectionManager
 from app.realtime.event_bus import EventBus
 from app.realtime.rate_limit import ConnectionRateLimiter
+from app.services.usage_sync_scheduler import UsageSyncScheduler
 
 
 def get_container(request: Request) -> AppContainer:
@@ -61,6 +63,23 @@ def get_realtime_rate_limiter(
     return container.realtime_rate_limiter
 
 
+def get_usage_sync_scheduler(
+    container: Annotated[AppContainer, Depends(get_container)],
+) -> UsageSyncScheduler:
+    """Return the shared background usage-sync scheduler (EP-23.4).
+
+    Raises 503 rather than a bare AttributeError/None-dereference on the
+    (only ever test-authored, see AppContainer's own docstring) code path
+    where a container was built without one.
+    """
+    if container.usage_sync_scheduler is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Background sync scheduler is not available.",
+        )
+    return container.usage_sync_scheduler
+
+
 # Convenience type aliases for use in routers
 ContainerDep = Annotated[AppContainer, Depends(get_container)]
 DbDep = Annotated[AsyncSession, Depends(get_db)]
@@ -69,3 +88,4 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 EventBusDep = Annotated[EventBus, Depends(get_event_bus)]
 ConnectionManagerDep = Annotated[ConnectionManager, Depends(get_connection_manager)]
 RealtimeRateLimiterDep = Annotated[ConnectionRateLimiter, Depends(get_realtime_rate_limiter)]
+SchedulerDep = Annotated[UsageSyncScheduler, Depends(get_usage_sync_scheduler)]

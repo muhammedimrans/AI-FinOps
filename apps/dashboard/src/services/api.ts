@@ -649,6 +649,78 @@ export async function syncAllProviderConnections(
   );
 }
 
+// ── Background sync scheduler (EP-23.4) ──────────────────────────────────────
+
+export type SchedulerInterval = "5m" | "15m" | "1h" | "6h" | "24h";
+
+export interface SchedulerJobItem {
+  job_id: string;
+  organization_id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  queued_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  connections_synced: number;
+  connections_failed: number;
+  records_imported: number;
+  retry_count: number;
+  duration_seconds: number | null;
+  error: string | null;
+}
+
+export interface SchedulerMonitoringSnapshot {
+  is_running: boolean;
+  active_jobs: number;
+  queued_jobs: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  average_duration_seconds: number | null;
+  last_execution: string | null;
+}
+
+export interface SchedulerStatusResponse {
+  organization_id: string;
+  auto_sync_enabled: boolean;
+  interval: SchedulerInterval;
+  interval_seconds: number;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+  next_sync_at: string | null;
+  current_job: SchedulerJobItem | null;
+  scheduler_health: "healthy" | "degraded" | "disabled" | "not_running";
+  monitoring: SchedulerMonitoringSnapshot;
+}
+
+export interface SchedulerJobsResponse {
+  jobs: SchedulerJobItem[];
+  total: number;
+}
+
+export async function getSchedulerStatus(organizationId: string): Promise<SchedulerStatusResponse> {
+  return get<SchedulerStatusResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/scheduler/status`,
+  );
+}
+
+export async function updateSchedulerSettings(
+  organizationId: string,
+  body: { auto_sync_enabled?: boolean; interval?: SchedulerInterval },
+): Promise<SchedulerStatusResponse> {
+  return patch<SchedulerStatusResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/scheduler/settings`,
+    body,
+  );
+}
+
+export async function getSchedulerJobs(
+  organizationId: string,
+  limit = 20,
+): Promise<SchedulerJobsResponse> {
+  return get<SchedulerJobsResponse>(
+    `/v1/organizations/${organizationId}/provider-connections/scheduler/jobs?limit=${limit}`,
+  );
+}
+
 // ── Provider connection intelligence (EP-07) ─────────────────────────────────
 
 export interface ProviderConnectionStatus {

@@ -217,6 +217,28 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ANTHROPIC_API_KEY", "anthropic_api_key"),
     )
 
+    # ─── Background usage-sync scheduler (EP-23.4) ─────────────────────────────
+    # The tick loop itself is always constructed (so the status/monitoring
+    # endpoints always have something to report), but only started
+    # automatically by AppContainer.create() — set False to disable entirely
+    # (e.g. a worker-less deployment, or to run sync exclusively via the
+    # manual EP-23.3 endpoints).
+    scheduler_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("SCHEDULER_ENABLED", "scheduler_enabled"),
+    )
+    # How often the loop wakes up to check which organizations are due —
+    # independent of any organization's own configured sync interval
+    # (5m/15m/1h/6h/24h, see app.services.usage_sync_scheduler).
+    scheduler_tick_interval_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=3600,
+        validation_alias=AliasChoices(
+            "SCHEDULER_TICK_INTERVAL_SECONDS", "scheduler_tick_interval_seconds"
+        ),
+    )
+
     # ─── Observability ────────────────────────────────────────────────────────
     otel_service_name: str = "aifinops-api"
     metrics_port: int = Field(default=9090, ge=1, le=65535)

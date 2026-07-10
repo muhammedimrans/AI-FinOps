@@ -39,6 +39,8 @@ vi.mock("../services/api", async (importOriginal) => {
     deleteOrganization: vi.fn(),
     listApiKeys: vi.fn(),
     listPermissions: vi.fn(),
+    getSchedulerStatus: vi.fn(),
+    updateSchedulerSettings: vi.fn(),
   };
 });
 
@@ -90,6 +92,26 @@ describe("Settings — EP-22.2 backend integration", () => {
     });
     mockedApi.listApiKeys.mockResolvedValue({ keys: [], total: 0 });
     mockedApi.listPermissions.mockResolvedValue({ permissions: [] });
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: false,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: null,
+      current_job: null,
+      scheduler_health: "disabled",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
   });
 
   it("renders the Profile section by default with the current user's info", () => {
@@ -264,6 +286,206 @@ describe("Settings — EP-22.2 backend integration", () => {
 
     await waitFor(() => {
       expect(mockedApi.deleteAccount).toHaveBeenCalledWith("correct-horse");
+    });
+  });
+});
+
+describe("Settings — Automatic Sync (EP-23.4)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.getState().setLogin("access.token", "refresh.token", baseUser);
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
+    mockedApi.getOrganizations.mockResolvedValue({
+      organizations: [
+        {
+          id: "org_1",
+          name: "Acme",
+          slug: "acme",
+          role: "owner",
+          description: "We build things.",
+          is_personal: false,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    mockedApi.listApiKeys.mockResolvedValue({ keys: [], total: 0 });
+    mockedApi.listPermissions.mockResolvedValue({ permissions: [] });
+  });
+
+  it("shows Auto Sync as off and hides the interval picker when disabled", async () => {
+    const user = userEvent.setup();
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: false,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: null,
+      current_job: null,
+      scheduler_health: "disabled",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    const toggle = await screen.findByRole("switch");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.getByText(/last sync: never/i)).toBeTruthy();
+  });
+
+  it("shows the interval picker and next-sync time when enabled", async () => {
+    const user = userEvent.setup();
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "15m",
+      interval_seconds: 900,
+      last_sync_at: "2026-07-01T00:00:00Z",
+      last_sync_status: "completed",
+      next_sync_at: "2026-07-01T00:15:00Z",
+      current_job: null,
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 3,
+        failed_jobs: 0,
+        average_duration_seconds: 4.2,
+        last_execution: "2026-07-01T00:00:00Z",
+      },
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    const select = await screen.findByRole("combobox");
+    expect((select as HTMLSelectElement).value).toBe("15m");
+    expect(screen.getByText(/next sync:/i)).toBeTruthy();
+    expect(screen.getByText(/scheduler: healthy/i)).toBeTruthy();
+  });
+
+  it("toggles Auto Sync on via the switch", async () => {
+    const user = userEvent.setup();
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: false,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: null,
+      current_job: null,
+      scheduler_health: "disabled",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+    mockedApi.updateSchedulerSettings.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: "2026-07-01T01:00:00Z",
+      current_job: null,
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    const toggle = await screen.findByRole("switch");
+    await user.click(toggle);
+
+    await waitFor(() => {
+      expect(mockedApi.updateSchedulerSettings).toHaveBeenCalledWith("org_1", {
+        auto_sync_enabled: true,
+      });
+    });
+    expect(await screen.findByRole("combobox")).toBeTruthy();
+  });
+
+  it("changes the sync interval via the select", async () => {
+    const user = userEvent.setup();
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: "2026-07-01T01:00:00Z",
+      current_job: null,
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+    mockedApi.updateSchedulerSettings.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: true,
+      interval: "6h",
+      interval_seconds: 21600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: "2026-07-01T06:00:00Z",
+      current_job: null,
+      scheduler_health: "healthy",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: "Workspace" }));
+
+    const select = await screen.findByRole("combobox");
+    await user.selectOptions(select, "6h");
+
+    await waitFor(() => {
+      expect(mockedApi.updateSchedulerSettings).toHaveBeenCalledWith("org_1", {
+        interval: "6h",
+      });
     });
   });
 });

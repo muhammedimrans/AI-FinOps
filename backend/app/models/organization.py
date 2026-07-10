@@ -9,10 +9,11 @@ hard-delete is an admin-only tool (§4.15 / DP-7).
 from __future__ import annotations
 
 import enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import Boolean, Index, String, Text, UniqueConstraint
 from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.mixins import BaseModel
@@ -66,6 +67,18 @@ class Organization(BaseModel):
         nullable=False,
         default=OrganizationStatus.ACTIVE,
         server_default=OrganizationStatus.ACTIVE.value,
+    )
+
+    # ── Background usage-sync scheduler settings (EP-23.4) ────────────────────
+    # Minimal JSON storage, same "avoid a dedicated table" pattern
+    # users.preferences established in EP-22.2 (CLAUDE.md §16) — an
+    # organization-scoped bag holding exactly two keys the scheduler reads:
+    # {"auto_sync_enabled": bool, "interval_seconds": int}. Missing keys are
+    # treated as "auto sync disabled" by the scheduler/service layer, never
+    # by a database default, so the empty-dict default below needs no
+    # backfill and every pre-existing organization starts opted out.
+    sync_settings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
     )
 
     # ── Relationships ─────────────────────────────────────────────────────────

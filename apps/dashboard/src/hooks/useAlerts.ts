@@ -141,6 +141,9 @@ export function useAlerts(): { alerts: DerivedAlert[]; unreadCount: number } {
     const out: DerivedAlert[] = [];
 
     for (const p of projects.data?.projects ?? []) {
+      // A project with no budget set (budget_utilization_pct === null) has
+      // nothing to alert on — skip rather than treating "unset" as "0%".
+      if (p.budget_utilization_pct === null || p.budget === null) continue;
       if (p.budget_utilization_pct > 100) {
         out.push({
           id: `budget-over:${p.project_id}`,

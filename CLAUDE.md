@@ -1333,3 +1333,143 @@ New API client functions/types in `apps/dashboard/src/services/api.ts`: `getSche
 ### Next EP recommendation
 
 With both manual (EP-23.3) and automatic (EP-23.4) usage synchronization now real, the two items §19 already named as the standing next blockers are unaffected by this EP and remain the highest-value work: (1) **dashboard analytics on top of the newly-flowing data** — now doubly unblocked, since `UsageEvent`/`UsageCostRecord` rows can arrive without any user action at all; and (2) the lease-renewal/startup-jitter hardening named above, if and when this product's organization count or per-org sync frequency grows enough to make either a real concern rather than a theoretical one.
+
+---
+
+## 21. EP-24.1 — Analytics Dashboard & Cost Intelligence
+
+**Status: complete.** Closes §19/§20's own "next milestone recommendation" #1 — the dashboard now displays real, filterable analytics over the usage data EP-23.3/EP-23.4 flow in automatically, instead of the dozens of hardcoded zero/placeholder fields `lib/mappers.ts` had documented as "gaps" since the EP-10 dashboard first shipped. Every chart the product spec named is now backed by real SQL aggregation; none were rebuilt as a second analytics pipeline.
+
+### Why this extends `/v1/dashboard/*`, not `/v1/analytics/*`
+
+An audit at the start of this EP found **two independently-built analytics systems already in the codebase**: `/v1/analytics/*` (EP-09, built on `AnalyticsService`/`app/analytics/service.py`) and `/v1/dashboard/*` (EP-10, built on `DashboardService`/`app/dashboard/service.py`). Only the second is live — `apps/dashboard`'s frontend has zero client calls anywhere to `/v1/analytics/*`; every chart on Overview.tsx and Analytics.tsx goes through `/v1/dashboard/*` via `hooks/useDashboard.ts`. Building a third, overlapping breakdown system for this EP's new requirements (filters, heatmap, activity) would have directly violated this EP's own "do not duplicate aggregation logic" instruction. So EP-24.1 extends `/v1/dashboard/*` and `DashboardService` only; `/v1/analytics/*` is untouched and remains a candidate for a future consolidation/removal EP, not this one's concern. `DashboardService` already delegated all real SQL work to `AnalyticsService` → `UsageCostRecordRepository`/`DailyCostSummaryRepository` (its own docstring: "Contains no business logic"), so this EP's job was almost entirely in the repository layer — extending five already-parameterized aggregate queries, not writing new ones from scratch.
+
+### Architecture
+
+```
+Frontend (apps/dashboard)
+  Overview.tsx / Analytics.tsx
+        │  useOverview/useTimeSeries/useProviders/useModels/useProjects/
+        │  useHeatmap/useActivityFeed  (hooks/useDashboard.ts)
+        ▼
+services/api.ts  (getOverview/getTimeSeries/.../getHeatmap/getActivityFeed)
+        │  optional project_id/provider/model query params
+        ▼
+lib/mappers.ts   (mapOverview/mapTimeSeries/.../mapHeatmap/mapActivity)
+        │  backend response → frontend component types; every "gap" comment
+        │  this EP closed was here, not in a new mapping layer
+        ▼
+GET /v1/dashboard/{overview,time-series,providers,models,projects,kpis,
+                    heatmap,activity}          (app/api/v1/dashboard.py)
+        ▼
+DashboardService                                (app/dashboard/service.py)
+        │  thin orchestration only — get_heatmap()/get_recent_activity()
+        │  are new methods, but every other method was *extended*, not
+        │  replaced, with new fields/filter kwargs
+        ▼
+AnalyticsService (app/analytics/service.py)      — pass-through, now filter-aware
+        ▼
+UsageCostRecordRepository / ProviderConnectionRepository / UsageCollectionRunRepository
+        │  all SQL aggregation lives here — SELECT ... GROUP BY ..., never
+        │  Python-side loops over fetched rows
+        ▼
+UsageCostRecord / UsageEvent / ProviderConnection / UsageCollectionRun  (existing tables, unchanged schema)
+```
+
+**No migration.** Every field this EP surfaces already existed as a column on `UsageCostRecord` (`prompt_tokens`/`completion_tokens`, summed but not previously exposed at every granularity), `UsageEvent` (`timestamp`, joined for the heatmap's hour/day extraction), `Project` (`budget`, added in EP-19.3 but never joined into the cost breakdown), or `ProviderConnection`/`UsageCollectionRun` (health/failure/run fields, added in EP-19.3/EP-08/EP-22 but never surfaced as a feed). This EP is a pure "wire up what already exists" pass at the schema level — the work was in the aggregation queries, the API surface, and the frontend, not the data model.
+
+### Aggregation flow — the "no placeholder analytics" closure
+
+`apps/dashboard/src/lib/mappers.ts` had accumulated a specific, enumerable set of `// gap: ...` comments since EP-10 — each one is a field the frontend type declared but the mapper could only zero out because the backend never computed it. This EP closes every one of them by computing the value in SQL and threading it through the same response shape, not by inventing a new field name or a second response:
+
+| Frontend field (was hardcoded) | Now computed by | Query |
+|---|---|---|
+| `OverviewKPIs.active_projects` (was absent) | `DashboardService.get_overview()` | `COUNT(DISTINCT project_id)` over `get_totals_by_project`, all-time |
+| `OverviewKPIs.today_cost`/`month_cost` (were never surfaced to any card) | `DashboardService.get_overview()` | `get_totals_by_org()` over `[today, today]` / `[month_start, today]` — already computed pre-EP-24.1, just not in the frontend type |
+| `OverviewKPIs.avg_cost_per_request` (was `"0"`) | `DashboardService.get_overview()` | `total_cost / total_requests` over the all-time totals already fetched |
+| `OverviewKPIs.cost_trend_pct`/`request_trend_pct`/`token_trend_pct` (were `0`) | `DashboardService.get_overview()` + new `_period_over_period_pct()` helper | trailing-30-days vs. prior-30-days, both via `get_totals_by_org()` |
+| `TimeSeriesPoint.input_tokens`/`output_tokens` (were absent — Token Trend chart had no data source) | `UsageCostRecordRepository.get_daily_trend()` | added `SUM(prompt_tokens)`/`SUM(completion_tokens)` columns to the existing per-day `GROUP BY` |
+| `ProviderSummary.model_count` (was `0`) | `UsageCostRecordRepository.get_totals_by_provider()` | added `COUNT(DISTINCT model)` to the existing per-provider `GROUP BY` |
+| `ProviderSummary.input_tokens`/`output_tokens` (were `0`/total-as-proxy) | same query | `SUM(prompt_tokens)`/`SUM(completion_tokens)` — the same columns `get_totals_by_model` already summed, just not previously carried into this one query |
+| `ModelSummary.input_tokens`/`output_tokens` (were `0`/total-as-proxy) | `UsageCostRecordRepository.get_totals_by_model()` | same pattern |
+| `ProjectCost.project_name` (was `project_id`) | `DashboardService.get_project_breakdown()` | Python-side join (over the small, already-grouped result set) against `ProjectRepository.list_by_org()` — not a second SQL join into the cost-record aggregate |
+| `ProjectCost.budget`/`budget_utilization_pct` (were `"0"`/`0`) | same method | `Project.budget` (existing column) ÷ the already-computed `total_cost` |
+| Usage Heatmap (no prior art at all) | new `UsageCostRecordRepository.get_heatmap()` | `JOIN UsageEvent ON usage_event_id`, `EXTRACT(hour/dow FROM UsageEvent.timestamp)`, grouped — the only column with time-of-day granularity anywhere in the schema |
+| Recent Activity: imports/syncs (no prior art) | new `DashboardService.get_recent_activity()` | `UsageCollectionRunRepository.list_by_org()`, split by `triggered_by` (manual→imports, scheduled→syncs) — the exact rows EP-23.3/EP-23.4's sync UI already reads |
+| Recent Activity: provider failures (no prior art) | new `ProviderConnectionRepository.list_recent_failures()` | `WHERE last_failure_at IS NOT NULL ORDER BY last_failure_at DESC` — reuses EP-19.3/EP-22's existing failure-tracking columns, no new failure log |
+
+Two fields remain deliberately *not* closed, disclosed under "Known limitations" below: `OverviewKPIs.total_input_tokens`/`total_output_tokens` still show total-tokens-as-input (no org-level in/out split exists — the real per-dimension split *is* available on Time Series/Providers/Models, just not the single aggregate overview number), and `TimeSeriesPoint.provider_breakdown` (per-provider cost per day) remains empty — no per-provider-per-day query was added, since Analytics.tsx's "Spend by Provider" stacked chart derives its provider list from this field and was already effectively non-functional against the real backend before this EP; fixing it would require a new `GROUP BY usage_date, provider` query this EP's scope didn't call for and is flagged as future work.
+
+### Query strategy — filters, not a new query shape
+
+Every dimension filter (Project/Provider/Model) is implemented as an optional, keyword-only `project_id`/`provider`/`model` parameter threaded through the *same* aggregate queries, via one shared helper:
+
+```python
+# UsageCostRecordRepository
+def _dimension_filters(self, *, project_id=None, provider=None, model=None) -> list[Any]:
+    """Optional equality filters appended to any breakdown query's WHERE clause."""
+```
+
+`get_totals_by_org/provider/model/project`, `get_daily_trend`, and the new `get_heatmap` all call `*self._dimension_filters(...)` inside their existing `and_(...)` WHERE clause — narrowing to one project/provider/model reuses the exact grouped-aggregate SQL every other caller already runs, never a second query shape per filter combination. `AnalyticsService` and `DashboardService` pass these kwargs straight through; the API router (`app/api/v1/dashboard.py`) accepts them as optional query parameters (`project_id: uuid.UUID | None`, `provider: str | None`, `model: str | None`) on every breakdown endpoint (`time-series`, `providers`, `models`, `projects`, `kpis`, `heatmap`).
+
+**Organization** and **Date Range** filters were already the implicit, mandatory scope of every dashboard endpoint (`organization_id` query param + `OrgScopedMembership`; `start_date`/`end_date`) since EP-10 — this EP didn't need to add them, only the three narrower dimension filters the spec named beyond what already existed.
+
+### Performance considerations
+
+- **All aggregation is SQL `GROUP BY`, never Python loops over raw rows** — every new/extended repository method follows the file's existing `select(...).where(and_(...)).group_by(...)` style; `_period_over_period_pct()` and the project-name/budget join are the only two places doing Python-side work, and both operate over already-small, already-aggregated result sets (a handful of currency-grouped totals; one row per project), not raw `UsageCostRecord`/`UsageEvent` rows.
+- **The heatmap join is bounded by the same date-range filter as every other query** — `JOIN UsageEvent ON usage_cost_record.usage_event_id = usage_event.id` inside the existing `usage_date BETWEEN` WHERE clause, so the join only ever touches events already restricted to the requested period, not the full table.
+- **`model_count` and the prompt/completion token sums are computed in the same query pass** as the existing cost/token sums — `COUNT(DISTINCT model)` and two more `SUM()` columns added to `get_totals_by_provider`'s single `SELECT`, not a second round-trip.
+- **The overview's new trend calculation adds two more `get_totals_by_org()` calls** (current 30-day period, prior 30-day period) on top of the three (all-time/month/today) already there — five total org-level aggregate queries per overview load, each a cheap indexed `(organization_id, usage_date)` range scan, consistent with the existing EP-10 pattern of "sequential queries on one shared session, not `asyncio.gather()`" (SQLAlchemy async sessions aren't safe for concurrent use).
+- **No new indexes required** — every new query filters on columns already indexed by prior EPs: `(org, usage_date)`, `(org, provider, usage_date)`, `(org, project_id, usage_date)`, `(org, model, usage_date)` on `UsageCostRecord`; `usage_event_id` FK and `timestamp` on `UsageEvent`; `last_failure_at` is not separately indexed (see "Known limitations").
+- **Frontend**: each new hook (`useHeatmap`, `useActivityFeed`) follows the exact `useQuery` + `useRealtimeRefetchInterval` pattern every other dashboard hook already uses — same 5-minute `staleTime`, same 60-second polling fallback, same WebSocket-aware refetch suppression. No new fetching abstraction.
+
+### Real-Time Updates — reusing the EP-23.4 scheduler, not a second pipeline
+
+The task's own instruction was "reuse the scheduler introduced in EP-23.4 as the source of fresh data; do not implement another analytics pipeline." An audit found that `UsageCollectionService.collect()` — the code path both EP-23.3's manual sync and EP-23.4's background scheduler call — never publishes the `usage.created` WebSocket event EP-19.1 built (that event is only published from the SDK ingestion endpoint, `app/api/v1/ingest.py`). Rather than threading `EventBus` into the already-tested EP-08/EP-23.3/EP-23.4 core (invasive, and out of this EP's stated scope), both `Analytics.tsx` and (implicitly, via its existing hooks) `Overview.tsx` reuse the exact frontend-side pattern `Connections.tsx`'s `AutoSyncStatusSection` already established in EP-23.4: poll `GET .../scheduler/status` every 20 seconds, and when `current_job.status` transitions to `completed`/`failed` for a job ID not seen before, invalidate this page's own dashboard query keys (`overview`, `time-series`, `providers`, `models`, `projects`, `heatmap`, `activity-feed`). This is the same query-invalidation idiom already proven in `Connections.tsx`, applied to a second page — not a new live-update mechanism.
+
+### API endpoints added
+
+| Method | Path | New? | Purpose |
+|---|---|---|---|
+| GET | `/v1/dashboard/heatmap` | new | Hour-of-day × day-of-week cost-weighted grid |
+| GET | `/v1/dashboard/activity` | new | Latest imports, latest syncs, provider failures |
+| GET | `/v1/dashboard/time-series` | extended | `+project_id`, `+provider`, `+model` query params; response points gain `prompt_tokens`/`completion_tokens` |
+| GET | `/v1/dashboard/providers` | extended | `+project_id`/`provider`/`model` filters; response gains `input_tokens`/`output_tokens`/`model_count` |
+| GET | `/v1/dashboard/models` | extended | `+project_id`/`provider`/`model` filters; response gains `input_tokens`/`output_tokens` |
+| GET | `/v1/dashboard/projects` | extended | `+project_id`/`provider`/`model` filters; response gains `project_name`/`budget`/`budget_utilization_pct` |
+| GET | `/v1/dashboard/kpis` | extended | `+project_id`/`provider`/`model` filters |
+| GET | `/v1/dashboard/overview` | extended (no new params) | Response gains `active_projects`/`avg_cost_per_request`/`cost_trend_pct`/`request_trend_pct`/`token_trend_pct` |
+
+`GET /v1/dashboard/organization` (the composite endpoint) was deliberately left unextended — its own response schemas (`OrganizationProviderItem`, etc.) are a separate, smaller shape than the per-resource endpoints above and no page currently renders it with the new fields; extending it was not required by any chart this EP built.
+
+### Frontend changes
+
+- **`hooks/useDashboard.ts`** — `useTimeSeries`/`useProviders`/`useModels`/`useProjects` all gained an optional `DimensionFilters` parameter (`{project_id?, provider?, model?}`), threaded into their query keys and API calls; two new hooks, `useHeatmap` and `useActivityFeed`, follow the identical pattern.
+- **`services/api.ts`** — `OverviewParams` gained optional `project_id`/`provider`/`model` fields (automatically included in every breakdown call's query string, dropped when `undefined` by the existing `get()` helper); new `getHeatmap()` and `getActivityFeed()` functions. `getRecentActivity()` (the pre-existing, still-501-on-the-backend raw usage-events endpoint) is untouched and explicitly disambiguated in comments from the new `getActivityFeed()`.
+- **`lib/mappers.ts`** — every mapper function updated per the "Aggregation flow" table above; two new mappers, `mapHeatmap`/`mapActivity`.
+- **`types/api.ts`/`types/backend.ts`** — extended in lockstep with the schema changes above; new `HeatmapResponse`/`HeatmapCell`/`ActivityFeed`/`ActivityRunItem`/`ActivityFailureItem` frontend types and their `Backend*` mirrors.
+- **`features/Overview.tsx`** — KPI row expanded from 4 to the spec's 8 cards (Total Spend, Today's Spend, This Month, Total Tokens, Total Requests, Active Providers, Projects, Avg Cost/Request); new `RecentActivitySection` component (three columns: Latest Imports / Latest Syncs / Provider Failures) rendered in a `Section` titled "Sync Activity" (named to avoid duplicating the pre-existing `LiveActivityFeed` component's own "Recent Activity" title on the same page — the two are genuinely different things: one is background-collection health from `GET .../activity`, the other is the live per-event WebSocket feed from EP-19.2).
+- **`features/Analytics.tsx`** — Project/Provider/Model filter `<select>` controls (with a "Clear filters" affordance) at the top of the page, threaded into every chart/table below; new **Token Trend** chart (stacked input/output area chart, sourced from `TimeSeriesPoint.input_tokens`/`output_tokens`); new **Usage Heatmap** section (a 7×24 CSS grid, cell intensity from `total_cost / max_cost`, hover tooltip per cell); new **Project Spend** ranking table (rank/name/cost/requests/budget, via a second `@tanstack/react-table` instance reusing the existing model-table pattern); CSV export generalized from Models-only to a format `<select>` (Spend/Providers/Projects/Models), each format reusing data already fetched for the page's own charts — no export-specific query; scheduler-status polling + query invalidation per "Real-Time Updates" above.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep24_1_analytics.py`, 27 new tests): `_dimension_filters()` unit tests (empty/partial/full filter combinations); `DashboardService.get_overview()` trend/active-projects tests (distinct-project counting, avg-cost division-by-zero guard, `_period_over_period_pct()` positive/negative/zero-prior-baseline cases); `get_project_breakdown()` Project-join tests (real name/budget, `Unassigned` fallback, no-budget-set → `None` utilization, not `0`); `get_heatmap()` delegation tests; `get_recent_activity()` tests (manual/scheduled split, provider-failure inclusion, empty-org case); API-level tests for `GET /heatmap` and `GET /activity` (200, 422 invalid date range, 401 unauthenticated) and filter-query-param pass-through tests for `providers`/`time-series`. Existing `test_ep09.py` (2 tests) and `test_ep10.py` (12 tests) updated for the new filter kwargs/response fields — no existing test's *intent* changed, only its fixtures. Full backend suite: **1643 passed** (1616 + 27), ruff/black/mypy clean.
+- **Frontend** (24 new tests across 3 files):
+  - `src/__tests__/mappers.test.ts` (13 tests) — pins every "gap" closure from the Aggregation Flow table above as an executable assertion (e.g. `mapOverview` surfaces real `active_projects`/trend percentages instead of `0`; `mapProjects` surfaces real `project_name`/`budget` instead of `project_id`/`"0"`, and preserves `null` budget rather than coercing to `"0"`; `mapHeatmap`/`mapActivity` round-trip every field correctly).
+  - `src/__tests__/Analytics.test.tsx` (8 tests) — filter controls render and pass through to every dashboard query; "Clear filters" appears only when a filter is active; Token Trend/Usage Heatmap/Project Spend sections render (including the heatmap's empty-state message); CSV export triggers a download; scheduler-status polling fires.
+  - `src/__tests__/Overview.test.tsx` (3 tests) — all 8 KPI cards render with real (non-placeholder) today/month spend values; the "Sync Activity" section renders real imports/syncs/failures once usage exists.
+  - Full dashboard suite: **215 passed** (191 + 24), lint clean, typecheck clean (`tsc -b`), build clean (`vite build`).
+
+### Known limitations
+
+- **`OverviewKPIs.total_input_tokens`/`total_output_tokens` still show total-tokens-as-input** — no org-level, all-dimensions-combined prompt/completion split query was added; the real split *is* available per-provider, per-model, and per-day (all three closed by this EP), just not as a single all-up overview number. Adding one more `SUM(prompt_tokens)`/`SUM(completion_tokens)` pair to `get_totals_by_org` would close this identically to how `get_totals_by_provider`/`get_daily_trend` were closed — straightforward, just not exercised by any chart this EP's spec named.
+- **`TimeSeriesPoint.provider_breakdown` (per-provider cost per day) remains empty** — Analytics.tsx's existing "Spend by Provider" stacked area chart derives its series list from this field and was already non-functional against the real backend before this EP (a pre-existing gap, not introduced here). Closing it requires a new `GROUP BY usage_date, provider` query — deliberately out of this EP's scope since the spec's "Spend over time" requirement is satisfied by the existing single-line total-cost trend plus the (now real) per-provider Provider Spend pie chart; flagged as the next natural follow-up if the stacked-by-provider view specifically is prioritized.
+- **`ProviderConnectionRepository.list_recent_failures()` has no dedicated index on `last_failure_at`** — acceptable at this product's current per-org connection-count scale (a handful to a few dozen rows per org), would be the first thing to add if an org's connection count grows large enough for this `ORDER BY` to matter.
+- **The scheduler-status-polling real-time mechanism (20s interval) is per-page, not a shared subscription** — `Connections.tsx`, `Overview.tsx` (implicitly via its existing hooks' 60s fallback), and `Analytics.tsx` each poll `GET .../scheduler/status` independently while mounted; no shared cross-page scheduler-status cache was introduced, matching the existing per-page hook pattern rather than adding a new global subscription primitive. Two dashboard tabs open simultaneously means two independent 20-second polls, not a single shared one — a minor inefficiency, not a correctness issue.
+- **No live, continuous browser test of a real filtered analytics session** — same caveat as every prior EP in this document: verified in pieces (backend unit/API tests, frontend component tests, both full builds), not as one continuous browser session applying filters and watching every chart update together, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Future improvements
+
+1. **Close the two remaining known-limitation gaps** above (org-level token split, per-provider-per-day time series) — both are the same "add a SUM/GROUP BY column to an existing query" pattern every other gap in this EP used, not new architecture.
+2. **`/v1/analytics/*` consolidation or removal** — now that this EP confirmed it's genuinely orphaned (zero frontend call sites), a future EP could either delete it or migrate its 6 endpoints to be thin aliases of `/v1/dashboard/*`, removing the dual-system confusion this EP's own investigation had to work through.
+3. **A shared scheduler-status subscription** (see "Known limitations") if multiple simultaneously-open dashboard pages' independent 20-second polls ever become a measurable load concern — not the case at this product's current scale.

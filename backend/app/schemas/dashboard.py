@@ -21,6 +21,11 @@ class OverviewResponse(BaseModel):
     total_requests: int
     active_providers: int
     active_models: int
+    active_projects: int  # EP-24.1
+    avg_cost_per_request: str  # Decimal as string (EP-24.1)
+    cost_trend_pct: str | None  # Decimal as string (EP-24.1) — 30d vs. prior 30d
+    request_trend_pct: str | None  # EP-24.1
+    token_trend_pct: str | None  # EP-24.1
     collection_status: str | None
     last_collection_at: datetime | None
     currency: str
@@ -37,6 +42,8 @@ class TimeSeriesPoint(BaseModel):
     date: str  # ISO date string or ISO week ("2026-W26") or "YYYY-MM"
     cost: str  # Decimal as string
     tokens: int
+    prompt_tokens: int  # EP-24.1 — Token Trend chart's "input tokens"
+    completion_tokens: int  # EP-24.1 — Token Trend chart's "output tokens"
     requests: int
     currency: str
 
@@ -66,6 +73,9 @@ class ProviderMetrics(BaseModel):
     provider: str
     total_cost: str  # Decimal as string
     total_tokens: int
+    input_tokens: int  # EP-24.1
+    output_tokens: int  # EP-24.1
+    model_count: int  # EP-24.1 — distinct models seen for this provider
     total_requests: int
     avg_cost_per_request: str  # Decimal as string
     currency: str
@@ -94,6 +104,8 @@ class ModelMetrics(BaseModel):
     model: str
     total_cost: str  # Decimal as string
     total_tokens: int
+    input_tokens: int  # EP-24.1
+    output_tokens: int  # EP-24.1
     total_requests: int
     avg_cost_per_request: str  # Decimal as string
     currency: str
@@ -119,9 +131,12 @@ class ProjectMetrics(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     project_id: str | None  # UUID as string, or None for unattributed
+    project_name: str  # EP-24.1 — real Project.name, "Unassigned" when project_id is None
     total_cost: str  # Decimal as string
     total_tokens: int
     total_requests: int
+    budget: str | None  # EP-24.1 — Decimal as string, Project.budget (None = no budget set)
+    budget_utilization_pct: str | None  # EP-24.1 — Decimal as string
     currency: str
 
 
@@ -242,3 +257,71 @@ class OrganizationDashboardResponse(BaseModel):
     top_models: list[OrganizationModelItem] = Field(default_factory=list)
     project_breakdown: list[OrganizationProjectItem] = Field(default_factory=list)
     daily_trend: list[OrganizationTrendPoint] = Field(default_factory=list)
+
+
+# ── EP-24.1 — Usage heatmap ──────────────────────────────────────────────────
+
+
+class HeatmapCell(BaseModel):
+    """One hour-of-day x day-of-week cell in the usage heatmap."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    hour_of_day: int  # 0-23 (UTC)
+    day_of_week: int  # 0=Sunday .. 6=Saturday (PostgreSQL EXTRACT(dow) convention)
+    total_cost: str  # Decimal as string
+    total_tokens: int
+    total_requests: int
+    currency: str
+
+
+class HeatmapResponse(BaseModel):
+    """Cost-weighted hour-of-day x day-of-week grid for a date range."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    cells: list[HeatmapCell] = Field(default_factory=list)
+    period_start: str
+    period_end: str
+    currency: str
+
+
+# ── EP-24.1 — Recent activity ────────────────────────────────────────────────
+
+
+class ActivityRunItem(BaseModel):
+    """One usage-collection run (import or scheduled sync)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    provider: str
+    status: str
+    triggered_by: str
+    started_at: datetime
+    completed_at: datetime | None
+    events_collected: int
+    error_message: str | None
+
+
+class ActivityFailureItem(BaseModel):
+    """One provider connection currently in a failed state."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    connection_id: str
+    provider_type: str
+    display_name: str
+    last_error: str | None
+    last_failure_at: datetime | None
+    consecutive_failure_count: int
+
+
+class ActivityResponse(BaseModel):
+    """Recent activity feed: latest imports, latest syncs, provider failures."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    imports: list[ActivityRunItem] = Field(default_factory=list)
+    syncs: list[ActivityRunItem] = Field(default_factory=list)
+    failures: list[ActivityFailureItem] = Field(default_factory=list)

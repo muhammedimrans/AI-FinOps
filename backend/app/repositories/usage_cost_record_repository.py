@@ -15,6 +15,7 @@ from sqlalchemy import Table, and_, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.models.usage_cost_record import UsageCostRecord
+from app.models.usage_event import UsageEvent
 from app.repositories.base_repository import BaseRepository
 
 log = structlog.get_logger(__name__)
@@ -133,17 +134,44 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
             for row in result.all()
         ]
 
+    @staticmethod
+    def _dimension_filters(
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> list[Any]:
+        """Optional equality filters shared by every breakdown query below (EP-24.1).
+
+        Lets callers narrow any breakdown to one project/provider/model
+        without a second query shape — the same grouped-aggregate SQL is
+        reused, just with an extra ``WHERE`` clause appended.
+        """
+        filters: list[Any] = []
+        if project_id is not None:
+            filters.append(UsageCostRecord.project_id == project_id)
+        if provider is not None:
+            filters.append(UsageCostRecord.provider == provider)
+        if model is not None:
+            filters.append(UsageCostRecord.model == model)
+        return filters
+
     async def get_totals_by_org(
         self,
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Sum total_cost, total_tokens, request count for org + date range.
 
         Groups by currency so that USD and EUR totals are never summed together.
         Returns one dict per currency. An empty list is returned when there are
-        no cost records for the given org and date range.
+        no cost records for the given org and date range. Optional
+        project/provider/model filters narrow the same query (EP-24.1).
         """
         stmt = (
             select(
@@ -164,6 +192,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.usage_date >= start_date,
                     UsageCostRecord.usage_date <= end_date,
                     UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
                 )
             )
             .group_by(UsageCostRecord.currency)
@@ -187,8 +216,17 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Group by provider, sum costs and tokens."""
+        """Group by provider, sum costs and tokens.
+
+        ``model_count`` is the number of distinct models seen for that
+        provider in the period — computed via ``COUNT(DISTINCT model)`` in
+        the same query rather than a second round-trip (EP-24.1).
+        """
         stmt = (
             select(
                 UsageCostRecord.provider,
@@ -208,6 +246,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     "total_completion_tokens"
                 ),
                 func.count(UsageCostRecord.id).label("record_count"),
+                func.count(func.distinct(UsageCostRecord.model)).label("model_count"),
             )
             .where(
                 and_(
@@ -215,6 +254,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.usage_date >= start_date,
                     UsageCostRecord.usage_date <= end_date,
                     UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
                 )
             )
             .group_by(UsageCostRecord.provider, UsageCostRecord.currency)
@@ -232,6 +272,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                 "total_prompt_tokens": row.total_prompt_tokens or 0,
                 "total_completion_tokens": row.total_completion_tokens or 0,
                 "record_count": row.record_count or 0,
+                "model_count": row.model_count or 0,
             }
             for row in result.all()
         ]
@@ -242,6 +283,10 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         start_date: date,
         end_date: date,
         limit: int | None = None,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Group by model, sum costs and tokens.
 
@@ -275,6 +320,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.usage_date >= start_date,
                     UsageCostRecord.usage_date <= end_date,
                     UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
                 )
             )
             .group_by(UsageCostRecord.provider, UsageCostRecord.model, UsageCostRecord.currency)
@@ -305,6 +351,10 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         start_date: date,
         end_date: date,
         limit: int | None = None,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Group by project_id, sum costs and tokens.
 
@@ -325,6 +375,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.usage_date >= start_date,
                     UsageCostRecord.usage_date <= end_date,
                     UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
                 )
             )
             .group_by(UsageCostRecord.project_id, UsageCostRecord.currency)
@@ -349,8 +400,18 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Group by usage_date, sum costs. Returns date-ordered list."""
+        """Group by usage_date, sum costs. Returns date-ordered list.
+
+        ``total_prompt_tokens``/``total_completion_tokens`` (EP-24.1) power
+        the Token Trend chart's input/output split — the same columns
+        ``get_totals_by_provider``/``get_totals_by_model`` already summed,
+        just not previously carried through this one query.
+        """
         stmt = (
             select(
                 UsageCostRecord.usage_date,
@@ -363,6 +424,12 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     "total_completion_cost"
                 ),
                 func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.coalesce(func.sum(UsageCostRecord.prompt_tokens), 0).label(
+                    "total_prompt_tokens"
+                ),
+                func.coalesce(func.sum(UsageCostRecord.completion_tokens), 0).label(
+                    "total_completion_tokens"
+                ),
                 func.count(UsageCostRecord.id).label("record_count"),
             )
             .where(
@@ -371,6 +438,7 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                     UsageCostRecord.usage_date >= start_date,
                     UsageCostRecord.usage_date <= end_date,
                     UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
                 )
             )
             .group_by(UsageCostRecord.usage_date, UsageCostRecord.currency)
@@ -384,6 +452,62 @@ class UsageCostRecordRepository(BaseRepository[UsageCostRecord]):
                 "total_cost": row.total_cost or Decimal(0),
                 "total_prompt_cost": row.total_prompt_cost or Decimal(0),
                 "total_completion_cost": row.total_completion_cost or Decimal(0),
+                "total_tokens": row.total_tokens or 0,
+                "total_prompt_tokens": row.total_prompt_tokens or 0,
+                "total_completion_tokens": row.total_completion_tokens or 0,
+                "record_count": row.record_count or 0,
+            }
+            for row in result.all()
+        ]
+
+    async def get_heatmap(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Cost-weighted hour-of-day x day-of-week grid (EP-24.1).
+
+        ``UsageCostRecord.usage_date`` has no time-of-day component, so an
+        hour-of-day breakdown requires the one column that does:
+        ``UsageEvent.timestamp``. Joined via the existing
+        ``usage_event_id`` FK rather than adding a redundant timestamp
+        column to ``UsageCostRecord`` — one join, still a single grouped
+        aggregate query, no Python-side bucketing of raw rows.
+        """
+        stmt = (
+            select(
+                func.extract("hour", UsageEvent.timestamp).label("hour_of_day"),
+                func.extract("dow", UsageEvent.timestamp).label("day_of_week"),
+                UsageCostRecord.currency,
+                func.coalesce(func.sum(UsageCostRecord.total_cost), Decimal(0)).label("total_cost"),
+                func.coalesce(func.sum(UsageCostRecord.total_tokens), 0).label("total_tokens"),
+                func.count(UsageCostRecord.id).label("record_count"),
+            )
+            .join(UsageEvent, UsageCostRecord.usage_event_id == UsageEvent.id)
+            .where(
+                and_(
+                    UsageCostRecord.organization_id == organization_id,
+                    UsageCostRecord.usage_date >= start_date,
+                    UsageCostRecord.usage_date <= end_date,
+                    UsageCostRecord.deleted_at.is_(None),
+                    *self._dimension_filters(project_id=project_id, provider=provider, model=model),
+                )
+            )
+            .group_by("hour_of_day", "day_of_week", UsageCostRecord.currency)
+            .order_by("day_of_week", "hour_of_day")
+        )
+        result = await self._session.execute(stmt)
+        return [
+            {
+                "hour_of_day": int(row.hour_of_day),
+                "day_of_week": int(row.day_of_week),
+                "currency": row.currency,
+                "total_cost": row.total_cost or Decimal(0),
                 "total_tokens": row.total_tokens or 0,
                 "record_count": row.record_count or 0,
             }

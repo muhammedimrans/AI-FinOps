@@ -8,6 +8,8 @@ import type {
   KPIsResponse,
   UsageEventsResponse,
   TimeSeriesPoint,
+  HeatmapResponse,
+  ActivityFeed,
 } from "../types/api";
 import { toISODate, subtractDays } from "../utils";
 
@@ -127,12 +129,18 @@ export function getMockOverview(startDate: string, endDate: string): OverviewKPI
   const prevTokens = prev.reduce((s, d) => s + d.totalTokens, 0);
 
   const pct = (a: number, b: number) => (b > 0 ? ((a - b) / b) * 100 : 0);
+  const todayRow = DAILY_DATA[DAILY_DATA.length - 1];
+  const monthStart = endDate.slice(0, 7) + "-01";
+  const monthRows = DAILY_DATA.filter((d) => d.date >= monthStart && d.date <= endDate);
 
   return {
     total_cost: total.toFixed(4),
+    today_cost: (todayRow?.totalCost ?? 0).toFixed(4),
+    month_cost: monthRows.reduce((s, d) => s + d.totalCost, 0).toFixed(4),
     total_requests: totalRequests,
     active_models: 10,
     active_providers: 4,
+    active_projects: PROJECTS.length,
     total_input_tokens: Math.round(totalTokens * 0.7),
     total_output_tokens: Math.round(totalTokens * 0.3),
     avg_cost_per_request: totalRequests > 0 ? (total / totalRequests).toFixed(6) : "0",
@@ -162,6 +170,8 @@ export function getMockTimeSeries(
       total_cost: d.totalCost.toFixed(4),
       total_requests: Math.round(d.totalRequests),
       total_tokens: Math.round(d.totalTokens),
+      input_tokens: Math.round(d.totalTokens * 0.7),
+      output_tokens: Math.round(d.totalTokens * 0.3),
       provider_breakdown: Object.fromEntries(
         Object.entries(d.byProvider).map(([k, v]) => [k, v.toFixed(4)]),
       ),
@@ -176,18 +186,23 @@ export function getMockTimeSeries(
       if (!weeks.has(key)) weeks.set(key, []);
       weeks.get(key)!.push(d);
     }
-    points = Array.from(weeks.entries()).map(([date, days]) => ({
-      date,
-      total_cost: days.reduce((s, d) => s + d.totalCost, 0).toFixed(4),
-      total_requests: Math.round(days.reduce((s, d) => s + d.totalRequests, 0)),
-      total_tokens: Math.round(days.reduce((s, d) => s + d.totalTokens, 0)),
-      provider_breakdown: Object.fromEntries(
-        PROVIDERS.map((p) => [
-          p.id,
-          days.reduce((s, d) => s + (d.byProvider[p.id] ?? 0), 0).toFixed(4),
-        ]),
-      ),
-    }));
+    points = Array.from(weeks.entries()).map(([date, days]) => {
+      const totalTokens = Math.round(days.reduce((s, d) => s + d.totalTokens, 0));
+      return {
+        date,
+        total_cost: days.reduce((s, d) => s + d.totalCost, 0).toFixed(4),
+        total_requests: Math.round(days.reduce((s, d) => s + d.totalRequests, 0)),
+        total_tokens: totalTokens,
+        input_tokens: Math.round(totalTokens * 0.7),
+        output_tokens: Math.round(totalTokens * 0.3),
+        provider_breakdown: Object.fromEntries(
+          PROVIDERS.map((p) => [
+            p.id,
+            days.reduce((s, d) => s + (d.byProvider[p.id] ?? 0), 0).toFixed(4),
+          ]),
+        ),
+      };
+    });
   } else {
     // monthly
     const months = new Map<string, typeof filtered>();
@@ -196,18 +211,23 @@ export function getMockTimeSeries(
       if (!months.has(key)) months.set(key, []);
       months.get(key)!.push(d);
     }
-    points = Array.from(months.entries()).map(([date, days]) => ({
-      date,
-      total_cost: days.reduce((s, d) => s + d.totalCost, 0).toFixed(4),
-      total_requests: Math.round(days.reduce((s, d) => s + d.totalRequests, 0)),
-      total_tokens: Math.round(days.reduce((s, d) => s + d.totalTokens, 0)),
-      provider_breakdown: Object.fromEntries(
-        PROVIDERS.map((p) => [
-          p.id,
-          days.reduce((s, d) => s + (d.byProvider[p.id] ?? 0), 0).toFixed(4),
-        ]),
-      ),
-    }));
+    points = Array.from(months.entries()).map(([date, days]) => {
+      const totalTokens = Math.round(days.reduce((s, d) => s + d.totalTokens, 0));
+      return {
+        date,
+        total_cost: days.reduce((s, d) => s + d.totalCost, 0).toFixed(4),
+        total_requests: Math.round(days.reduce((s, d) => s + d.totalRequests, 0)),
+        total_tokens: totalTokens,
+        input_tokens: Math.round(totalTokens * 0.7),
+        output_tokens: Math.round(totalTokens * 0.3),
+        provider_breakdown: Object.fromEntries(
+          PROVIDERS.map((p) => [
+            p.id,
+            days.reduce((s, d) => s + (d.byProvider[p.id] ?? 0), 0).toFixed(4),
+          ]),
+        ),
+      };
+    });
   }
 
   return { data: points, granularity: granularity as never, currency: "USD" };
@@ -337,8 +357,8 @@ export function getMockKPIs(): KPIsResponse {
         label: "30-Day Spend",
         value: overview.total_cost,
         unit: "USD",
-        trend_pct: overview.cost_trend_pct,
-        trend_direction: overview.cost_trend_pct > 0 ? "up" : "down",
+        trend_pct: overview.cost_trend_pct ?? 0,
+        trend_direction: (overview.cost_trend_pct ?? 0) > 0 ? "up" : "down",
       },
       {
         key: "avg_cost_per_req",
@@ -353,8 +373,8 @@ export function getMockKPIs(): KPIsResponse {
         label: "Total Tokens",
         value: String(overview.total_input_tokens + overview.total_output_tokens),
         unit: "tokens",
-        trend_pct: overview.token_trend_pct,
-        trend_direction: overview.token_trend_pct > 0 ? "up" : "down",
+        trend_pct: overview.token_trend_pct ?? 0,
+        trend_direction: (overview.token_trend_pct ?? 0) > 0 ? "up" : "down",
       },
     ],
     currency: "USD",
@@ -392,4 +412,49 @@ export function getMockRecentActivity(limit = 20): UsageEventsResponse {
     };
   });
   return { events, total: limit * 10, page: 1, page_size: limit };
+}
+
+// ── Usage Heatmap (EP-24.1) ──────────────────────────────────────────────────
+
+export function getMockHeatmap(): HeatmapResponse {
+  const cells = [];
+  for (let day = 0; day < 7; day++) {
+    for (let hour = 0; hour < 24; hour++) {
+      const isBusinessHours = hour >= 9 && hour <= 18;
+      const isWeekend = day === 0 || day === 6;
+      const base = isBusinessHours && !isWeekend ? randInt(40, 120) : randInt(0, 25);
+      cells.push({
+        hour_of_day: hour,
+        day_of_week: day,
+        total_cost: (base * 0.42).toFixed(4),
+        total_tokens: base * 1200,
+        total_requests: base,
+      });
+    }
+  }
+  return { cells, currency: "USD" };
+}
+
+// ── Recent Activity feed (EP-24.1) ───────────────────────────────────────────
+
+export function getMockActivityFeed(limit = 10): ActivityFeed {
+  const now = new Date();
+  const mkRun = (i: number, triggeredBy: string) => {
+    const startedAt = new Date(now.getTime() - i * randInt(300_000, 3_600_000));
+    return {
+      id: `run-${String(i + 1).padStart(4, "0")}`,
+      provider: PROVIDERS[randInt(0, PROVIDERS.length)]?.id ?? "openai",
+      status: rng() > 0.15 ? "completed" : "failed",
+      triggeredBy,
+      startedAt: startedAt.toISOString(),
+      completedAt: new Date(startedAt.getTime() + randInt(1000, 60_000)).toISOString(),
+      eventsCollected: randInt(0, 500),
+      errorMessage: null,
+    };
+  };
+  return {
+    imports: Array.from({ length: Math.ceil(limit / 2) }, (_, i) => mkRun(i, "manual")),
+    syncs: Array.from({ length: Math.floor(limit / 2) }, (_, i) => mkRun(i, "scheduled")),
+    failures: [],
+  };
 }

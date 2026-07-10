@@ -98,36 +98,80 @@ class AnalyticsService:
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Per-provider cost and token breakdown."""
-        return await self._cost_repo.get_totals_by_provider(organization_id, start_date, end_date)
+        return await self._cost_repo.get_totals_by_provider(
+            organization_id,
+            start_date,
+            end_date,
+            project_id=project_id,
+            provider=provider,
+            model=model,
+        )
 
     async def get_model_breakdown(
         self,
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Per-model cost and token breakdown."""
-        return await self._cost_repo.get_totals_by_model(organization_id, start_date, end_date)
+        return await self._cost_repo.get_totals_by_model(
+            organization_id,
+            start_date,
+            end_date,
+            project_id=project_id,
+            provider=provider,
+            model=model,
+        )
 
     async def get_project_breakdown(
         self,
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Per-project cost and token breakdown."""
-        return await self._cost_repo.get_totals_by_project(organization_id, start_date, end_date)
+        return await self._cost_repo.get_totals_by_project(
+            organization_id,
+            start_date,
+            end_date,
+            project_id=project_id,
+            provider=provider,
+            model=model,
+        )
 
     async def get_daily_trend(
         self,
         organization_id: uuid.UUID,
         start_date: date,
         end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Day-by-day cost totals ordered by date."""
-        return await self._cost_repo.get_daily_trend(organization_id, start_date, end_date)
+        return await self._cost_repo.get_daily_trend(
+            organization_id,
+            start_date,
+            end_date,
+            project_id=project_id,
+            provider=provider,
+            model=model,
+        )
 
     async def get_top_models(
         self,
@@ -135,10 +179,20 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
         limit: int = 10,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Top N models by total cost. SQL LIMIT applied in the repository."""
         return await self._cost_repo.get_totals_by_model(
-            organization_id, start_date, end_date, limit=limit
+            organization_id,
+            start_date,
+            end_date,
+            limit=limit,
+            project_id=project_id,
+            provider=provider,
+            model=model,
         )
 
     async def get_top_projects(
@@ -147,8 +201,38 @@ class AnalyticsService:
         start_date: date,
         end_date: date,
         limit: int = 10,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
     ) -> list[dict[str, Any]]:
         """Top N projects by total cost. SQL LIMIT applied in the repository."""
         return await self._cost_repo.get_totals_by_project(
-            organization_id, start_date, end_date, limit=limit
+            organization_id,
+            start_date,
+            end_date,
+            limit=limit,
+            project_id=project_id,
+            provider=provider,
+            model=model,
+        )
+
+    async def get_heatmap(
+        self,
+        organization_id: uuid.UUID,
+        start_date: date,
+        end_date: date,
+        *,
+        project_id: uuid.UUID | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Cost-weighted hour-of-day x day-of-week grid (EP-24.1)."""
+        return await self._cost_repo.get_heatmap(
+            organization_id,
+            start_date,
+            end_date,
+            project_id=project_id,
+            provider=provider,
+            model=model,
         )

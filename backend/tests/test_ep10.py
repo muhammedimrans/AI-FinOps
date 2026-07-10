@@ -64,6 +64,7 @@ _PROVIDER_ROW = {
     "total_prompt_tokens": 2000,
     "total_completion_tokens": 2000,
     "record_count": 8,
+    "model_count": 2,
 }
 
 _MODEL_ROW = {
@@ -94,6 +95,8 @@ _DAILY_TREND_ROW = {
     "total_prompt_cost": Decimal("4.00"),
     "total_completion_cost": Decimal("6.00"),
     "total_tokens": 500,
+    "total_prompt_tokens": 250,
+    "total_completion_tokens": 250,
     "record_count": 2,
 }
 
@@ -185,6 +188,11 @@ class TestDashboardSchemas:
             total_requests=10,
             active_providers=2,
             active_models=3,
+            active_projects=1,
+            avg_cost_per_request="10.00",
+            cost_trend_pct="5.00",
+            request_trend_pct="2.00",
+            token_trend_pct="1.00",
             collection_status="completed",
             last_collection_at=_NOW,
             currency="USD",
@@ -204,6 +212,11 @@ class TestDashboardSchemas:
             total_requests=0,
             active_providers=0,
             active_models=0,
+            active_projects=0,
+            avg_cost_per_request="0",
+            cost_trend_pct=None,
+            request_trend_pct=None,
+            token_trend_pct=None,
             collection_status=None,
             last_collection_at=None,
             currency="USD",
@@ -213,7 +226,13 @@ class TestDashboardSchemas:
 
     def test_time_series_point(self) -> None:
         pt = TimeSeriesPoint(
-            date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD"
+            date="2026-06-30",
+            cost="10.00",
+            tokens=500,
+            prompt_tokens=250,
+            completion_tokens=250,
+            requests=2,
+            currency="USD",
         )
         assert pt.date == "2026-06-30"
         assert pt.cost == "10.00"
@@ -221,7 +240,15 @@ class TestDashboardSchemas:
 
     def test_time_series_response(self) -> None:
         pts = [
-            TimeSeriesPoint(date="2026-06-30", cost="10.00", tokens=500, requests=2, currency="USD")
+            TimeSeriesPoint(
+                date="2026-06-30",
+                cost="10.00",
+                tokens=500,
+                prompt_tokens=250,
+                completion_tokens=250,
+                requests=2,
+                currency="USD",
+            )
         ]
         resp = TimeSeriesResponse(
             granularity="daily",
@@ -254,6 +281,9 @@ class TestDashboardSchemas:
             provider="openai",
             total_cost="80.00",
             total_tokens=4000,
+            input_tokens=2000,
+            output_tokens=2000,
+            model_count=2,
             total_requests=8,
             avg_cost_per_request="10.00",
             currency="USD",
@@ -278,6 +308,8 @@ class TestDashboardSchemas:
             model="gpt-4",
             total_cost="60.00",
             total_tokens=3000,
+            input_tokens=1500,
+            output_tokens=1500,
             total_requests=6,
             avg_cost_per_request="10.00",
             currency="USD",
@@ -297,9 +329,12 @@ class TestDashboardSchemas:
     def test_project_metrics_null_project_id(self) -> None:
         pm = ProjectMetrics(
             project_id=None,
+            project_name="Unassigned",
             total_cost="25.00",
             total_tokens=1000,
             total_requests=3,
+            budget=None,
+            budget_utilization_pct=None,
             currency="USD",
         )
         assert pm.project_id is None
@@ -349,6 +384,11 @@ class TestDashboardSchemas:
             total_requests=10,
             active_providers=2,
             active_models=3,
+            active_projects=1,
+            avg_cost_per_request="10.00",
+            cost_trend_pct=None,
+            request_trend_pct=None,
+            token_trend_pct=None,
             collection_status=None,
             last_collection_at=None,
             currency="USD",
@@ -388,6 +428,11 @@ class TestDashboardServiceOverview:
         assert "total_requests" in result
         assert "active_providers" in result
         assert "active_models" in result
+        assert "active_projects" in result
+        assert "avg_cost_per_request" in result
+        assert "cost_trend_pct" in result
+        assert "request_trend_pct" in result
+        assert "token_trend_pct" in result
         assert "collection_status" in result
         assert "last_collection_at" in result
         assert "currency" in result
@@ -694,7 +739,13 @@ class TestDashboardServiceModelBreakdown:
             await svc.get_model_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30), limit=5)
 
         analytics_svc.get_top_models.assert_called_once_with(
-            _ORG_ID, date(2026, 6, 1), date(2026, 6, 30), limit=5
+            _ORG_ID,
+            date(2026, 6, 1),
+            date(2026, 6, 30),
+            limit=5,
+            project_id=None,
+            provider=None,
+            model=None,
         )
 
     @pytest.mark.asyncio
@@ -711,6 +762,13 @@ class TestDashboardServiceModelBreakdown:
         assert result == []
 
 
+def _make_empty_project_repo_page() -> Any:
+    """CursorPage(items=[]) — no matching Project rows (EP-24.1 join)."""
+    from app.repositories.base_repository import CursorPage
+
+    return CursorPage(items=[], next_cursor=None, has_more=False)
+
+
 class TestDashboardServiceProjectBreakdown:
     """Tests for DashboardService.get_project_breakdown()."""
 
@@ -719,14 +777,21 @@ class TestDashboardServiceProjectBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock()
 
-        with patch(
-            "app.dashboard.service.DashboardService._make_analytics_service",
-            return_value=analytics_svc,
+        with (
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
+            patch(
+                "app.repositories.project_repository.ProjectRepository.list_by_org",
+                AsyncMock(return_value=_make_empty_project_repo_page()),
+            ),
         ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
         assert len(result) == 1
         assert result[0]["project_id"] == str(_PROJECT_ID)
+        assert result[0]["project_name"] == "Unassigned"
 
     @pytest.mark.asyncio
     async def test_null_project_id_preserved(self) -> None:
@@ -734,9 +799,15 @@ class TestDashboardServiceProjectBreakdown:
         null_row = {**_PROJECT_ROW, "project_id": None}
         analytics_svc = _make_analytics_service_mock(project_rows=[null_row])
 
-        with patch(
-            "app.dashboard.service.DashboardService._make_analytics_service",
-            return_value=analytics_svc,
+        with (
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
+            patch(
+                "app.repositories.project_repository.ProjectRepository.list_by_org",
+                AsyncMock(return_value=_make_empty_project_repo_page()),
+            ),
         ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
@@ -747,9 +818,15 @@ class TestDashboardServiceProjectBreakdown:
         svc, _ = _make_dashboard_service()
         analytics_svc = _make_analytics_service_mock(project_rows=[])
 
-        with patch(
-            "app.dashboard.service.DashboardService._make_analytics_service",
-            return_value=analytics_svc,
+        with (
+            patch(
+                "app.dashboard.service.DashboardService._make_analytics_service",
+                return_value=analytics_svc,
+            ),
+            patch(
+                "app.repositories.project_repository.ProjectRepository.list_by_org",
+                AsyncMock(return_value=_make_empty_project_repo_page()),
+            ),
         ):
             result = await svc.get_project_breakdown(_ORG_ID, date(2026, 6, 1), date(2026, 6, 30))
 
@@ -1118,6 +1195,11 @@ class TestOverviewEndpoint:
             "total_requests": 10,
             "active_providers": 2,
             "active_models": 3,
+            "active_projects": 1,
+            "avg_cost_per_request": Decimal("10.00"),
+            "cost_trend_pct": None,
+            "request_trend_pct": None,
+            "token_trend_pct": None,
             "collection_status": "completed",
             "last_collection_at": None,
             "currency": "USD",
@@ -2429,6 +2511,9 @@ class TestRH02CurrencyFiltering:
                 "currency": "USD",
                 "total_cost": Decimal("100.00"),
                 "total_tokens": 5000,
+                "input_tokens": 2500,
+                "output_tokens": 2500,
+                "model_count": 1,
                 "total_requests": 10,
                 "avg_cost_per_request": Decimal("10.00"),
             },
@@ -2437,6 +2522,9 @@ class TestRH02CurrencyFiltering:
                 "currency": "EUR",
                 "total_cost": Decimal("80.00"),
                 "total_tokens": 4000,
+                "input_tokens": 2000,
+                "output_tokens": 2000,
+                "model_count": 1,
                 "total_requests": 8,
                 "avg_cost_per_request": Decimal("10.00"),
             },
@@ -2498,6 +2586,8 @@ class TestRH02CurrencyFiltering:
                 "currency": "USD",
                 "total_cost": Decimal("60.00"),
                 "total_tokens": 3000,
+                "input_tokens": 1500,
+                "output_tokens": 1500,
                 "total_requests": 6,
                 "avg_cost_per_request": Decimal("10.00"),
             },
@@ -2507,6 +2597,8 @@ class TestRH02CurrencyFiltering:
                 "currency": "EUR",
                 "total_cost": Decimal("50.00"),
                 "total_tokens": 2500,
+                "input_tokens": 1250,
+                "output_tokens": 1250,
                 "total_requests": 5,
                 "avg_cost_per_request": Decimal("10.00"),
             },

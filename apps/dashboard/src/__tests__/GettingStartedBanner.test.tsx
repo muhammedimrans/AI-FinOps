@@ -47,9 +47,12 @@ const mockedApi = vi.mocked(api);
 
 const ZERO_OVERVIEW: OverviewKPIs = {
   total_cost: "0",
+  today_cost: "0",
+  month_cost: "0",
   total_requests: 0,
   active_models: 0,
   active_providers: 0,
+  active_projects: 0,
   total_input_tokens: 0,
   total_output_tokens: 0,
   avg_cost_per_request: "0",

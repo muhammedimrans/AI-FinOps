@@ -11,6 +11,8 @@ import type {
   BackendProjectBreakdownResponse,
   BackendOrganizationDashboardResponse,
   BackendKPIResponse,
+  BackendHeatmapResponse,
+  BackendActivityResponse,
 } from "../types/backend";
 import type {
   OverviewKPIs,
@@ -20,6 +22,8 @@ import type {
   ProjectsResponse,
   OrganizationResponse,
   KPIsResponse,
+  HeatmapResponse,
+  ActivityFeed,
   Currency,
   Granularity,
 } from "../types/api";
@@ -30,15 +34,18 @@ import { modelDisplayName } from "../utils";
 export function mapOverview(b: BackendOverviewResponse): OverviewKPIs {
   return {
     total_cost: b.total_spend,                  // name mismatch
+    today_cost: b.today_spend,                   // EP-24.1: now surfaced (was previously unused by any card)
+    month_cost: b.month_spend,                   // EP-24.1: now surfaced
     total_requests: b.total_requests,
     active_models: b.active_models,
     active_providers: b.active_providers,
-    total_input_tokens: b.total_tokens,          // gap: backend has no in/out split; display total as "in"
-    total_output_tokens: 0,                      // gap: unavailable from /dashboard/overview
-    avg_cost_per_request: "0",                   // gap: unavailable from /dashboard/overview; comes from /dashboard/kpis
-    cost_trend_pct: 0,                           // gap: backend has no trend pct fields
-    request_trend_pct: 0,                        // gap: unavailable
-    token_trend_pct: 0,                          // gap: unavailable
+    active_projects: b.active_projects,          // EP-24.1: real, was unavailable
+    total_input_tokens: b.total_tokens,          // gap: backend has no in/out split at the org-overview level; display total as "in"
+    total_output_tokens: 0,                      // gap: unavailable from /dashboard/overview (org-level in/out split doesn't exist; see mapTimeSeries/mapProviders/mapModels for the real per-dimension split)
+    avg_cost_per_request: b.avg_cost_per_request, // EP-24.1: real, was "0"
+    cost_trend_pct: b.cost_trend_pct !== null ? parseFloat(b.cost_trend_pct) : null, // EP-24.1: real, was 0
+    request_trend_pct: b.request_trend_pct !== null ? parseFloat(b.request_trend_pct) : null, // EP-24.1
+    token_trend_pct: b.token_trend_pct !== null ? parseFloat(b.token_trend_pct) : null, // EP-24.1
     currency: (b.currency ?? "USD") as Currency,
     period_start: "",                            // gap: not returned by /dashboard/overview
     period_end: "",                              // gap: not returned by /dashboard/overview
@@ -54,6 +61,8 @@ export function mapTimeSeries(b: BackendTimeSeriesResponse): TimeSeriesResponse 
       total_cost: p.cost,               // name mismatch
       total_requests: p.requests,       // name mismatch
       total_tokens: p.tokens,           // name mismatch
+      input_tokens: p.prompt_tokens,    // EP-24.1: real, powers the Token Trend chart
+      output_tokens: p.completion_tokens, // EP-24.1: real
       provider_breakdown: {},           // gap: backend returns no per-provider breakdown per time point
     })),
     granularity: b.granularity as Granularity,
@@ -70,9 +79,9 @@ export function mapProviders(b: BackendProviderBreakdownResponse): ProvidersResp
       provider: p.provider,
       total_cost: p.total_cost,
       request_count: p.total_requests,            // name mismatch
-      model_count: 0,                             // gap: unavailable from /dashboard/providers
-      input_tokens: 0,                            // gap: backend has no in/out split
-      output_tokens: p.total_tokens,              // gap: using total as "output" proxy; not accurate split
+      model_count: p.model_count,                 // EP-24.1: real, was 0
+      input_tokens: p.input_tokens,                // EP-24.1: real, was 0
+      output_tokens: p.output_tokens,              // EP-24.1: real, was total-as-proxy
       cost_share_pct:
         (parseFloat(p.total_cost) / grandTotal) * 100, // computed client-side
     })),
@@ -95,8 +104,8 @@ export function mapModels(b: BackendModelBreakdownResponse): ModelsResponse {
         display_name: modelDisplayName(m.model),  // gap: computed client-side; not in backend response
         total_cost: m.total_cost,
         request_count: m.total_requests,          // name mismatch
-        input_tokens: 0,                          // gap: backend has no in/out split
-        output_tokens: m.total_tokens,            // gap: using total as proxy
+        input_tokens: m.input_tokens,             // EP-24.1: real, was 0
+        output_tokens: m.output_tokens,           // EP-24.1: real, was total-as-proxy
         avg_cost_per_request: m.avg_cost_per_request,
         cost_per_1k_tokens: costPerToken,         // gap: computed client-side
       };
@@ -106,18 +115,20 @@ export function mapModels(b: BackendModelBreakdownResponse): ModelsResponse {
 }
 
 // ── Projects ──────────────────────────────────────────────────────────────────
-// Many fields are unavailable; they are zeroed and noted.
-// The project_id is used as the display name since no project_name exists.
+// project_name and budget are now real (EP-24.1). team/top_models/trend
+// remain unavailable — no team concept and no per-project trend query exist yet.
 
 export function mapProjects(b: BackendProjectBreakdownResponse): ProjectsResponse {
   return {
     projects: b.projects.map((p) => ({
       project_id: p.project_id ?? "unattributed",
-      project_name: p.project_id ?? "Unattributed",  // gap: no project_name in backend
-      team: "",                                        // gap: no team concept in backend
+      project_name: p.project_name,                    // EP-24.1: real, was project_id
+      team: "",                                          // gap: no team concept in backend
       total_cost: p.total_cost,
-      budget: "0",                                     // gap: no budget in backend
-      budget_utilization_pct: 0,                       // gap: no budget in backend
+      budget: p.budget,                                 // EP-24.1: real, was "0"
+      budget_utilization_pct: p.budget_utilization_pct !== null
+        ? parseFloat(p.budget_utilization_pct)
+        : null,                                          // EP-24.1: real, was 0
       request_count: p.total_requests,                 // name mismatch
       top_models: [],                                  // gap: unavailable
       cost_trend: 0,                                   // gap: unavailable
@@ -195,5 +206,47 @@ export function mapKPIs(b: BackendKPIResponse): KPIsResponse {
     ],
     currency: (b.currency ?? "USD") as Currency,
     as_of: b.period_end,
+  };
+}
+
+// ── Usage Heatmap (EP-24.1) ──────────────────────────────────────────────────
+
+export function mapHeatmap(b: BackendHeatmapResponse): HeatmapResponse {
+  return {
+    cells: b.cells.map((c) => ({
+      hour_of_day: c.hour_of_day,
+      day_of_week: c.day_of_week,
+      total_cost: c.total_cost,
+      total_tokens: c.total_tokens,
+      total_requests: c.total_requests,
+    })),
+    currency: (b.currency ?? "USD") as Currency,
+  };
+}
+
+// ── Recent Activity (EP-24.1) ────────────────────────────────────────────────
+
+export function mapActivity(b: BackendActivityResponse): ActivityFeed {
+  const mapRun = (r: BackendActivityResponse["imports"][number]) => ({
+    id: r.id,
+    provider: r.provider,
+    status: r.status,
+    triggeredBy: r.triggered_by,
+    startedAt: r.started_at,
+    completedAt: r.completed_at,
+    eventsCollected: r.events_collected,
+    errorMessage: r.error_message,
+  });
+  return {
+    imports: b.imports.map(mapRun),
+    syncs: b.syncs.map(mapRun),
+    failures: b.failures.map((f) => ({
+      connectionId: f.connection_id,
+      providerType: f.provider_type,
+      displayName: f.display_name,
+      lastError: f.last_error,
+      lastFailureAt: f.last_failure_at,
+      consecutiveFailureCount: f.consecutive_failure_count,
+    })),
   };
 }

@@ -7,6 +7,7 @@ describe("signupSchema", () => {
       display_name: "Ada Lovelace",
       email: "ada@example.com",
       password: "correct-horse-battery-staple",
+      account_type: "personal",
     });
     expect(result.success).toBe(true);
   });
@@ -52,12 +53,34 @@ describe("signupSchema", () => {
       display_name: "  Ada  ",
       email: "  ada@example.com  ",
       password: "correct-horse-battery-staple",
+      account_type: "personal",
     });
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.display_name).toBe("Ada");
       expect(result.data.email).toBe("ada@example.com");
     }
+  });
+
+  it("requires organization_name for a business account", () => {
+    const result = signupSchema.safeParse({
+      display_name: "Ada",
+      email: "ada@example.com",
+      password: "correct-horse-battery-staple",
+      account_type: "business",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a business account with an organization_name", () => {
+    const result = signupSchema.safeParse({
+      display_name: "Ada",
+      email: "ada@example.com",
+      password: "correct-horse-battery-staple",
+      account_type: "business",
+      organization_name: "Acme Inc",
+    });
+    expect(result.success).toBe(true);
   });
 });
 

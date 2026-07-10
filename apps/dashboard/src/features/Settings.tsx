@@ -630,7 +630,7 @@ export default function Settings() {
     mutationFn: (data: WorkspaceForm) =>
       updateOrganization(organizationId!, { name: data.name, description: data.description }),
     onSuccess: (updated) => {
-      setOrganization(updated.id, updated.name);
+      setOrganization(updated.id, updated.name, updated.is_personal);
       void orgsQuery.refetch();
       setWorkspaceSaved(true);
       toast.success("Workspace updated");
@@ -815,7 +815,11 @@ export default function Settings() {
         {/* Tab list */}
         <div className="flex-shrink-0 lg:w-52">
           <div className="flex gap-1 overflow-x-auto rounded-lg border border-border-subtle bg-app-card p-1 lg:flex-col lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
-            {SECTIONS.map((s) => (
+            {/* EP-25.1 — the Workspace tab is org rename/description/delete,
+                none of which apply to a personal (single-user, never
+                renameable/deletable) workspace — hidden entirely rather than
+                shown-but-disabled. */}
+            {SECTIONS.filter((s) => s.id !== "workspace" || !currentOrg?.is_personal).map((s) => (
               <button
                 key={s.id}
                 onClick={() => setActive(s.id)}

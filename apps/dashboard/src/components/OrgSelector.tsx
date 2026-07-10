@@ -21,14 +21,26 @@ export default function OrgSelector() {
     getOrganizations()
       .then((data) => {
         if (cancelled) return;
-        const orgs = data.organizations;
-        if (orgs.length === 0) {
-          setState({ status: "empty" });
-        } else if (orgs.length === 1) {
-          const only = orgs[0]!;
-          setOrganization(only.id, only.name);
+        // EP-25.1 — the hidden personal workspace is never a switchable
+        // option: a Business account's own personal org (every account has
+        // exactly one, is_personal=true) is filtered out here so the picker
+        // only ever shows real, collaborative workspaces. A pure Personal
+        // account has zero business orgs after this filter, which is
+        // exactly the "auto-select the one org silently" case below —
+        // there is nothing to pick between.
+        const businessOrgs = data.organizations.filter((o) => !o.is_personal);
+        if (businessOrgs.length === 1) {
+          const only = businessOrgs[0]!;
+          setOrganization(only.id, only.name, false);
+        } else if (businessOrgs.length > 1) {
+          setState({ status: "picker", orgs: businessOrgs });
         } else {
-          setState({ status: "picker", orgs });
+          const personalOrg = data.organizations.find((o) => o.is_personal);
+          if (personalOrg) {
+            setOrganization(personalOrg.id, personalOrg.name, true);
+          } else {
+            setState({ status: "empty" });
+          }
         }
       })
       .catch(() => {
@@ -90,7 +102,7 @@ export default function OrgSelector() {
                 {state.orgs.map((org) => (
                   <button
                     key={org.id}
-                    onClick={() => setOrganization(org.id, org.name)}
+                    onClick={() => setOrganization(org.id, org.name, org.is_personal)}
                     className="w-full text-left px-4 py-3 rounded-lg border border-border-subtle
                                bg-app-bg/60 hover:bg-brand-subtle hover:border-brand/40
                                transition-colors duration-fast group"

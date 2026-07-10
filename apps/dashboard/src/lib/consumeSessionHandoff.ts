@@ -36,6 +36,10 @@ interface HandoffUser {
 interface HandoffWorkspace {
   id: string;
   name: string;
+  // EP-25.1 — carried through so the dashboard never has to guess whether
+  // the handed-off workspace is the account's hidden personal one before
+  // its first GET /v1/organizations round-trip.
+  is_personal?: boolean;
 }
 
 interface HandoffPayload {
@@ -102,7 +106,13 @@ export function consumeSessionHandoff(): boolean {
     );
 
     if (payload.workspace) {
-      useOrgStore.getState().setOrganization(payload.workspace.id, payload.workspace.name);
+      useOrgStore
+        .getState()
+        .setOrganization(
+          payload.workspace.id,
+          payload.workspace.name,
+          payload.workspace.is_personal ?? false,
+        );
     }
 
     stripHash();

@@ -92,13 +92,20 @@ export default function Login() {
         },
         rememberMe,
       );
-      // Auto-select org when the user belongs to exactly one.
+      // Auto-select org when the user belongs to exactly one switchable
+      // (non-personal) workspace, or has only their hidden personal one
+      // (EP-25.1 — mirrors OrgSelector's own filtering exactly, so a
+      // Personal account never sees a picker screen at all).
       // For multi-org or zero-org cases, OrgSelector handles it after redirect.
       try {
         const orgsData = await getOrganizations();
-        if (orgsData.organizations.length === 1) {
-          const only = orgsData.organizations[0]!;
-          setOrganization(only.id, only.name);
+        const businessOrgs = orgsData.organizations.filter((o) => !o.is_personal);
+        if (businessOrgs.length === 1) {
+          const only = businessOrgs[0]!;
+          setOrganization(only.id, only.name, false);
+        } else if (businessOrgs.length === 0 && orgsData.organizations.length === 1) {
+          const personal = orgsData.organizations[0]!;
+          setOrganization(personal.id, personal.name, personal.is_personal);
         }
       } catch {
         // Non-fatal — OrgSelector will recover on the next render.

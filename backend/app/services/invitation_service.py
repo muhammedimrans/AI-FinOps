@@ -66,6 +66,16 @@ class InvitationNotFoundError(InvitationError):
     """Raised when an invitation id doesn't resolve to a row in the caller's organization."""
 
 
+class PersonalOrganizationError(InvitationError):
+    """Raised when an invitation is attempted against a personal (single-user) workspace.
+
+    EP-25.1: a personal workspace's sole membership is fixed at creation
+    (one OWNER, the account holder — see AuthService._create_workspace) and
+    is never invitable, mirroring the existing is_personal guard on
+    DELETE/PATCH /organizations/{id}.
+    """
+
+
 class InvitationService:
     """Orchestrates invitation creation, acceptance, decline, and resend."""
 
@@ -100,6 +110,9 @@ class InvitationService:
         role: MembershipRole,
         inviter: User,
     ) -> Invitation:
+        if organization.is_personal:
+            raise PersonalOrganizationError
+
         normalized_email = email.strip().lower()
 
         if normalized_email == inviter.email.strip().lower():

@@ -277,17 +277,23 @@ class TestInviteMemberEndpoint:
         """Privilege-escalation guard: an ADMIN must not be able to mint a co-equal OWNER."""
         _override_auth(app, caller_role=MembershipRole.ADMIN)
         try:
-            with patch.multiple(
-                "app.auth.dependencies",
-                OrganizationRepository=MagicMock(
-                    return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
-                ),
-                MembershipRepository=MagicMock(
-                    return_value=MagicMock(
-                        get_by_org_and_email=AsyncMock(
-                            return_value=_membership(role=MembershipRole.ADMIN)
+            with (
+                patch.multiple(
+                    "app.auth.dependencies",
+                    OrganizationRepository=MagicMock(
+                        return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
+                    ),
+                    MembershipRepository=MagicMock(
+                        return_value=MagicMock(
+                            get_by_org_and_email=AsyncMock(
+                                return_value=_membership(role=MembershipRole.ADMIN)
+                            )
                         )
-                    )
+                    ),
+                ),
+                patch(
+                    "app.api.v1.organizations.OrganizationRepository",
+                    return_value=MagicMock(get=AsyncMock(return_value=_active_org())),
                 ),
             ):
                 async with AsyncClient(
@@ -305,17 +311,23 @@ class TestInviteMemberEndpoint:
     async def test_owner_can_grant_owner_role(self, app: Any) -> None:
         _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
-            with patch.multiple(
-                "app.auth.dependencies",
-                OrganizationRepository=MagicMock(
-                    return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
-                ),
-                MembershipRepository=MagicMock(
-                    return_value=MagicMock(
-                        get_by_org_and_email=AsyncMock(
-                            return_value=_membership(role=MembershipRole.OWNER)
+            with (
+                patch.multiple(
+                    "app.auth.dependencies",
+                    OrganizationRepository=MagicMock(
+                        return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
+                    ),
+                    MembershipRepository=MagicMock(
+                        return_value=MagicMock(
+                            get_by_org_and_email=AsyncMock(
+                                return_value=_membership(role=MembershipRole.OWNER)
+                            )
                         )
-                    )
+                    ),
+                ),
+                patch(
+                    "app.api.v1.organizations.OrganizationRepository",
+                    return_value=MagicMock(get=AsyncMock(return_value=_active_org())),
                 ),
             ):
                 created = make_membership(
@@ -353,17 +365,23 @@ class TestInviteMemberEndpoint:
     async def test_duplicate_member_is_409(self, app: Any) -> None:
         _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
-            with patch.multiple(
-                "app.auth.dependencies",
-                OrganizationRepository=MagicMock(
-                    return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
-                ),
-                MembershipRepository=MagicMock(
-                    return_value=MagicMock(
-                        get_by_org_and_email=AsyncMock(
-                            return_value=_membership(role=MembershipRole.OWNER)
+            with (
+                patch.multiple(
+                    "app.auth.dependencies",
+                    OrganizationRepository=MagicMock(
+                        return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
+                    ),
+                    MembershipRepository=MagicMock(
+                        return_value=MagicMock(
+                            get_by_org_and_email=AsyncMock(
+                                return_value=_membership(role=MembershipRole.OWNER)
+                            )
                         )
-                    )
+                    ),
+                ),
+                patch(
+                    "app.api.v1.organizations.OrganizationRepository",
+                    return_value=MagicMock(get=AsyncMock(return_value=_active_org())),
                 ),
             ):
                 with patch(
@@ -385,17 +403,23 @@ class TestInviteMemberEndpoint:
     async def test_invalid_role_is_422(self, app: Any) -> None:
         _override_auth(app, caller_role=MembershipRole.OWNER)
         try:
-            with patch.multiple(
-                "app.auth.dependencies",
-                OrganizationRepository=MagicMock(
-                    return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
-                ),
-                MembershipRepository=MagicMock(
-                    return_value=MagicMock(
-                        get_by_org_and_email=AsyncMock(
-                            return_value=_membership(role=MembershipRole.OWNER)
+            with (
+                patch.multiple(
+                    "app.auth.dependencies",
+                    OrganizationRepository=MagicMock(
+                        return_value=MagicMock(get=AsyncMock(return_value=_active_org()))
+                    ),
+                    MembershipRepository=MagicMock(
+                        return_value=MagicMock(
+                            get_by_org_and_email=AsyncMock(
+                                return_value=_membership(role=MembershipRole.OWNER)
+                            )
                         )
-                    )
+                    ),
+                ),
+                patch(
+                    "app.api.v1.organizations.OrganizationRepository",
+                    return_value=MagicMock(get=AsyncMock(return_value=_active_org())),
                 ),
             ):
                 async with AsyncClient(
@@ -628,6 +652,10 @@ def _active_org() -> Any:
     org = MagicMock(spec=Organization)
     org.id = _ORG_ID
     org.status = OrganizationStatus.ACTIVE
+    # EP-25.1: every call site here represents a normal, invitable business
+    # org — invite_member()'s new is_personal guard needs this set
+    # explicitly, since a MagicMock attribute is truthy by default.
+    org.is_personal = False
     return org
 
 

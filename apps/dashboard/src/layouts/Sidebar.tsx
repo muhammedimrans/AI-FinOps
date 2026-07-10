@@ -8,7 +8,7 @@ import OrgLogo from "../components/OrgLogo";
 import { useUIStore } from "../stores/ui";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
-import { NAV_ITEMS, NAV_GROUPS, isNavItemActive, type NavItem } from "../lib/navigation";
+import { NAV_GROUPS, visibleNavItems, isNavItemActive, type NavItem } from "../lib/navigation";
 import { CostorahMark } from "../components/CostorahLogo";
 
 interface SidebarProps {
@@ -102,6 +102,8 @@ function SidebarBody({
   location: ReturnType<typeof useLocation>;
   onNavigate?: () => void;
 }) {
+  const { isPersonal } = useOrgStore();
+  const navItems = visibleNavItems(isPersonal);
   return (
     <>
       {/* Logo */}
@@ -130,7 +132,7 @@ function SidebarBody({
       {/* Navigation */}
       <nav className="flex-1 py-3 overflow-y-auto overflow-x-hidden">
         {NAV_GROUPS.map((group) => {
-          const items = NAV_ITEMS.filter((n) => n.group === group);
+          const items = navItems.filter((n) => n.group === group);
           return (
             <div key={group} className="mb-1">
               <AnimatePresence>
@@ -215,7 +217,7 @@ function SidebarItem({
 
 function UserMenu({ collapsed }: { collapsed: boolean }) {
   const { user, clearAuth } = useAuthStore();
-  const { organizationName, clearOrganization } = useOrgStore();
+  const { organizationName, isPersonal, clearOrganization } = useOrgStore();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -266,7 +268,9 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
             className="absolute bottom-full left-3 right-3 mb-2 bg-app-card border border-border-subtle
                        rounded-lg shadow-elevated overflow-hidden z-20"
           >
-            {organizationName && (
+            {/* EP-25.1 — a personal account's own org is always its hidden
+                personal workspace, which is never shown or switchable. */}
+            {!isPersonal && organizationName && (
               <div className="flex items-center gap-2.5 px-3 py-2 border-b border-border-subtle">
                 <OrgLogo size={24} />
                 <div className="min-w-0">
@@ -287,15 +291,17 @@ function UserMenu({ collapsed }: { collapsed: boolean }) {
               <UserCircle size={14} />
               Profile &amp; settings
             </button>
-            <button
-              role="menuitem"
-              onClick={handleSwitchOrg}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-tx-secondary
-                         hover:bg-app-hover hover:text-tx-primary transition-colors duration-fast"
-            >
-              <Building2 size={14} />
-              Switch organization
-            </button>
+            {!isPersonal && (
+              <button
+                role="menuitem"
+                onClick={handleSwitchOrg}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs text-tx-secondary
+                           hover:bg-app-hover hover:text-tx-primary transition-colors duration-fast"
+              >
+                <Building2 size={14} />
+                Switch organization
+              </button>
+            )}
             <button
               role="menuitem"
               onClick={handleSignOut}

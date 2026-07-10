@@ -216,7 +216,39 @@ class TestDeleteAccount:
         self.svc._membership_repo.list_by_org_with_users = AsyncMock(return_value=[m])
         self.svc._org_repo.get = AsyncMock(return_value=personal_org)
 
-        await self.svc.delete_account(user=user, password="pw")
+        # EP-25.1: delete_account() now cascade-soft-deletes every
+        # dependent resource for each solely-owned org via fresh
+        # repository instances — patch those out for this unit test
+        # (the cascade itself is covered by test_ep25_1_personal_business.py).
+        with (
+            patch(
+                "app.auth.service.ProjectRepository",
+                return_value=MagicMock(
+                    list_by_org=AsyncMock(return_value=MagicMock(items=[])), soft_delete=AsyncMock()
+                ),
+            ),
+            patch(
+                "app.auth.service.ProviderConnectionRepository",
+                return_value=MagicMock(
+                    list_by_org=AsyncMock(return_value=MagicMock(items=[])), soft_delete=AsyncMock()
+                ),
+            ),
+            patch(
+                "app.auth.service.BudgetRepository",
+                return_value=MagicMock(
+                    list_for_org=AsyncMock(return_value=[]), soft_delete=AsyncMock()
+                ),
+            ),
+            patch(
+                "app.auth.service.OrganizationApiKeyRepository",
+                return_value=MagicMock(list=AsyncMock(return_value=[]), soft_delete=AsyncMock()),
+            ),
+            patch(
+                "app.auth.service.InvitationRepository",
+                return_value=MagicMock(list_pending_by_org=AsyncMock(return_value=[])),
+            ),
+        ):
+            await self.svc.delete_account(user=user, password="pw")
 
         self.svc._org_repo.soft_delete.assert_awaited_once_with(personal_org, deleted_by=user.id)
         self.svc._user_repo.soft_delete.assert_awaited_once_with(user, deleted_by=user.id)

@@ -60,6 +60,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// EP-25.1 — server-side-enforced-anyway, but a direct URL visit to a
+// business-only page (Members, RBAC, Organization settings) from a
+// personal workspace should bounce to the dashboard rather than render a
+// page full of 400/403s from every API call it makes.
+function BusinessOnlyRoute({ children }: { children: React.ReactNode }) {
+  const { isPersonal } = useOrgStore();
+  if (isPersonal) return <Navigate to="/dashboard" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <Routes>
@@ -154,11 +164,11 @@ export default function App() {
           <Route path="projects"     element={<Page><Projects /></Page>} />
           <Route path="budgets"      element={<Page><Budgets /></Page>} />
           <Route path="alerts"       element={<Page><Alerts /></Page>} />
-          <Route path="organization" element={<Page><Organization /></Page>} />
+          <Route path="organization" element={<BusinessOnlyRoute><Page><Organization /></Page></BusinessOnlyRoute>} />
           <Route path="pricing"      element={<Page><Pricing /></Page>} />
         </Route>
-        <Route path="users" element={<Page><Users /></Page>} />
-        <Route path="rbac" element={<Page><RBAC /></Page>} />
+        <Route path="users" element={<BusinessOnlyRoute><Page><Users /></Page></BusinessOnlyRoute>} />
+        <Route path="rbac" element={<BusinessOnlyRoute><Page><RBAC /></Page></BusinessOnlyRoute>} />
         <Route path="api-keys" element={<Page><ApiKeys /></Page>} />
         <Route path="connections" element={<Page><Connections /></Page>} />
         <Route path="audit-logs" element={

@@ -12,10 +12,17 @@ import { persist } from "zustand/middleware";
 interface OrgState {
   organizationId: string | null;
   organizationName: string | null;
+  // EP-25.1 — whether the currently-selected organization is the account's
+  // hidden personal workspace (Organization.is_personal). Drives every
+  // "hide collaboration UI" decision in the dashboard shell (Sidebar nav,
+  // Settings' Workspace tab, the org switcher) — sourced from the same
+  // `is_personal` field GET /v1/organizations already returns, not a new
+  // backend concept.
+  isPersonal: boolean;
   // Keyed by organizationId so switching orgs doesn't mix up logos.
   organizationLogos: Record<string, string>;
 
-  setOrganization: (id: string, name?: string) => void;
+  setOrganization: (id: string, name?: string, isPersonal?: boolean) => void;
   clearOrganization: () => void;
   setOrganizationLogo: (organizationId: string, dataUrl: string | null) => void;
 }
@@ -25,13 +32,14 @@ export const useOrgStore = create<OrgState>()(
     (set) => ({
       organizationId: null,
       organizationName: null,
+      isPersonal: false,
       organizationLogos: {},
 
-      setOrganization: (organizationId, organizationName = "") =>
-        set({ organizationId, organizationName }),
+      setOrganization: (organizationId, organizationName = "", isPersonal = false) =>
+        set({ organizationId, organizationName, isPersonal }),
 
       clearOrganization: () =>
-        set({ organizationId: null, organizationName: null }),
+        set({ organizationId: null, organizationName: null, isPersonal: false }),
 
       setOrganizationLogo: (organizationId, dataUrl) =>
         set((s) => {

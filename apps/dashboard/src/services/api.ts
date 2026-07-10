@@ -999,6 +999,139 @@ export async function getActivityFeed(
   return mapActivity(raw);
 }
 
+// ── Budgets (EP-24.2) ────────────────────────────────────────────────────────
+
+export type BudgetScopeType = "organization" | "project" | "provider" | "model";
+export type BudgetPeriodType = "daily" | "weekly" | "monthly" | "yearly" | "custom";
+export type BudgetStatusLevel = "healthy" | "warning" | "critical" | "exceeded";
+
+export interface BudgetRecord {
+  id: string;
+  organization_id: string;
+  name: string;
+  scope_type: BudgetScopeType;
+  scope_project_id: string | null;
+  scope_provider: string | null;
+  scope_model: string | null;
+  amount: string;
+  currency: string;
+  period: BudgetPeriodType;
+  custom_period_start: string | null;
+  custom_period_end: string | null;
+  threshold_percentages: number[];
+  enabled: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BudgetsListResponse {
+  budgets: BudgetRecord[];
+  total: number;
+}
+
+export interface BudgetStatusSummary {
+  budget: BudgetRecord;
+  current_spend: string;
+  remaining: string;
+  percent_used: number;
+  period_start: string;
+  period_end: string;
+  days_elapsed: number;
+  days_remaining: number;
+  projected_period_spend: string;
+  remaining_daily_allowance: string;
+  status: BudgetStatusLevel;
+  highest_threshold_crossed: number | null;
+}
+
+export interface BudgetSummaryResponse {
+  budgets: BudgetStatusSummary[];
+  currency: string;
+  total_budgeted: string;
+  total_spent: string;
+  total_remaining: string;
+  active_alert_count: number;
+  critical_alert_count: number;
+  projected_eom_spend: string;
+}
+
+export interface CreateBudgetRequest {
+  name: string;
+  scope_type: BudgetScopeType;
+  scope_project_id?: string | null;
+  scope_provider?: string | null;
+  scope_model?: string | null;
+  amount: string;
+  currency?: string;
+  period: BudgetPeriodType;
+  custom_period_start?: string | null;
+  custom_period_end?: string | null;
+  threshold_percentages?: number[];
+  enabled?: boolean;
+}
+
+export interface UpdateBudgetRequest {
+  name?: string;
+  amount?: string;
+  currency?: string;
+  period?: BudgetPeriodType;
+  custom_period_start?: string | null;
+  custom_period_end?: string | null;
+  threshold_percentages?: number[];
+  enabled?: boolean;
+}
+
+export async function listBudgets(organizationId: string): Promise<BudgetsListResponse> {
+  return get<BudgetsListResponse>("/v1/budgets", { organization_id: organizationId });
+}
+
+export async function createBudget(
+  organizationId: string,
+  body: CreateBudgetRequest,
+): Promise<BudgetRecord> {
+  return request<BudgetRecord>("POST", "/v1/budgets", {
+    params: { organization_id: organizationId },
+    body,
+  });
+}
+
+export async function updateBudget(
+  organizationId: string,
+  budgetId: string,
+  body: UpdateBudgetRequest,
+): Promise<BudgetRecord> {
+  return request<BudgetRecord>("PATCH", `/v1/budgets/${budgetId}`, {
+    params: { organization_id: organizationId },
+    body,
+  });
+}
+
+export async function deleteBudget(organizationId: string, budgetId: string): Promise<void> {
+  return request<void>("DELETE", `/v1/budgets/${budgetId}`, {
+    params: { organization_id: organizationId },
+  });
+}
+
+export async function getBudgetStatus(
+  organizationId: string,
+  budgetId: string,
+): Promise<BudgetStatusSummary> {
+  return get<BudgetStatusSummary>(`/v1/budgets/${budgetId}/status`, {
+    organization_id: organizationId,
+  });
+}
+
+export async function getBudgetSummary(
+  organizationId: string,
+  currency = "USD",
+): Promise<BudgetSummaryResponse> {
+  return get<BudgetSummaryResponse>("/v1/dashboard/budget-summary", {
+    organization_id: organizationId,
+    currency,
+  });
+}
+
 // ── Alerts (EP-19.3) ─────────────────────────────────────────────────────────
 
 export type AlertApiStatus = "open" | "acknowledged" | "resolved" | "dismissed";

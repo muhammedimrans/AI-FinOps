@@ -1,6 +1,12 @@
 import { motion } from "framer-motion";
 import { cn, formatCost } from "../utils";
 
+/** Server-derived 4-tier status (EP-24.2's BudgetEvaluationService) — when
+ * supplied, this drives the bar's color instead of the pct-only 3-tier
+ * heuristic below, so a caller with a real Budget's status never disagrees
+ * with what the backend actually computed. */
+export type BudgetBarStatus = "healthy" | "warning" | "critical" | "exceeded";
+
 interface BudgetBarProps {
   used: number | string;
   total: number | string;
@@ -8,6 +14,7 @@ interface BudgetBarProps {
   currency?: string;
   showLabels?: boolean;
   size?: "sm" | "md";
+  status?: BudgetBarStatus;
 }
 
 export default function BudgetBar({
@@ -17,10 +24,11 @@ export default function BudgetBar({
   currency = "USD",
   showLabels = true,
   size = "md",
+  status,
 }: BudgetBarProps) {
   const clamped = Math.min(pct, 120);
-  const overBudget = pct > 100;
-  const nearBudget = pct >= 80;
+  const overBudget = status ? status === "exceeded" : pct > 100;
+  const nearBudget = status ? status === "warning" || status === "critical" : pct >= 80;
 
   const barColor = overBudget
     ? "bg-danger"

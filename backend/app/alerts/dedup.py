@@ -52,3 +52,22 @@ def api_key_scope(api_key_id: uuid.UUID) -> str:
 
 def membership_scope(organization_id: uuid.UUID, user_email: str) -> str:
     return f"membership:{organization_id}:{user_email}"
+
+
+def budget_threshold_scope(budget_id: uuid.UUID, period_key: str, threshold_pct: float) -> str:
+    """Scope for EP-24.2's first-class `Budget` alerts — deliberately
+    distinct from `budget_scope()` above (which is the older, project-only,
+    single-threshold ingest-time check in app/api/v1/ingest.py, left
+    unchanged).
+
+    Qualified by (budget, period, threshold) rather than just budget id, so:
+      - each configured threshold (50%/75%/90%/100%/110%/...) gets its own
+        independent OPEN/resolved lifecycle instead of all thresholds
+        folding into one alert and only ever showing whichever fired first;
+      - a new period (e.g. next month) is never suppressed by a still-open
+        alert from a prior period — `period_key` (e.g. "2026-07" for a
+        monthly budget) changes every period, so the dedup key changes too
+        and a fresh occurrence starts a new alert rather than reopening an
+        old, already-resolved one.
+    """
+    return f"budget:{budget_id}:{period_key}:{threshold_pct}"

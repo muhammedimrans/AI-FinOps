@@ -2081,3 +2081,181 @@ Responsive: no new layout primitives — the resend form and Settings row both r
 1. **Delivery-event webhooks** (Resend's bounce/complaint/delivered callbacks) — would let `EmailSendResult` (or a follow-up query) distinguish "accepted by Resend" from "actually landed in an inbox," and could feed the audit log with a `verification_email_bounced`-shaped event. Not attempted here — see "Known limitations."
 2. **Budget/usage alert emails, organization-invite emails** — `EmailService` is explicitly architected for this (see "Email infrastructure" above); each is one new method reusing the existing renderer/provider layers. The organization-invite gap specifically is the same one CLAUDE.md's §7 has flagged since before this EP ("invite emails are never delivered") — closing it is now a template-and-one-method change, not new infrastructure.
 3. **Google OAuth** — explicitly out of scope for this EP by its own instruction; tracked as EP-24.5.
+
+---
+
+## 25. EP-24.5 — Google OAuth & Social Identity
+
+**Status: complete.** Adds "Continue with Google" / "Sign up with Google" / "Sign in with Google" as a first-class, additive login method alongside password auth: automatic account linking by email, a Google-only account skips email verification entirely (Google already verified it), and a full Settings "Linked Accounts" section (link/unlink, connected email, last login provider). Every Google-authenticated session is issued through the exact same `AuthService._issue_session()` → JWT access token + opaque refresh token → httpOnly session cookies pipeline password login already uses — there is no second session system.
+
+### Why Authorization Code + PKCE, not the Google Identity Services ID-token button
+
+The task's own Part 9 names "OAuth state validation," "CSRF protection," and "nonce validation" as explicit requirements — those describe the classic redirect-based Authorization Code flow, not a bare `POST /google/token` endpoint that just verifies a client-obtained ID token. Building the redirect flow also means the backend — not client-side JS — is the only thing that ever sees Google's token-exchange response, which is the more defensible place to enforce "do not trust client-side data" (Part 1).
+
+### Architecture
+
+```
+apps/website (login.tsx / signup.tsx)      apps/dashboard (Login.tsx)
+  <a href={googleOAuthStartUrl()}>            <a href={googleOAuthStartUrl()}>
+  "Continue with Google" / "Sign up            "Continue with Google"
+   with Google" — plain top-level nav,         — same, plain top-level nav
+   never fetch()
+        │                                              │
+        └──────────────────┬───────────────────────────┘
+                            ▼
+              GET /v1/auth/google/start   (public — app/api/v1/auth.py)
+                            │
+                            ▼
+        app.auth.google_oauth.encode_oauth_state(mode="login")
+        + generate_pkce_pair() + build_authorize_url()
+                            │
+              sets costorah_oauth_state cookie (host-only,
+              httpOnly, SameSite=Lax, 10 min TTL) — the
+              SAME signed JWT is also the OAuth `state` param
+                            │
+                            ▼  302
+                  accounts.google.com consent screen
+                            │
+                            ▼  302 (code, state)
+        GET /v1/auth/google/callback
+                            │
+              1. verify_state_match(cookie, query) — double-submit
+              2. decode_oauth_state() — signature + expiry + nonce/verifier
+              3. exchange_code_for_tokens() — HttpxTransport POST,
+                 PKCE code_verifier proves this backend started the flow
+              4. verify_google_id_token() — PyJWKClient signature,
+                 iss/aud/exp/nonce/email_verified checks
+                            │
+                            ▼
+              AuthService.login_or_register_with_google(...)
+                 same _issue_session() + set_session_cookies() +
+                 _create_personal_workspace() every password path uses
+                            │
+                            ▼  302, session in URL fragment (website/
+                     dashboard cross-origin handoff, unchanged from EP-21.2)
+                  {DASHBOARD_URL}/onboarding#session=...  (new user)
+                  {DASHBOARD_URL}/#session=...             (existing user)
+```
+
+**Linking** (an already-authenticated dashboard user clicking "Link Google account" in Settings) uses a second entry point, `POST /v1/auth/google/link` (`CurrentUser`-authenticated, called via `fetch`, not a plain navigation) so the flow never depends on a cross-domain session cookie — see "Account linking flow" below.
+
+### OAuth flow — state / CSRF / nonce / replay (Part 9)
+
+All of the OAuth mechanics live in one new module, `app/auth/google_oauth.py` — it owns exactly the OIDC protocol (state, PKCE, token exchange, ID-token verification) and never touches the database or issues a Costorah session itself:
+
+- **State = a signed JWT, not a bare random string.** `encode_oauth_state()` (HS256, `settings.jwt_secret` — the same secret and `jwt.encode` call `app/auth/tokens.py`'s access tokens already use, no second signing key introduced) encodes a random `csrf_id`, the OIDC `nonce`, the PKCE `code_verifier`, the flow `mode` ("login" | "link"), and — for "link" only — the already-authenticated user's id. 10-minute expiry (`STATE_TTL_MINUTES`).
+- **CSRF protection = double-submit cookie, with a signed value.** The identical state JWT is set as `costorah_oauth_state` — **host-only** (no `domain=` attribute, deliberately distinct from the cross-subdomain session cookies in `app/auth/cookies.py`), httpOnly, `SameSite=Lax`. `/google/start` and `/google/callback` are always same-origin (both are backend routes), so this round-trips correctly through Google's redirect regardless of which frontend domain initiated the flow, with no dependency on the `session_cookie_domain`/custom-domain topology the cross-subdomain session cookies need. `verify_state_match()` does a `secrets.compare_digest` constant-time comparison of cookie vs. query-param `state` before the JWT is even decoded.
+- **Nonce validation.** `nonce` is generated at flow-start, carried in the state JWT, passed to Google's authorize URL, and echoed back inside the returned ID token's own `nonce` claim; `verify_google_id_token()` constant-time-compares it against what this backend generated. A forged or replayed ID token from a different flow fails this check even if its signature is otherwise valid.
+- **Replay protection.** The authorization `code` itself is one-time-use by Google's own OAuth semantics — a second exchange attempt fails at Google's token endpoint, which is the correct place for that guarantee to live (this backend doesn't need to track used codes itself). The state JWT's own replay window is bounded by its 10-minute expiry; there is no server-side one-time-use tracking of the state value itself (see "Known limitations").
+- **ID token validation (Part 1: "do not trust client-side data").** `verify_google_id_token()` is the *only* place in the codebase that turns a raw Google ID token into a `GoogleIdentity`: JWKS signature verification via `jwt.PyJWKClient` (fetched from `https://www.googleapis.com/oauth2/v3/certs`, cached by the client), `iss` ∈ `{https://accounts.google.com, accounts.google.com}`, `aud == settings.google_client_id`, `exp` (PyJWT's own `require`), `email_verified == true`, then the nonce check above. Testable without any network call via an injectable `signing_key_resolver: SigningKeyResolver | None` parameter (a `Protocol` matching `PyJWKClient.get_signing_key_from_jwt`'s shape) — tests supply a real in-memory RSA keypair-signed token and a fake resolver instead of mocking network JWKS.
+- **"Link" mode's CSRF guarantee is stronger than the cookie alone.** `/google/link` requires `CurrentUser` (a valid Bearer access token) before it will ever mint a "link" state — an attacker cannot obtain a validly-signed "link, user_id=victim" state without already holding the victim's access token, independent of whether the double-submit cookie is also present. This is why `/google/link` returns JSON (`{authorize_url}`) rather than doing the redirect itself: the initiating request is authenticated the normal Bearer-header way, sidestepping any need for a cross-domain session cookie.
+
+### Account linking flow (Part 3 / Part 4)
+
+`AuthService.login_or_register_with_google()` is the one call site every Google login/registration goes through (Part 11), a three-way branch:
+
+1. **`google_sub` already linked to a user** (`UserRepository.get_by_google_sub`) → log them in. `google_sub` (Google's stable subject id, not email) is the join key specifically because a Google account's *email* can change while its `sub` never does.
+2. **No link, but the Google-verified `email` matches an existing password account** → **automatic linking** (Part 3): sets `google_sub`/`google_email`/`google_linked_at` on the *existing* `User` row, logs an audit event, then logs them in. Never creates a duplicate user. Password login keeps working unchanged on this same account; Google login now also works.
+3. **Neither matches** → registers a brand-new `User` (`email_verified=True` immediately, `avatar_url` from Google, no verification email — Part 2) + calls the same `_create_personal_workspace()` helper `register()` uses (extracted from `register()` in this EP specifically so the two paths can never drift into two different "what does a first workspace look like" implementations) + logs `GOOGLE_REGISTRATION` + sends the same welcome email a freshly-verified password account gets.
+
+Every branch ends by calling the same `_issue_session()` and `_user_repo.update_last_login(user.id, provider="google")` — `UserRepository.update_last_login()` gained an optional `provider` kwarg (EP-24.5) that also sets the new `last_login_provider` column in the same bulk `UPDATE`, so it can never drift out of sync with the timestamp. `login()`/`register()` (password paths) now pass `provider="password"` to the same method — one column, one write path, two callers.
+
+**Explicit linking** (Settings → "Link Google account", already-authenticated): `POST /v1/auth/google/link` mints a "link"-mode state (embedding `current_user.id`), returns `{authorize_url}`; the frontend navigates itself (`window.location.href = authorize_url`); the callback (mode="link") calls `AuthService.link_google(user, google_sub, google_email)`, which refuses (`GoogleAccountAlreadyLinkedError` → the DB's own `uq_users_google_sub` unique constraint is the actual last line of defense) if that Google account is already linked to a *different* Costorah user, then redirects to `{dashboard_url}/settings?google_linked=1`.
+
+**Unlinking**: `POST /v1/auth/google/unlink` (`CurrentUser`) calls `AuthService.unlink_google()`, which refuses (`LastAuthMethodError` → HTTP 400) when `user.password_hash is None` — Part 4's "do not allow removing the final authentication method." A user must set a password (not built in this EP — see "Known limitations") before they can unlink a Google-only account.
+
+### Database changes — four columns on `users`, no new table (Part 8)
+
+Migration `a7b8c9d0e1f2` (chains off EP-24.2's `f1a2b3c4d5e6`):
+
+| Column | Purpose |
+|---|---|
+| `google_sub` | Google's stable subject id. `NULL` = no Google account linked. `UniqueConstraint` + index (`uq_users_google_sub`/`ix_users_google_sub`) — Postgres UNIQUE permits multiple `NULL`s, so users who never linked Google never collide with each other. |
+| `google_email` | The email Google reported at link time — may differ from `email` (the account's primary login address) if they were set up separately. Never a raw Google token. |
+| `google_linked_at` | Timestamp, set on link, cleared on unlink. |
+| `last_login_provider` | `"password"` \| `"google"` — plain `String(20)`, **deliberately not a Postgres ENUM type**. This project's own recent incident history (the earlier-in-this-session EP-24.2 budgets-migration hotfix, diagnosed and fixed by this session before EP-24.5 began) is the concrete precedent for why: a bare VARCHAR sidesteps the `postgresql.ENUM` double-`CREATE TYPE` failure mode entirely for what is a two-value, display-only field with no DB-level constraint value. |
+
+**Why four columns on the existing table, not a new `oauth_identities` entity** (Part 8's "if additional persistence is required, explain why"): Google is the only social provider in this EP's scope. A polymorphic identities table (provider type + provider-specific id + provider-specific metadata, one row per linked provider per user) is the *correct* design once there's a second provider to generalize over — building it now for exactly one provider would be speculative generality with no second call site to validate the abstraction against. A second provider (e.g. a future EP-24.6 "GitHub OAuth") is the right trigger to extract that table and migrate these four columns into it; not before. No backfill needed or performed — every pre-existing user starts all four columns `NULL`, which is the correct, honest "password-only, no Google link" state.
+
+**`app/repositories/user_repository.py`** gained `get_by_google_sub(google_sub)` (mirrors `get_by_email`'s exact shape) and `update_last_login`'s new optional `provider` kwarg (above). No other repository changed.
+
+### Security model (Part 9 — full checklist)
+
+| Requirement | Implementation |
+|---|---|
+| OAuth state validation | Signed JWT, double-submit cookie, `secrets.compare_digest` |
+| Replay protection | Google's one-time authorization codes; 10-minute state TTL |
+| CSRF protection | Host-only `SameSite=Lax` cookie matching the `state` param; "link" mode additionally requires prior `CurrentUser` auth to mint a state at all |
+| Nonce validation | Generated per-flow, round-tripped through the ID token, constant-time compared |
+| ID token validation | JWKS signature, issuer, audience, expiry, `email_verified` |
+| Constant-time comparisons | `secrets.compare_digest` for both the state match and the nonce match |
+| Audit logging | See below — never includes tokens |
+| Secure account linking | DB unique constraint + service-layer pre-check; auto-link only on a Google-*verified* email match; explicit link requires the linker to already be authenticated as the target account |
+| Never log tokens | `google_oauth.py`'s structlog calls (via callers) bind only outcome/reason strings, never `code`, `id_token`, or `access_token`/`refresh_token` values |
+| Never store Google access tokens unless required | Never stored at all — `exchange_code_for_tokens()`'s response is used in-process for one call to `verify_google_id_token()` and then discarded; only `sub`/`email`/`display_name`/`avatar_url` (the `GoogleIdentity` dataclass) ever reach the database, and only `google_sub`/`google_email`/`google_linked_at` are persisted |
+| Minimal identity information stored | Exactly the four columns above — no Google profile data beyond email/name/avatar (name/avatar aren't even persisted separately; they seed `display_name`/`avatar_url` on first registration like any other profile field) |
+
+### Audit logging (Part 10)
+
+`app/auth/audit.py`'s `AuditEvent` enum (unchanged mechanism from EP-24.4 — structured logs, no new database table, same rationale as every prior EP's audit trail) gained: `GOOGLE_LOGIN`, `GOOGLE_REGISTRATION`, `GOOGLE_ACCOUNT_LINKED`, `GOOGLE_ACCOUNT_UNLINKED`, `OAUTH_FAILURE`, `OAUTH_INVALID_TOKEN`, `OAUTH_STATE_VALIDATION_FAILURE`. Every Google auth code path in `AuthService` and the API router logs exactly one of these, with `user_id`/`email`/`ip_address` and never a token/code value — same `log_auth_event()` call sites and vocabulary discipline EP-24.4 established, extended rather than duplicated.
+
+### API endpoints (Part 11 — minimal, reuses `AuthService`)
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/v1/auth/google/start` | Public | Redirects to Google's consent screen (login/registration) |
+| POST | `/v1/auth/google/link` | `CurrentUser` | Returns `{authorize_url}` to begin linking |
+| GET | `/v1/auth/google/callback` | Public (state-validated) | Google's redirect target — completes login, registration, or linking |
+| POST | `/v1/auth/google/unlink` | `CurrentUser` | Unlinks Google; 400 if it's the account's only auth method |
+
+All four live in the existing `app/api/v1/auth.py` router — no new router file. Every one of them constructs `AuthService(db, settings)` exactly like `register`/`login`/`verify_email` do and calls a method on it; none contains its own database access, matching Part 11 and Part 15's "reuse the existing service, no duplicated logic" requirement precisely. `UserPublic` (the shared response schema every auth endpoint already returns) gained `google_linked: bool`, `google_email: str | None`, `last_login_provider: str | None` — surfaced automatically on `/register`, `/login`, `/me`, and the new `/google/unlink` response with zero extra plumbing, the same "one schema, every auth response" pattern EP-21.3/EP-22.2 established.
+
+`503 Service Unavailable` (never a crash) from `/google/start` and `/google/link` when `settings.google_oauth_configured` is `False` — Google credentials are optional Settings fields (`google_client_id`/`google_client_secret`, `SecretStr`), **not** production-enforced the way `resend_api_key`/`email_from` are (EP-24.4's `_enforce_email_config_in_production` validator) — "Continue with Google" augments, never replaces, password login (Part 1), so a production deploy without a Google Cloud Console app registered yet must still start cleanly. This also meant none of the pre-existing `test_config.py`/`test_security_headers.py`/`test_startup.py` production-mode `Settings(...)` constructions needed patching, unlike the analogous EP-24.4 change.
+
+### Session management (Part 5 — fully reused)
+
+Every Google-authenticated session is a normal `TokenPair` from the same `AuthService._issue_session()` `register()`/`login()` already call: a DB-backed `Session` row, a signed HS256 JWT access token (`create_access_token`), an opaque refresh token (`generate_refresh_token` + `hash_token`). `set_session_cookies()` (unchanged, `app/auth/cookies.py`) sets the same `costorah_access_token`/`costorah_refresh_token` httpOnly cookies on the callback's redirect response. The cross-origin website→dashboard handoff (EP-21.2's URL-fragment mechanism) is replicated server-side in Python (`_build_dashboard_handoff_url()` in `app/api/v1/auth.py` — byte-for-byte the same JSON payload shape as `apps/website/src/lib/api.ts`'s `buildDashboardHandoffUrl`) so `apps/dashboard/src/lib/consumeSessionHandoff.ts` needed **zero changes** to consume a Google-login redirect exactly like a password-login redirect from the website.
+
+### Frontend changes (Part 6 / Part 7)
+
+- **`apps/website`** — `src/lib/api.ts` gained `googleOAuthStartUrl()`. New `src/components/site/GoogleButton.tsx` (the official 4-color "G" glyph + label), added above the existing form on both `login.tsx` ("Continue with Google") and `signup.tsx` ("Sign up with Google"), with an "or …" divider — plain `<a href>`, no click handler, since the flow is a full top-level navigation.
+- **`apps/dashboard`** — `src/services/api.ts` gained `googleOAuthStartUrl()`, `startGoogleLink()`, `unlinkGoogle()`. New `src/components/GoogleGlyph.tsx` (shared by Login and Settings so there is exactly one copy of the mark). `Login.tsx` gained the same "Continue with Google" button + divider, above its existing form.
+- **Settings "Linked Accounts"** (`apps/dashboard/src/features/Settings.tsx`, Part 7) — new `LinkedAccountsCard`, rendered on the Profile tab (as its own `SectionCard`, a sibling of — not nested inside — the profile-save `<form>`, since Link/Unlink are independent top-level-navigation/mutation flows): shows the Google glyph, the connected email or "Not connected," a "Link Google account" / "Unlink" button depending on state, and a read-only "Last login provider" field (Google/Password/—). "Link Google account" calls `startGoogleLink()` then `window.location.href = authorize_url`. Settings also handles the post-link redirect: the callback sends the browser back to `/settings?google_linked=1`, which a `useEffect` (keyed on `useSearchParams`) detects, refetches `GET /v1/auth/me` (since a plain redirect carries no updated-user payload the way a `fetch` response would), updates the Zustand `AuthUser` (`google_linked`/`google_email`), toasts success, and strips the query param — the same "self-heal on next `/me`" pattern EP-21.3/EP-22.2 established for fields added after a session already existed. `AuthUser` (`stores/auth.ts`) and `BackendUserPublic` (`types/backend.ts`) both gained the three new optional/required fields respectively, matching that established optional-until-self-healed convention exactly.
+
+### Testing (Part 12)
+
+- **Backend** (`backend/tests/test_ep24_5_google_oauth.py`, 55 new tests, fully hermetic — no real network, no real database, a real in-memory RSA keypair signs test ID tokens):
+  - PKCE (challenge determinism), OAuth state (round-trip for both modes, tampered/expired/malformed rejection), `verify_state_match` (match/mismatch/missing).
+  - `build_authorize_url` (correct query params, 503 unconfigured, `login_hint`).
+  - `exchange_code_for_tokens` (success, non-200, missing `id_token`, network error, 503 unconfigured) — all via `httpx.MockTransport` through the reused `HttpxTransport` (which gained a `data:` (form-encoded) parameter in this EP for Google's token endpoint, alongside its existing `json:` support — additive, every other caller unaffected).
+  - `verify_google_id_token` — valid, bad signature, wrong issuer (both `https://accounts.google.com` and bare `accounts.google.com` accepted), wrong audience, expired, nonce mismatch, unverified email, missing `name` (falls back to email local-part), JWKS resolution failure, 503 unconfigured.
+  - `AuthService.login_or_register_with_google` — new-user registration (verified email, workspace created, no verification email sent, welcome email sent), existing-email auto-link (no duplicate user), existing-`google_sub` login, disabled-account rejection.
+  - `AuthService.link_google`/`unlink_google` — success, already-linked-to-a-different-user, refused-without-a-password.
+  - API-level — `/google/start` (503 unconfigured, redirect + state cookie), `/google/link` (401 unauthenticated, 200 + cookie), `/google/callback` (Google-denied, missing/mismatched state, successful new-user and existing-user login with full handoff-URL payload assertions, invalid-token, link-mode success and already-linked), `/google/unlink` (401, 200, 400 last-auth-method).
+  - **Manually verified against a real local PostgreSQL 16** (not mocked) in this session, beyond the hermetic suite: applied the migration via `alembic upgrade head` against a fresh database (clean chain off `f1a2b3c4d5e6`, confirmed via `alembic history`), then ran `AuthService.login_or_register_with_google`/`link_google`/`unlink_google` directly against real rows — new-user registration (verified `email_verified=True`, workspace created), a second call with the same `google_sub` correctly logged in rather than re-registering, a password-registered account was correctly auto-linked by matching email on a subsequent Google login (`is_new=False`, same user id), and unlinking afterward correctly cleared `google_sub` while leaving the password hash intact. The full integration suite (`tests/integration/`, 30 tests) also re-ran clean against this same live-migrated database.
+  - Full backend suite: **1829 passed** (1774 + 55), ruff/mypy/black clean.
+- **Frontend**:
+  - `apps/website/src/lib/api.test.ts` — 1 new test pinning `googleOAuthStartUrl()`'s path. (Website's test config is deliberately `environment: "node"`/`.test.ts`-only, no jsdom or router harness — pre-existing, documented scope from EP-21.2 — so no component-render test for `GoogleButton`/the login/signup pages was added, consistent with that boundary.)
+  - `apps/dashboard/src/__tests__/Settings.test.tsx` — new `describe("Settings — Linked Accounts (EP-24.5)")` block, 6 tests: not-connected state renders "Link Google account"; linked state renders the connected email + "Unlink" + "Google" as last-login-provider; "Password" renders correctly as last-login-provider; clicking "Link Google account" calls `startGoogleLink()` and navigates `window.location.href` to the returned `authorize_url`; clicking "Unlink" calls `unlinkGoogle()` and the UI flips back to "Not connected"; landing on `/settings?google_linked=1` triggers a `getMe()` refetch and shows the newly-linked email. `renderSettings()` gained a `MemoryRouter` wrapper (Settings now calls `useSearchParams`, which requires a Router context — every pre-existing test in this file needed this wrapper too, verified all still pass unchanged in behavior).
+  - Two pre-existing test files needed one-line fixture updates for the three new required `BackendUserPublic` fields (`google_linked`/`google_email`/`last_login_provider`): `test_ep05.py`'s `test_user_public_from_dict` (backend) and `Onboarding.test.tsx`'s `baseUser` fixture (frontend) — no behavioral assertion in either file changed.
+  - Full dashboard suite: **241 passed** (235 + 6), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), build clean (`vite build`). Full website suite: **15 passed** (14 + 1), lint clean (pre-existing 6 shadcn/ui `react-refresh` warnings, unrelated to this EP), build clean (Nitro SSR, all routes).
+
+### Validation gate (Part 13)
+
+Backend: `pytest` (1829 passed, including a from-scratch `alembic upgrade head` against a real Postgres 16 instance and the full `tests/integration/` suite against it), `ruff check`, `mypy app` (`mypy` is intentionally scoped to `app/`, not `tests/`, matching this repo's own CI — verified against `.github/workflows/ci.yml`), `black --check`. Frontend: both apps' `vitest run`, `eslint --max-warnings 0` (dashboard) / `eslint .` (website), `tsc -b`, and a full production `vite build` (dashboard SPA + website's Cloudflare-targeted Nitro SSR build, all 13 website routes). Manually verified end-to-end against live infrastructure (not just mocks): migration application, new-account creation with pre-verified email and an auto-created personal workspace, idempotent re-login via `google_sub`, automatic linking of a password account by matching Google-verified email, and unlink preserving the password — all directly against a real PostgreSQL database, described in "Testing" above. **Not** verified: an actual browser round-trip through Google's real consent screen, which requires a registered Google Cloud Console OAuth client and is out of reach of this sandbox — see "Known limitations."
+
+### Known limitations
+
+- **No real Google Cloud Console app was exercised.** Every OIDC mechanic (JWKS signature verification, issuer/audience/expiry/nonce checks, token exchange) is tested against a real in-memory-generated RSA keypair and `httpx.MockTransport`, which exercises the exact same code paths a real Google response would — but a live end-to-end browser session against `accounts.google.com` was not, and cannot be, driven from this sandbox. This is the same category of caveat every prior EP in this document discloses for "no live browser test," just for this EP's specific external dependency.
+- **No self-service "set a password" flow exists yet** for a Google-only account that wants to unlink — `unlink_google()` correctly refuses (`LastAuthMethodError`) rather than leaving the account with zero auth methods, but there is no UI/endpoint for that account to *add* a password first. `POST /v1/auth/change-password` (EP-22.2) requires the *current* password, so it doesn't fit a Google-only account either. The concrete next blocker for full unlink capability, not attempted here since it wasn't named in this EP's scope.
+- **State JWT has no server-side one-time-use tracking.** A well-formed, still-valid (within its 10-minute TTL) state JWT can in principle be decoded more than once — replay protection for the actual authorization *code* comes from Google's own one-time-code semantics, not from this backend independently invalidating the state. A Redis-backed "seen state" set would close this narrow gap; not built here to keep the OAuth handshake genuinely stateless (this codebase's own established "avoid new stateful storage when a signed token suffices" convention, e.g. `app/auth/tokens.py`'s refresh tokens), and because the actual security-relevant one-time-use guarantee (the code) already lives at Google.
+- **Only Google is supported** — by this EP's own scope. The four-column-on-`users` design is deliberately not generalized into a polymorphic identities table yet; see "Database changes" above for the explicit "add a second provider first" trigger condition.
+- **`GoogleButton`/the website's login and signup pages have no automated render test** — consistent with, not a regression from, this app's pre-existing (`EP-21.2`-documented) test-scope boundary (`environment: "node"`, `.test.ts` only). A future EP that widens the website's test harness to jsdom + a router would be the natural place to add one.
+- **No live, continuous browser test of the full "click Continue with Google" → Google consent → callback → dashboard journey** — same caveat as every prior EP in this document: verified in pieces (hermetic unit/API tests with a real RSA-signed token, a real-Postgres manual service-layer walkthrough, both frontends' component tests and production builds), not as one continuous browser session against Google's real infrastructure, since this sandbox has no way to drive a real browser against a live OAuth consent screen or hold real Google Cloud Console credentials.
+
+### Future improvements
+
+1. **"Set a password" self-service flow** for Google-only accounts — the concrete next blocker named above for a Google-only user who wants to unlink or add a second auth method.
+2. **A second OAuth provider** (GitHub, Microsoft) — the natural trigger to extract the four `google_*` columns into a proper polymorphic `oauth_identities` table, generalizing `app/auth/google_oauth.py`'s state/PKCE/nonce machinery (which is already provider-agnostic in shape, just not yet parameterized) rather than duplicating it per provider.
+3. **Redis-backed state one-time-use tracking**, if the 10-minute-TTL-only replay window (see "Known limitations") is ever judged insufficient at this product's scale — not needed today since Google's own one-time authorization codes already provide the load-bearing guarantee.
+4. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: wiring `ProviderConnection.encrypted_api_key` into real usage collection for the remaining 5 providers, and the still-open transactional-email items (organization invites, delivery-event webhooks) from EP-24.4.

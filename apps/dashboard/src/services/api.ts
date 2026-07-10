@@ -181,9 +181,7 @@ async function request<T>(
 }
 
 function get<T>(path: string, params?: Record<string, string | undefined>): Promise<T> {
-  return params !== undefined
-    ? request<T>("GET", path, { params })
-    : request<T>("GET", path);
+  return params !== undefined ? request<T>("GET", path, { params }) : request<T>("GET", path);
 }
 
 function post<T>(path: string, body: unknown, skipAuth = false): Promise<T> {
@@ -219,7 +217,11 @@ export async function requestPasswordReset(email: string): Promise<MessageRespon
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<MessageResponse> {
-  return post<MessageResponse>("/v1/auth/reset-password", { token, new_password: newPassword }, true);
+  return post<MessageResponse>(
+    "/v1/auth/reset-password",
+    { token, new_password: newPassword },
+    true,
+  );
 }
 
 export async function verifyEmail(token: string): Promise<MessageResponse> {
@@ -284,6 +286,26 @@ export async function changePassword(
 
 export async function deleteAccount(password: string): Promise<void> {
   return request<void>("DELETE", "/v1/auth/me", { body: { password } });
+}
+
+// ── Google OAuth — Settings "Linked accounts" (EP-24.5) ───────────────────────
+
+/** URL for the login-page "Continue with Google" button — a plain top-level
+ * navigation, never fetch(), since GET /google/start sets an httpOnly state
+ * cookie and 302s to Google's consent screen. */
+export function googleOAuthStartUrl(): string {
+  return `${BASE_URL}/v1/auth/google/start`;
+}
+
+/** Begins linking Google to the *already authenticated* dashboard user
+ * (Authorization header, unlike googleOAuthStartUrl's anonymous flow).
+ * Returns the URL the caller must `window.location.href` to next. */
+export async function startGoogleLink(): Promise<{ authorize_url: string }> {
+  return post<{ authorize_url: string }>("/v1/auth/google/link", {});
+}
+
+export async function unlinkGoogle(): Promise<BackendUserPublic> {
+  return post<BackendUserPublic>("/v1/auth/google/unlink", {});
 }
 
 // ── Organizations endpoint (EP-12.1) ──────────────────────────────────────────
@@ -584,12 +606,7 @@ export async function rotateProviderConnectionKey(
 
 // ── Usage synchronization (EP-23.3) ──────────────────────────────────────────
 
-export type SyncRunStatus =
-  | "never_synced"
-  | "pending"
-  | "running"
-  | "success"
-  | "failed";
+export type SyncRunStatus = "never_synced" | "pending" | "running" | "success" | "failed";
 
 export interface CostImportedItem {
   currency: string;
@@ -655,13 +672,8 @@ export async function syncProviderConnection(
   );
 }
 
-export async function syncAllProviderConnections(
-  organizationId: string,
-): Promise<SyncAllResponse> {
-  return post<SyncAllResponse>(
-    `/v1/organizations/${organizationId}/provider-connections/sync`,
-    {},
-  );
+export async function syncAllProviderConnections(organizationId: string): Promise<SyncAllResponse> {
+  return post<SyncAllResponse>(`/v1/organizations/${organizationId}/provider-connections/sync`, {});
 }
 
 // ── Background sync scheduler (EP-23.4) ──────────────────────────────────────
@@ -837,7 +849,10 @@ export interface PriceCalculationResult {
   pricing_date: string;
 }
 
-export async function listModelPricing(organizationId: string, limit = 100): Promise<ModelPricingListResponse> {
+export async function listModelPricing(
+  organizationId: string,
+  limit = 100,
+): Promise<ModelPricingListResponse> {
   return get<ModelPricingListResponse>("/v1/pricing/models", {
     organization_id: organizationId,
     limit: String(limit),
@@ -991,10 +1006,7 @@ export async function getHeatmap(params: OverviewParams): Promise<HeatmapRespons
 // EP-24.1 — real recent activity feed (imports/syncs/provider failures),
 // backed by GET /v1/dashboard/activity — reuses EP-08/EP-23.3/EP-23.4's
 // UsageCollectionRun + EP-22's ProviderConnection failure fields.
-export async function getActivityFeed(
-  organizationId: string,
-  limit = 20,
-): Promise<ActivityFeed> {
+export async function getActivityFeed(organizationId: string, limit = 20): Promise<ActivityFeed> {
   if (USE_MOCK) {
     await delay(220);
     return getMockActivityFeed(limit);

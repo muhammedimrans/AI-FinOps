@@ -123,6 +123,14 @@ class UserPublic(BaseModel):
     timezone: str | None
     created_at: datetime
     preferences: dict[str, Any]
+    # EP-24.5 Settings — "Linked accounts" display (Part 7). `google_email`
+    # is only ever the address Google itself reported at link time (may
+    # differ from `email` if the user's primary login email was set up
+    # separately) — never a raw Google token or any other Google account
+    # data.
+    google_linked: bool
+    google_email: str | None
+    last_login_provider: str | None
 
     model_config = {"from_attributes": True}
 

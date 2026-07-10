@@ -1,14 +1,27 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Loader2, AlertCircle, Eye, EyeOff, Mail, Lock, Check, TrendingUp, Sparkles, Layers, ArrowRight } from "lucide-react";
-import { login, getOrganizations, ApiError } from "../services/api";
+import {
+  Loader2,
+  AlertCircle,
+  Eye,
+  EyeOff,
+  Mail,
+  Lock,
+  Check,
+  TrendingUp,
+  Sparkles,
+  Layers,
+  ArrowRight,
+} from "lucide-react";
+import { login, getOrganizations, googleOAuthStartUrl, ApiError } from "../services/api";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
 import { cn } from "../utils";
 import CostorahLogo, { CostorahMark } from "../components/CostorahLogo";
 import AuroraBackground from "../components/AuroraBackground";
 import ThemeSwitcher from "../components/ThemeSwitcher";
+import GoogleGlyph from "../components/GoogleGlyph";
 
 export default function Login() {
   const { isAuthenticated, setLogin } = useAuthStore();
@@ -74,53 +87,55 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen w-full flex relative bg-app-bg overflow-hidden">
+    <div className="relative flex min-h-screen w-full overflow-hidden bg-app-bg">
       {/* Full-bleed ambient background shared by both panels — Aurora alone
           is the single ambient motion source; it previously ran alongside a
           30-particle drift field plus the left panel's pulsing network graph
           and floating cards, which together read as visually overwhelming
           ("dizzy") rather than ambient. */}
       <AuroraBackground />
-      <div className="absolute top-4 right-4 z-20">
+      <div className="absolute right-4 top-4 z-20">
         <ThemeSwitcher />
       </div>
 
       {/* ── Left panel — brand illustration (hidden on mobile/tablet) ──────── */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden items-center justify-center p-12 z-10">
+      <div className="relative z-10 hidden items-center justify-center overflow-hidden p-12 lg:flex lg:w-1/2">
         <NetworkBackdrop />
 
-        <div className="relative z-10 max-w-md w-full">
+        <div className="relative z-10 w-full max-w-md">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, ease: "easeOut" }}
-            className="flex items-center gap-3 mb-12"
+            className="mb-12 flex items-center gap-3"
           >
             <div className="relative">
-              <div className="absolute inset-0 bg-brand/30 blur-xl rounded-full animate-glow-pulse" />
-              <CostorahMark className="w-12 h-12 relative" />
+              <div className="absolute inset-0 animate-glow-pulse rounded-full bg-brand/30 blur-xl" />
+              <CostorahMark className="relative h-12 w-12" />
             </div>
-            <span className="font-display text-xl font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+            <span className="font-display text-xl font-bold tracking-[0.12em] text-tx-primary">
+              COSTORAH
+            </span>
           </motion.div>
 
           <motion.h2
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.1, ease: "easeOut" }}
-            className="font-display text-h1 text-tx-primary mb-4 leading-[1.15] tracking-tight"
+            className="mb-4 font-display text-h1 leading-[1.15] tracking-tight text-tx-primary"
           >
             Track, analyze, and{" "}
-            <span className="bg-gradient-brand bg-clip-text text-transparent">optimize</span>{" "}
-            your AI spend in real time.
+            <span className="bg-gradient-brand bg-clip-text text-transparent">optimize</span> your
+            AI spend in real time.
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5, delay: 0.18, ease: "easeOut" }}
-            className="text-base text-tx-secondary mb-14 max-w-sm leading-relaxed"
+            className="mb-14 max-w-sm text-base leading-relaxed text-tx-secondary"
           >
-            One dashboard for every provider, every project, every dollar —
-            with anomaly alerts before they hit your budget.
+            One dashboard for every provider, every project, every dollar — with anomaly alerts
+            before they hit your budget.
           </motion.p>
 
           <FloatingMetricCards />
@@ -128,35 +143,59 @@ export default function Login() {
       </div>
 
       {/* ── Right panel — auth form ─────────────────────────────────────────── */}
-      <div className="flex flex-1 items-center justify-center p-4 sm:p-6 lg:p-12 relative z-10">
+      <div className="relative z-10 flex flex-1 items-center justify-center p-4 sm:p-6 lg:p-12">
         <motion.div
           initial={{ opacity: 0, y: 20, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: 0.4, ease: "easeOut" }}
-          className="w-full max-w-[480px] relative"
+          className="relative w-full max-w-[480px]"
         >
           {/* Ambient glow blob behind the card */}
-          <div className="absolute -inset-8 bg-gradient-brand-radial blur-3xl opacity-60 pointer-events-none" aria-hidden="true" />
+          <div
+            className="pointer-events-none absolute -inset-8 bg-gradient-brand-radial opacity-60 blur-3xl"
+            aria-hidden="true"
+          />
 
-          <div className="lg:hidden mb-8 relative">
+          <div className="relative mb-8 lg:hidden">
             <CostorahLogo />
           </div>
 
-          <div className="glass-panel shadow-glow-brand-lg p-8 sm:p-11 relative">
-            <div className="hidden lg:flex items-center gap-2.5 mb-8">
-              <CostorahMark className="w-8 h-8" />
-              <span className="font-display text-sm font-bold tracking-[0.12em] text-tx-primary">COSTORAH</span>
+          <div className="glass-panel relative p-8 shadow-glow-brand-lg sm:p-11">
+            <div className="mb-8 hidden items-center gap-2.5 lg:flex">
+              <CostorahMark className="h-8 w-8" />
+              <span className="font-display text-sm font-bold tracking-[0.12em] text-tx-primary">
+                COSTORAH
+              </span>
             </div>
 
-            <h1 className="font-display text-h3 font-bold text-tx-primary mb-2">Welcome back</h1>
-            <p className="text-sm text-tx-muted mb-8">Sign in to your account to continue</p>
+            <h1 className="mb-2 font-display text-h3 font-bold text-tx-primary">Welcome back</h1>
+            <p className="mb-8 text-sm text-tx-muted">Sign in to your account to continue</p>
 
-            <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-5" noValidate>
+            <a
+              href={googleOAuthStartUrl()}
+              className="mb-5 flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-border-subtle bg-app-bg/60 text-sm font-medium text-tx-primary transition-colors duration-fast hover:bg-app-hover"
+            >
+              <GoogleGlyph className="h-4 w-4" />
+              Continue with Google
+            </a>
+            <div className="mb-5 flex items-center gap-3 text-xs text-tx-muted">
+              <span className="h-px flex-1 bg-border-subtle" />
+              or continue with email
+              <span className="h-px flex-1 bg-border-subtle" />
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                void handleSubmit(e);
+              }}
+              className="space-y-5"
+              noValidate
+            >
               <div>
-                <label htmlFor="email" className="block text-xs font-medium text-tx-secondary mb-2">
+                <label htmlFor="email" className="mb-2 block text-xs font-medium text-tx-secondary">
                   Email address
                 </label>
-                <div className="relative group">
+                <div className="group relative">
                   <Mail
                     size={16}
                     className="absolute left-3.5 top-1/2 -translate-y-1/2 text-tx-muted transition-colors duration-fast group-focus-within:text-brand"
@@ -170,28 +209,25 @@ export default function Login() {
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     aria-invalid={!!error}
-                    className="w-full h-12 pl-11 pr-4 text-sm bg-app-bg/60 border border-border-subtle rounded-xl
-                               text-tx-primary placeholder:text-tx-muted
-                               focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/60
-                               transition-all duration-fast disabled:opacity-50"
+                    className="h-12 w-full rounded-xl border border-border-subtle bg-app-bg/60 pl-11 pr-4 text-sm text-tx-primary transition-all duration-fast placeholder:text-tx-muted focus:border-brand/60 focus:outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
                     disabled={loading}
                   />
                 </div>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <label htmlFor="password" className="block text-xs font-medium text-tx-secondary">
                     Password
                   </label>
                   <Link
                     to="/forgot-password"
-                    className="text-xs font-medium text-brand hover:text-brand-light transition-colors duration-fast"
+                    className="text-xs font-medium text-brand transition-colors duration-fast hover:text-brand-light"
                   >
                     Forgot password?
                   </Link>
                 </div>
-                <div className="relative group">
+                <div className="group relative">
                   <Lock
                     size={16}
                     className="absolute left-3.5 top-1/2 -translate-y-1/2 text-tx-muted transition-colors duration-fast group-focus-within:text-brand"
@@ -205,10 +241,7 @@ export default function Login() {
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="••••••••"
                     aria-invalid={!!error}
-                    className="w-full h-12 pl-11 pr-11 text-sm bg-app-bg/60 border border-border-subtle rounded-xl
-                               text-tx-primary placeholder:text-tx-muted
-                               focus:outline-none focus:ring-2 focus:ring-brand/40 focus:border-brand/60
-                               transition-all duration-fast disabled:opacity-50"
+                    className="h-12 w-full rounded-xl border border-border-subtle bg-app-bg/60 pl-11 pr-11 text-sm text-tx-primary transition-all duration-fast placeholder:text-tx-muted focus:border-brand/60 focus:outline-none focus:ring-2 focus:ring-brand/40 disabled:opacity-50"
                     disabled={loading}
                   />
                   <button
@@ -216,8 +249,7 @@ export default function Login() {
                     onClick={() => setShowPassword((v) => !v)}
                     disabled={loading}
                     aria-label={showPassword ? "Hide password" : "Show password"}
-                    className="absolute right-0 top-0 h-12 w-11 flex items-center justify-center
-                               text-tx-muted hover:text-tx-secondary transition-colors duration-fast"
+                    className="absolute right-0 top-0 flex h-12 w-11 items-center justify-center text-tx-muted transition-colors duration-fast hover:text-tx-secondary"
                   >
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.span
@@ -236,8 +268,8 @@ export default function Login() {
               </div>
 
               <div className="flex items-center justify-between">
-                <label className="flex items-center gap-2.5 cursor-pointer select-none group">
-                  <span className="relative flex items-center justify-center w-[18px] h-[18px] flex-shrink-0">
+                <label className="group flex cursor-pointer select-none items-center gap-2.5">
+                  <span className="relative flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center">
                     <input
                       type="checkbox"
                       checked={rememberMe}
@@ -246,11 +278,11 @@ export default function Login() {
                     />
                     <span
                       className={cn(
-                        "w-[18px] h-[18px] rounded-md border transition-all duration-fast flex items-center justify-center",
+                        "flex h-[18px] w-[18px] items-center justify-center rounded-md border transition-all duration-fast",
                         "peer-focus-visible:ring-2 peer-focus-visible:ring-brand/40",
                         rememberMe
-                          ? "bg-gradient-brand border-transparent"
-                          : "bg-app-bg/60 border-border-subtle group-hover:border-border",
+                          ? "border-transparent bg-gradient-brand"
+                          : "border-border-subtle bg-app-bg/60 group-hover:border-border",
                       )}
                     >
                       <AnimatePresence>
@@ -283,9 +315,9 @@ export default function Login() {
                   >
                     <div
                       role="alert"
-                      className="flex items-start gap-2 p-3 rounded-xl bg-danger-dim border border-danger/20"
+                      className="flex items-start gap-2 rounded-xl border border-danger/20 bg-danger-dim p-3"
                     >
-                      <AlertCircle size={14} className="text-danger mt-0.5 flex-shrink-0" />
+                      <AlertCircle size={14} className="mt-0.5 flex-shrink-0 text-danger" />
                       <p className="text-xs text-danger">{error}</p>
                     </div>
                   </motion.div>
@@ -297,11 +329,7 @@ export default function Login() {
                 disabled={loading || !email || !password}
                 whileHover={!loading && email && password ? { scale: 1.01 } : {}}
                 whileTap={!loading && email && password ? { scale: 0.98 } : {}}
-                className="w-full h-12 rounded-xl bg-gradient-brand bg-[length:200%_auto] text-app-bg text-sm font-semibold
-                           flex items-center justify-center gap-2 shadow-glow-brand overflow-hidden
-                           hover:bg-[position:100%_0] active:brightness-95 group
-                           transition-all duration-slow disabled:opacity-50 disabled:cursor-not-allowed
-                           disabled:shadow-none"
+                className="group flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-brand bg-[length:200%_auto] text-sm font-semibold text-app-bg shadow-glow-brand transition-all duration-slow hover:bg-[position:100%_0] active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
               >
                 <AnimatePresence mode="wait" initial={false}>
                   {loading ? (
@@ -326,7 +354,10 @@ export default function Login() {
                       className="flex items-center gap-1.5"
                     >
                       Sign in
-                      <ArrowRight size={15} className="transition-transform duration-fast group-hover:translate-x-0.5" />
+                      <ArrowRight
+                        size={15}
+                        className="transition-transform duration-fast group-hover:translate-x-0.5"
+                      />
                     </motion.span>
                   )}
                 </AnimatePresence>
@@ -334,7 +365,7 @@ export default function Login() {
             </form>
           </div>
 
-          <p className="text-center text-xs text-tx-muted mt-6">
+          <p className="mt-6 text-center text-xs text-tx-muted">
             Contact your administrator to create an account.
           </p>
         </motion.div>
@@ -347,14 +378,25 @@ export default function Login() {
 
 function NetworkBackdrop() {
   const nodes = [
-    { x: 60, y: 80 }, { x: 220, y: 40 }, { x: 340, y: 140 },
-    { x: 120, y: 220 }, { x: 300, y: 280 }, { x: 40, y: 340 },
+    { x: 60, y: 80 },
+    { x: 220, y: 40 },
+    { x: 340, y: 140 },
+    { x: 120, y: 220 },
+    { x: 300, y: 280 },
+    { x: 40, y: 340 },
   ];
-  const edges: [number, number][] = [[0, 1], [1, 2], [0, 3], [3, 4], [2, 4], [3, 5]];
+  const edges: [number, number][] = [
+    [0, 1],
+    [1, 2],
+    [0, 3],
+    [3, 4],
+    [2, 4],
+    [3, 5],
+  ];
 
   return (
     <svg
-      className="absolute inset-0 w-full h-full opacity-40"
+      className="absolute inset-0 h-full w-full opacity-40"
       viewBox="0 0 400 400"
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
@@ -393,23 +435,21 @@ function NetworkBackdrop() {
 function FloatingMetricCards() {
   return (
     <div className="relative h-56">
-      <motion.div
-        className="absolute left-0 top-0 w-52 glass-card border border-border-subtle p-4 shadow-elevated animate-float"
-      >
-        <div className="flex items-center gap-2 text-tx-muted text-[11px] font-medium uppercase tracking-wide mb-1.5">
+      <motion.div className="glass-card absolute left-0 top-0 w-52 animate-float border border-border-subtle p-4 shadow-elevated">
+        <div className="mb-1.5 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-tx-muted">
           <TrendingUp size={12} className="text-brand" />
           Total Cost
         </div>
         <div className="text-xl font-bold text-tx-primary">$142,580.45</div>
-        <div className="text-[11px] text-brand mt-0.5">+12.9% vs last 30d</div>
+        <div className="mt-0.5 text-[11px] text-brand">+12.9% vs last 30d</div>
         <Sparkline />
       </motion.div>
 
       <motion.div
-        className="absolute right-0 top-16 w-44 glass-card border border-border-subtle p-3.5 shadow-elevated animate-float-slow"
+        className="glass-card absolute right-0 top-16 w-44 animate-float-slow border border-border-subtle p-3.5 shadow-elevated"
         style={{ animationDelay: "0.6s" }}
       >
-        <div className="flex items-center gap-2 text-tx-muted text-[11px] font-medium uppercase tracking-wide mb-2">
+        <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-tx-muted">
           <Layers size={12} className="text-brand" />
           Providers
         </div>
@@ -420,8 +460,8 @@ function FloatingMetricCards() {
             { name: "Google", pct: 15, color: "bg-google" },
           ].map((p) => (
             <div key={p.name} className="flex items-center gap-2">
-              <span className={cn("w-1.5 h-1.5 rounded-full", p.color)} />
-              <span className="text-[11px] text-tx-secondary flex-1">{p.name}</span>
+              <span className={cn("h-1.5 w-1.5 rounded-full", p.color)} />
+              <span className="flex-1 text-[11px] text-tx-secondary">{p.name}</span>
               <span className="text-[11px] text-tx-muted">{p.pct}%</span>
             </div>
           ))}
@@ -429,10 +469,10 @@ function FloatingMetricCards() {
       </motion.div>
 
       <motion.div
-        className="absolute left-10 bottom-0 w-40 glass-card border border-border-subtle px-3.5 py-2.5 flex items-center gap-2.5 shadow-elevated animate-float"
+        className="glass-card absolute bottom-0 left-10 flex w-40 animate-float items-center gap-2.5 border border-border-subtle px-3.5 py-2.5 shadow-elevated"
         style={{ animationDelay: "1.1s" }}
       >
-        <div className="w-7 h-7 rounded-full bg-brand-subtle flex items-center justify-center flex-shrink-0">
+        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-brand-subtle">
           <Sparkles size={13} className="text-brand" />
         </div>
         <div>
@@ -446,7 +486,7 @@ function FloatingMetricCards() {
 
 function Sparkline() {
   return (
-    <svg viewBox="0 0 120 32" className="w-full h-8 mt-2" aria-hidden="true">
+    <svg viewBox="0 0 120 32" className="mt-2 h-8 w-full" aria-hidden="true">
       <motion.path
         d="M0,24 L15,20 L30,22 L45,12 L60,16 L75,6 L90,10 L105,4 L120,8"
         fill="none"

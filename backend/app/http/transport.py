@@ -25,6 +25,7 @@ class HttpTransport(ABC):
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         timeout: float = 30.0,
     ) -> httpx.Response: ...
 
@@ -68,6 +69,7 @@ class HttpxTransport(HttpTransport):
         headers: dict[str, str] | None = None,
         params: dict[str, str] | None = None,
         json: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
         timeout: float = 30.0,
     ) -> httpx.Response:
         return await self._client.request(
@@ -76,6 +78,7 @@ class HttpxTransport(HttpTransport):
             headers=headers,
             params=params,
             json=json,
+            data=data,
             timeout=timeout,
         )
 

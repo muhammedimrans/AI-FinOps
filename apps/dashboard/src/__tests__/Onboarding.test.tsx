@@ -37,6 +37,9 @@ const baseUser = {
   timezone: null,
   created_at: "2026-01-01T00:00:00Z",
   preferences: {},
+  google_linked: false,
+  google_email: null,
+  last_login_provider: null,
 };
 
 function renderOnboarding() {
@@ -61,7 +64,9 @@ describe("Onboarding — first-time wizard (EP-21.3)", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Ada's Workspace" });
     mockedApi.getOrganizations.mockResolvedValue({
-      organizations: [{ id: "org_1", name: "Ada's Workspace", slug: "ada-workspace", role: "owner" }],
+      organizations: [
+        { id: "org_1", name: "Ada's Workspace", slug: "ada-workspace", role: "owner" },
+      ],
     });
     mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
   });

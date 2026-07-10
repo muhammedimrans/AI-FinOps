@@ -106,6 +106,18 @@ export function login(body: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
+ * URL for the "Continue with Google" button (EP-24.5) — a plain top-level
+ * navigation (`<a href>`/`window.location.href`, never `fetch`), since the
+ * backend's own GET /v1/auth/google/start sets an httpOnly state cookie and
+ * 302s to Google's consent screen. The eventual callback redirects back to
+ * DASHBOARD_URL with the session in the URL fragment, exactly like the
+ * password-based register()/login() handoff above.
+ */
+export function googleOAuthStartUrl(): string {
+  return `${BASE_URL}/v1/auth/google/start`;
+}
+
+/**
  * Builds the redirect URL that hands the session off to apps/dashboard.
  *
  * apps/dashboard authenticates via a Zustand-held bearer token, not the
@@ -120,7 +132,12 @@ export function login(body: LoginRequest): Promise<LoginResponse> {
  */
 export function buildDashboardHandoffUrl(
   path: string,
-  session: { access_token: string; refresh_token: string; user: UserPublic; workspace?: WorkspacePublic },
+  session: {
+    access_token: string;
+    refresh_token: string;
+    user: UserPublic;
+    workspace?: WorkspacePublic;
+  },
 ): string {
   const payload = {
     access_token: session.access_token,

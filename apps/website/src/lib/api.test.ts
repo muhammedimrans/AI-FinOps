@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, login, register } from "./api";
+import { ApiError, googleOAuthStartUrl, login, register } from "./api";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -125,5 +125,11 @@ describe("login()", () => {
     await expect(login({ email: "ada@example.com", password: "wrong" })).rejects.toMatchObject({
       status: 401,
     });
+  });
+});
+
+describe("googleOAuthStartUrl()", () => {
+  it("points at the backend's GET /v1/auth/google/start", () => {
+    expect(googleOAuthStartUrl()).toMatch(/\/v1\/auth\/google\/start$/);
   });
 });

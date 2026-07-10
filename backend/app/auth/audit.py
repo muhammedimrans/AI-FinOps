@@ -41,6 +41,15 @@ class AuditEvent(enum.StrEnum):
     PASSWORD_CHANGED = "password_changed"  # noqa: S105
     ACCOUNT_LOCKED = "account_locked"  # future-ready — not fired by this EP
 
+    # ── Google OAuth (EP-24.5, Part 10) ─────────────────────────────────────
+    GOOGLE_LOGIN = "google_login"
+    GOOGLE_REGISTRATION = "google_registration"
+    GOOGLE_ACCOUNT_LINKED = "google_account_linked"
+    GOOGLE_ACCOUNT_UNLINKED = "google_account_unlinked"
+    OAUTH_FAILURE = "oauth_failure"
+    OAUTH_INVALID_TOKEN = "oauth_invalid_token"  # noqa: S105
+    OAUTH_STATE_VALIDATION_FAILURE = "oauth_state_validation_failure"
+
 
 def log_auth_event(
     event: AuditEvent,

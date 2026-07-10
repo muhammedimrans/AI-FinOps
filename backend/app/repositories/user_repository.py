@@ -40,6 +40,17 @@ class UserRepository(BaseRepository[User]):
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_by_google_sub(self, google_sub: str) -> User | None:
+        """Return the active (non-deleted) User with the given Google `sub`, or None.
+
+        EP-24.5 — the correct join key for "has this Google account logged in
+        before," since a Google account's *email* can technically change
+        while its ``sub`` never does.
+        """
+        stmt = self._active_query().where(User.google_sub == google_sub)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     # ── Existence checks ──────────────────────────────────────────────────────
 
     async def email_exists(self, email: str, *, exclude_id: uuid.UUID | None = None) -> bool:
@@ -125,7 +136,7 @@ class UserRepository(BaseRepository[User]):
 
     # ── Writes ────────────────────────────────────────────────────────────────
 
-    async def update_last_login(self, user_id: uuid.UUID) -> None:
+    async def update_last_login(self, user_id: uuid.UUID, *, provider: str | None = None) -> None:
         """
         Record the current UTC timestamp as ``last_login_at`` for the given user.
 
@@ -133,12 +144,18 @@ class UserRepository(BaseRepository[User]):
         to keep the operation cheap in high-traffic authentication flows.
         Also bumps ``updated_at`` because the ORM ``onupdate`` hook does not
         fire for bulk-style UPDATE statements.
+
+        ``provider`` (EP-24.5) — when given, also sets ``last_login_provider``
+        ("password" | "google") in the same statement, so Settings' "Last
+        login provider" display (Part 7) is always the outcome of the most
+        recent successful authentication.
         """
         now = datetime.now(UTC)
+        values: dict[str, object] = {"last_login_at": now, "updated_at": now}
+        if provider is not None:
+            values["last_login_provider"] = provider
         stmt = (
-            sql_update(User)
-            .where(User.id == user_id, User.deleted_at.is_(None))
-            .values(last_login_at=now, updated_at=now)
+            sql_update(User).where(User.id == user_id, User.deleted_at.is_(None)).values(**values)
         )
         await self._session.execute(stmt)
 

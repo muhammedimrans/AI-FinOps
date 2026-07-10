@@ -389,6 +389,9 @@ class TestAuthSchemas:
             timezone=None,
             created_at=datetime.now(UTC),
             preferences={},
+            google_linked=False,
+            google_email=None,
+            last_login_provider=None,
         )
         assert up.email_verified is True
 

@@ -24,6 +24,10 @@ export interface BackendUserPublic {
   timezone: string | null;
   created_at: string;
   preferences: Record<string, unknown>;
+  // EP-24.5 Settings — "Linked accounts" section.
+  google_linked: boolean;
+  google_email: string | null;
+  last_login_provider: string | null;
 }
 
 export interface BackendLoginResponse {
@@ -216,7 +220,7 @@ export interface BackendProjectBreakdownResponse {
 // ── EP-12.1 Organizations ─────────────────────────────────────────────────────
 
 export interface BackendOrgMembershipItem {
-  id: string;   // org external_id e.g. "org_<hex>"
+  id: string; // org external_id e.g. "org_<hex>"
   name: string;
   slug: string;
   role: string; // "owner" | "admin" | "member" | "viewer"

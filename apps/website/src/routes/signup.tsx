@@ -2,6 +2,7 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
+import { GoogleButton } from "@/components/site/GoogleButton";
 import { SiteLayout } from "@/components/site/SiteLayout";
 import { LogoMark } from "@/components/site/SiteNav";
 import { ApiError, buildDashboardHandoffUrl, register as registerAccount } from "@/lib/api";
@@ -53,10 +54,18 @@ function Signup() {
         <LogoMark className="h-9 w-9" />
         <h1 className="mt-6 font-display text-3xl font-semibold tracking-tight">Start free</h1>
         <p className="mt-2 text-sm text-muted-foreground">Free forever. No credit card required.</p>
+        <div className="mt-8 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6">
+          <GoogleButton label="Sign up with Google" />
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-white/10" />
+            or sign up with email
+            <span className="h-px flex-1 bg-white/10" />
+          </div>
+        </div>
         <form
           onSubmit={(e) => void handleSubmit(onSubmit)(e)}
           noValidate
-          className="mt-8 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
+          className="mt-4 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
         >
           {formError && (
             <p

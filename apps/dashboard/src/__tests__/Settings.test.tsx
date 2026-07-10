@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
@@ -42,6 +43,9 @@ vi.mock("../services/api", async (importOriginal) => {
     getSchedulerStatus: vi.fn(),
     updateSchedulerSettings: vi.fn(),
     resendVerification: vi.fn(),
+    startGoogleLink: vi.fn(),
+    unlinkGoogle: vi.fn(),
+    getMe: vi.fn(),
   };
 });
 
@@ -60,6 +64,9 @@ const baseUser = {
   timezone: null,
   created_at: "2026-01-01T00:00:00Z",
   preferences: { theme: "professional-dark" } as Record<string, unknown>,
+  google_linked: false,
+  google_email: null,
+  last_login_provider: null,
 };
 
 function renderSettings() {
@@ -67,9 +74,11 @@ function renderSettings() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Settings />
-    </QueryClientProvider>,
+    <MemoryRouter initialEntries={["/settings"]}>
+      <QueryClientProvider client={queryClient}>
+        <Settings />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -263,9 +272,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     const user = userEvent.setup();
     renderSettings();
     await user.click(screen.getByRole("button", { name: "Danger Zone" }));
-    expect(
-      await screen.findByText(/personal workspace can't be deleted/i),
-    ).toBeTruthy();
+    expect(await screen.findByText(/personal workspace can't be deleted/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete workspace/i })).toBeNull();
   });
 
@@ -513,5 +520,158 @@ describe("Settings — Automatic Sync (EP-23.4)", () => {
         interval: "6h",
       });
     });
+  });
+});
+
+describe("Settings — Linked Accounts (EP-24.5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
+    mockedApi.getOrganizations.mockResolvedValue({
+      organizations: [
+        {
+          id: "org_1",
+          name: "Acme",
+          slug: "acme",
+          role: "owner",
+          description: "We build things.",
+          is_personal: false,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    mockedApi.listApiKeys.mockResolvedValue({ keys: [], total: 0 });
+    mockedApi.listPermissions.mockResolvedValue({ permissions: [] });
+    mockedApi.getSchedulerStatus.mockResolvedValue({
+      organization_id: "org_1",
+      auto_sync_enabled: false,
+      interval: "1h",
+      interval_seconds: 3600,
+      last_sync_at: null,
+      last_sync_status: null,
+      next_sync_at: null,
+      current_job: null,
+      scheduler_health: "disabled",
+      monitoring: {
+        is_running: true,
+        active_jobs: 0,
+        queued_jobs: 0,
+        completed_jobs: 0,
+        failed_jobs: 0,
+        average_duration_seconds: null,
+        last_execution: null,
+      },
+    });
+  });
+
+  it("shows 'Not connected' and a Link Google account button when not linked", () => {
+    useAuthStore.getState().setLogin("access.token", "refresh.token", baseUser);
+    renderSettings();
+
+    expect(screen.getByText("Not connected")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /link google account/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^unlink$/i })).toBeNull();
+  });
+
+  it("shows the connected email and an Unlink button when linked", () => {
+    useAuthStore.getState().setLogin("access.token", "refresh.token", {
+      ...baseUser,
+      google_linked: true,
+      google_email: "ada@gmail.com",
+      last_login_provider: "google",
+    });
+    renderSettings();
+
+    expect(screen.getByText("ada@gmail.com")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^unlink$/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /link google account/i })).toBeNull();
+    expect(screen.getByDisplayValue("Google")).toBeTruthy();
+  });
+
+  it("shows 'Password' as the last login provider when logged in with a password", () => {
+    useAuthStore.getState().setLogin("access.token", "refresh.token", {
+      ...baseUser,
+      last_login_provider: "password",
+    });
+    renderSettings();
+
+    expect(screen.getByDisplayValue("Password")).toBeTruthy();
+  });
+
+  it("navigates to the returned authorize_url when Link Google account is clicked", async () => {
+    const user = userEvent.setup();
+    useAuthStore.getState().setLogin("access.token", "refresh.token", baseUser);
+    mockedApi.startGoogleLink.mockResolvedValue({
+      authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+    });
+    const originalLocation = window.location;
+    Object.defineProperty(window, "location", {
+      writable: true,
+      configurable: true,
+      value: { href: "" },
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: /link google account/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.startGoogleLink).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(window.location.href).toBe("https://accounts.google.com/o/oauth2/v2/auth?state=abc");
+    });
+
+    Object.defineProperty(window, "location", {
+      writable: true,
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("unlinks Google and updates the UI on success", async () => {
+    const user = userEvent.setup();
+    useAuthStore.getState().setLogin("access.token", "refresh.token", {
+      ...baseUser,
+      google_linked: true,
+      google_email: "ada@gmail.com",
+    });
+    mockedApi.unlinkGoogle.mockResolvedValue({
+      ...baseUser,
+      google_linked: false,
+      google_email: null,
+    });
+
+    renderSettings();
+    await user.click(screen.getByRole("button", { name: /^unlink$/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.unlinkGoogle).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("Not connected")).toBeTruthy();
+  });
+
+  it("refetches /me and shows the linked state after redirecting back with ?google_linked=1", async () => {
+    useAuthStore.getState().setLogin("access.token", "refresh.token", baseUser);
+    mockedApi.getMe.mockResolvedValue({
+      ...baseUser,
+      google_linked: true,
+      google_email: "ada@gmail.com",
+    });
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    render(
+      <MemoryRouter initialEntries={["/settings?google_linked=1"]}>
+        <QueryClientProvider client={queryClient}>
+          <Settings />
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(mockedApi.getMe).toHaveBeenCalled();
+    });
+    expect(await screen.findByText("ada@gmail.com")).toBeTruthy();
   });
 });

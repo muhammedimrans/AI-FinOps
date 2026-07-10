@@ -21,6 +21,11 @@ export interface AuthUser {
   timezone?: string | null;
   created_at?: string;
   preferences?: Record<string, unknown>;
+  // EP-24.5 Settings — "Linked accounts" section, same optional/self-heals
+  // treatment as the EP-22.2 fields above.
+  google_linked?: boolean;
+  google_email?: string | null;
+  last_login_provider?: string | null;
 }
 
 interface AuthState {

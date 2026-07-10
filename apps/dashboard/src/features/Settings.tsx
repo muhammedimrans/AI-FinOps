@@ -15,6 +15,7 @@ import {
   Mail,
   MailCheck,
   Palette,
+  Rocket,
   Save,
   Shield,
   Timer,
@@ -49,6 +50,7 @@ import {
   updatePreferences,
   updateProfile,
   updateSchedulerSettings,
+  upgradeToBusiness,
   type SchedulerInterval,
 } from "../services/api";
 import type { Currency } from "../types/api";
@@ -183,6 +185,69 @@ function SectionCard({
  * nested in its form) since Link/Unlink are their own top-level-navigation
  * / mutation flows, not part of the profile-save submit.
  */
+/**
+ * Personal -> Business upgrade (EP-25.2). Only rendered when the caller's
+ * current workspace is personal — see the Profile-tab call site. Reuses
+ * the existing Organization row (`useOrgStore().setOrganization` + a
+ * refetch of the same `["organizations"]` query `updateOrganization`
+ * already invalidates elsewhere in this file) so every consumer of
+ * `is_personal` (nav, org selector, this page's own Workspace tab) picks
+ * up the change immediately — no logout, no reload.
+ */
+function UpgradeToBusinessCard({ onUpgraded }: { onUpgraded: () => void }) {
+  const { setOrganization } = useOrgStore();
+  const queryClient = useQueryClient();
+  const [name, setName] = useState("");
+
+  const upgradeMutation = useMutation({
+    mutationFn: () => upgradeToBusiness(name.trim() || undefined),
+    onSuccess: (workspace) => {
+      setOrganization(workspace.id, workspace.name, workspace.is_personal);
+      void queryClient.invalidateQueries({ queryKey: ["organizations"] });
+      toast.success(
+        "Upgraded to Business",
+        `"${workspace.name}" now supports members, invitations, and workspace settings.`,
+      );
+      onUpgraded();
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(
+        err,
+        "Could not upgrade to Business. Please try again.",
+      );
+      toast.error(title, description);
+    },
+  });
+
+  return (
+    <SectionCard
+      title="Upgrade to Business"
+      icon={Rocket}
+      description="Add teammates, roles, and shared workspace settings — your projects, providers, budgets, alerts, and API keys all carry over exactly as they are."
+    >
+      <TextField
+        label="Workspace name (optional)"
+        placeholder="My Team"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+      <button
+        type="button"
+        onClick={() => upgradeMutation.mutate()}
+        disabled={upgradeMutation.isPending}
+        className="btn-primary w-fit"
+      >
+        {upgradeMutation.isPending ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <Rocket size={14} />
+        )}
+        Upgrade to Business
+      </button>
+    </SectionCard>
+  );
+}
+
 function LinkedAccountsCard() {
   const { user, updateUser } = useAuthStore();
 
@@ -977,6 +1042,9 @@ export default function Settings() {
                 </SectionCard>
               </form>
               <LinkedAccountsCard />
+              {currentOrg?.is_personal && (
+                <UpgradeToBusinessCard onUpgraded={() => void orgsQuery.refetch()} />
+              )}
             </>
           )}
 

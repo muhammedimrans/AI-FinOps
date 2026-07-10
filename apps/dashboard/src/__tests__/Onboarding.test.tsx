@@ -66,7 +66,13 @@ describe("Onboarding — first-time wizard (EP-21.3)", () => {
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Ada's Workspace" });
     mockedApi.getOrganizations.mockResolvedValue({
       organizations: [
-        { id: "org_1", name: "Ada's Workspace", slug: "ada-workspace", role: "owner" },
+        {
+          id: "org_1",
+          name: "Ada's Workspace",
+          slug: "ada-workspace",
+          role: "owner",
+          is_personal: false,
+        },
       ],
     });
     mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
@@ -118,6 +124,32 @@ describe("Onboarding — first-time wizard (EP-21.3)", () => {
 
     // Step 5: Finish
     expect(await screen.findByText(/You're ready/i)).toBeTruthy();
+  });
+
+  it("EP-25.2: shows 'My Account' instead of a renameable Workspace step for a personal org", async () => {
+    const user = userEvent.setup();
+    mockedApi.getOrganizations.mockResolvedValue({
+      organizations: [
+        {
+          id: "org_1",
+          name: "Ada's Workspace",
+          slug: "ada-workspace",
+          role: "owner",
+          is_personal: true,
+        },
+      ],
+    });
+    useAuthStore
+      .getState()
+      .setLogin("access.token", "refresh.token", { ...baseUser, onboarding_completed: false });
+    renderOnboarding();
+
+    await user.click(screen.getByRole("button", { name: /get started/i }));
+
+    expect(await screen.findByText("My Account")).toBeTruthy();
+    expect(screen.queryByText("Ada's Workspace")).toBeNull();
+    expect(screen.queryByLabelText(/Edit workspace name/i)).toBeNull();
+    expect(screen.queryByText(/Workspace name/i)).toBeNull();
   });
 
   it("lets the user connect a real provider inline during Step 3", async () => {

@@ -24,4 +24,11 @@ describe("visibleNavItems — EP-25.1", () => {
     expect(paths).toContain("/api-keys");
     expect(paths).toContain("/settings");
   });
+
+  it("EP-25.2: relabels API Keys to 'My API Keys' for a personal workspace only", () => {
+    const personal = visibleNavItems(true).find((i) => i.to === "/api-keys");
+    const business = visibleNavItems(false).find((i) => i.to === "/api-keys");
+    expect(personal?.label).toBe("My API Keys");
+    expect(business?.label).toBe("API Keys");
+  });
 });

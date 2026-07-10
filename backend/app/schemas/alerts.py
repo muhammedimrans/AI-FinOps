@@ -74,6 +74,23 @@ class CreateAlertRuleRequest(BaseModel):
     enabled: bool = True
 
 
+class UpdateAlertRuleRequest(BaseModel):
+    """Partial update for an alert rule (EP-25.2 ownership-consistency audit).
+
+    All fields optional — only supplied fields change. Added because
+    ``AlertRule`` previously had create+delete but no edit, an asymmetry
+    the audit's "if a user can create something they should also be able
+    to edit/delete it" rule flags. Mirrors ``UpdateBudgetRequest``'s
+    partial-update shape exactly.
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    severity: str | None = None
+    operator: str | None = None
+    threshold: str | None = None
+    enabled: bool | None = None
+
+
 class AlertRuleResponse(BaseModel):
     id: uuid.UUID
     alert_type: str

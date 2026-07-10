@@ -65,6 +65,7 @@ from app.auth.exceptions import (
     GoogleAccountAlreadyLinkedError,
     InvalidCredentialsError,
     LastAuthMethodError,
+    NoPersonalWorkspaceError,
     OwnerOfSharedWorkspaceError,
     PasswordAlreadyConfiguredError,
     UsernameAlreadyTakenError,
@@ -92,6 +93,7 @@ from app.schemas.auth import (
     TokenResponse,
     UpdatePreferencesRequest,
     UpdateProfileRequest,
+    UpgradeToBusinessRequest,
     UserPublic,
     VerifyEmailRequest,
     WorkspacePublic,
@@ -422,6 +424,45 @@ async def set_password(
             detail="A password is already set for this account — use change-password instead",
         ) from exc
     return _build_user_public(current_user)
+
+
+@router.post(
+    "/upgrade-to-business",
+    response_model=WorkspacePublic,
+    summary="Convert the caller's personal workspace into a Business workspace (EP-25.2)",
+    description=(
+        "Reuses the existing personal Organization row (same id, same "
+        "projects/provider connections/budgets/alerts/API keys) — flips "
+        "`is_personal` to False and optionally renames it (default 'My "
+        "Team' if no name is supplied). No new organization is created, no "
+        "data is migrated, no logout is required. Members/Invitations/RBAC/"
+        "Workspace Settings/the workspace switcher are enabled immediately "
+        "for the returned workspace, driven entirely by `is_personal` — the "
+        "same field the frontend already reads."
+    ),
+)
+async def upgrade_to_business(
+    body: UpgradeToBusinessRequest,
+    current_user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> WorkspacePublic:
+    svc = AuthService(db, settings)
+    try:
+        workspace = await svc.upgrade_to_business(
+            user=current_user, organization_name=body.organization_name
+        )
+    except NoPersonalWorkspaceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No personal workspace found to upgrade",
+        ) from exc
+    return WorkspacePublic(
+        id=workspace.external_id,
+        name=workspace.name,
+        slug=workspace.slug,
+        is_personal=workspace.is_personal,
+    )
 
 
 @router.delete(

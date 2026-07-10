@@ -113,3 +113,17 @@ class PasswordAlreadyConfiguredError(AuthError):
     requires proving the current password rather than silently overwriting
     it.
     """
+
+
+# ── Personal -> Business upgrade (EP-25.2) ──────────────────────────────────
+
+
+class NoPersonalWorkspaceError(AuthError):
+    """`upgrade_to_business()` was called for a caller with no personal
+    workspace to convert.
+
+    Every account is guaranteed exactly one personal workspace by
+    `AuthService.register()`/`login_or_register_with_google()` (EP-21.2/
+    EP-24.5), so this should only ever be reachable if that invariant was
+    somehow already violated — never a normal user-facing outcome.
+    """

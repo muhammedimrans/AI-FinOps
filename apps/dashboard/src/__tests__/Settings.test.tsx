@@ -46,6 +46,7 @@ vi.mock("../services/api", async (importOriginal) => {
     startGoogleLink: vi.fn(),
     unlinkGoogle: vi.fn(),
     getMe: vi.fn(),
+    upgradeToBusiness: vi.fn(),
   };
 });
 
@@ -320,6 +321,89 @@ describe("Settings — EP-22.2 backend integration", () => {
 
     await waitFor(() => {
       expect(mockedApi.deleteAccount).toHaveBeenCalledWith("correct-horse");
+    });
+  });
+});
+
+describe("Settings — Upgrade to Business (EP-25.2)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.getState().setLogin("access.token", "refresh.token", baseUser);
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Ada's Workspace" });
+    mockedApi.getOrganizations.mockResolvedValue({
+      organizations: [
+        {
+          id: "org_1",
+          name: "Ada's Workspace",
+          slug: "ada",
+          role: "owner",
+          description: null,
+          is_personal: true,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+  });
+
+  it("shows the Upgrade to Business card for a personal workspace", async () => {
+    renderSettings();
+    expect(await screen.findByRole("button", { name: /upgrade to business/i })).toBeTruthy();
+  });
+
+  it("hides the Upgrade to Business card for a business workspace", async () => {
+    mockedApi.getOrganizations.mockResolvedValue({
+      organizations: [
+        {
+          id: "org_1",
+          name: "Acme",
+          slug: "acme",
+          role: "owner",
+          description: null,
+          is_personal: false,
+          created_at: "2026-01-01T00:00:00Z",
+        },
+      ],
+    });
+    renderSettings();
+    await screen.findByText("Ada Lovelace");
+    expect(screen.queryByRole("button", { name: /upgrade to business/i })).toBeNull();
+  });
+
+  it("calls upgradeToBusiness with the supplied workspace name", async () => {
+    const user = userEvent.setup();
+    mockedApi.upgradeToBusiness.mockResolvedValue({
+      id: "org_1",
+      name: "My New Team",
+      slug: "ada",
+      is_personal: false,
+    });
+    renderSettings();
+
+    await user.type(
+      await screen.findByLabelText(/workspace name \(optional\)/i),
+      "My New Team",
+    );
+    await user.click(screen.getByRole("button", { name: /upgrade to business/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.upgradeToBusiness).toHaveBeenCalledWith("My New Team");
+    });
+  });
+
+  it("defaults to no name when the field is left blank", async () => {
+    const user = userEvent.setup();
+    mockedApi.upgradeToBusiness.mockResolvedValue({
+      id: "org_1",
+      name: "My Team",
+      slug: "ada",
+      is_personal: false,
+    });
+    renderSettings();
+
+    await user.click(await screen.findByRole("button", { name: /upgrade to business/i }));
+
+    await waitFor(() => {
+      expect(mockedApi.upgradeToBusiness).toHaveBeenCalledWith(undefined);
     });
   });
 });

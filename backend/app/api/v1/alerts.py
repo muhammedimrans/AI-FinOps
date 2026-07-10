@@ -11,6 +11,7 @@ GET    /v1/alerts/preferences              — the caller's own preferences (thi
 PATCH  /v1/alerts/preferences              — update (creates the row lazily)
 GET    /v1/alerts/rules                    — list configured AlertRule rows
 POST   /v1/alerts/rules                    — create a rule
+PATCH  /v1/alerts/rules/{rule_id}          — partial update (EP-25.2)
 DELETE /v1/alerts/rules/{rule_id}          — soft-delete a rule
 GET    /v1/alerts/suppressions             — list configured suppressions
 POST   /v1/alerts/suppressions             — create a suppression
@@ -85,6 +86,7 @@ from app.schemas.alerts import (
     CreateAlertRuleRequest,
     CreateAlertSuppressionRequest,
     UpdateAlertPreferenceRequest,
+    UpdateAlertRuleRequest,
 )
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -439,6 +441,51 @@ async def create_rule(
     )
     created = await AlertRuleRepository(db).create(rule)
     return _to_rule_response(created)
+
+
+@router.patch(
+    "/rules/{rule_id}",
+    response_model=AlertRuleResponse,
+    summary="Partially update an alert rule",
+    description=(
+        "EP-25.2 ownership-consistency audit: closes the create+delete-but-"
+        "no-edit gap on alert rules (also covers mute/enable/disable via "
+        "the `enabled` field, mirroring PATCH /v1/budgets/{id})."
+    ),
+)
+async def update_rule(
+    rule_id: uuid.UUID,
+    body: UpdateAlertRuleRequest,
+    db: DbDep,
+    _member: Annotated[object, RequireQueryPermission(Permission.NOTIFICATION_WRITE)],
+    organization_id: Annotated[uuid.UUID, Query(description="Organization ID")],
+) -> AlertRuleResponse:
+    repo = AlertRuleRepository(db)
+    rule = await repo.get(rule_id)
+    if rule is None or rule.organization_id != organization_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert rule not found")
+
+    fields = body.model_dump(exclude_unset=True)
+    updates: dict[str, object] = {}
+    if "name" in fields and fields["name"] is not None:
+        updates["name"] = fields["name"]
+    if "severity" in fields and fields["severity"] is not None:
+        updates["severity"] = _parse_enum(AlertSeverity, fields["severity"], "severity")
+    if "operator" in fields and fields["operator"] is not None:
+        updates["operator"] = _parse_enum(AlertOperator, fields["operator"], "operator")
+    if "threshold" in fields and fields["threshold"] is not None:
+        try:
+            updates["threshold"] = Decimal(fields["threshold"])
+        except InvalidOperation as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="threshold must be a valid decimal number",
+            ) from exc
+    if "enabled" in fields and fields["enabled"] is not None:
+        updates["enabled"] = fields["enabled"]
+
+    updated = await repo.update(rule, **updates) if updates else rule
+    return _to_rule_response(updated)
 
 
 @router.delete(

@@ -35,6 +35,7 @@ class OrgAuditEvent(enum.StrEnum):
     MEMBER_ROLE_CHANGED = "member_role_changed"
     MEMBER_REMOVED = "member_removed"
     OWNERSHIP_TRANSFERRED = "ownership_transferred"
+    WORKSPACE_UPGRADED_TO_BUSINESS = "workspace_upgraded_to_business"  # EP-25.2
 
 
 def log_org_event(

@@ -18,11 +18,20 @@ class LoginRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    """New-account details for self-serve registration (EP-21.2)."""
+    """New-account details for self-serve registration (EP-21.2).
+
+    EP-25.1: ``account_type`` decides whether this registration also gets a
+    second, real (non-personal) Organization alongside the personal
+    workspace every account already receives. ``organization_name`` is
+    only meaningful when ``account_type == "business"`` — it's ignored
+    otherwise, matching the frontend's "only shown for Business" behavior.
+    """
 
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(min_length=1, max_length=255)
+    account_type: Literal["personal", "business"] = "personal"
+    organization_name: str | None = Field(default=None, min_length=1, max_length=255)
 
 
 class RefreshRequest(BaseModel):

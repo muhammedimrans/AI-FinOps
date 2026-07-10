@@ -24,6 +24,11 @@ export interface NavItem {
   label: string;
   group: string;
   keywords?: string;
+  // EP-25.1 — hidden entirely for a personal (single-user) workspace: these
+  // are all collaboration/organization-management features that only make
+  // sense once more than one person can belong to the workspace, which a
+  // personal org (is_personal=true) never allows by construction.
+  businessOnly?: boolean;
 }
 
 // Shared between Sidebar (navigation) and CommandPalette (quick jump / search).
@@ -35,10 +40,10 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard/projects",     icon: FolderOpen,      label: "Projects",       group: "Analytics", keywords: "budget team" },
   { to: "/dashboard/budgets",      icon: Wallet,          label: "Budgets",        group: "Analytics", keywords: "spend alerts thresholds forecast" },
   { to: "/dashboard/alerts",       icon: Bell,            label: "Alert Center",   group: "Analytics", keywords: "notifications severity history" },
-  { to: "/dashboard/organization", icon: Building2,       label: "Organization",   group: "Analytics", keywords: "team members" },
+  { to: "/dashboard/organization", icon: Building2,       label: "Organization",   group: "Analytics", keywords: "team members", businessOnly: true },
   { to: "/dashboard/pricing",      icon: Receipt,         label: "Pricing",        group: "Analytics", keywords: "cost calculator catalog rates" },
-  { to: "/users",                  icon: Users,           label: "Members",        group: "Admin", keywords: "users invite team invitations" },
-  { to: "/rbac",                   icon: ShieldCheck,     label: "RBAC",           group: "Admin", keywords: "roles permissions access" },
+  { to: "/users",                  icon: Users,           label: "Members",        group: "Admin", keywords: "users invite team invitations", businessOnly: true },
+  { to: "/rbac",                   icon: ShieldCheck,     label: "RBAC",           group: "Admin", keywords: "roles permissions access", businessOnly: true },
   { to: "/api-keys",               icon: Key,             label: "API Keys",       group: "Admin", keywords: "credentials secrets" },
   { to: "/connections",            icon: PlugZap,         label: "Connections",    group: "Admin", keywords: "provider integration" },
   { to: "/audit-logs",             icon: ScrollText,      label: "Audit Logs",     group: "Admin", keywords: "history activity" },
@@ -47,6 +52,11 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export const NAV_GROUPS = ["Analytics", "Admin", "System"];
+
+/** NAV_ITEMS filtered for the current workspace type (EP-25.1). */
+export function visibleNavItems(isPersonal: boolean): NavItem[] {
+  return isPersonal ? NAV_ITEMS.filter((item) => !item.businessOnly) : NAV_ITEMS;
+}
 
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
   return item.to === "/dashboard" ? pathname === "/dashboard" : pathname.startsWith(item.to);

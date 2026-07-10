@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,15 +32,21 @@ from app.auth.tokens import (
 from app.config.settings import Settings
 from app.db.mixins import uuid7
 from app.email.service import EmailService
+from app.models.invitation import InvitationStatus
 from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
 from app.models.password_reset_token import PasswordResetToken
 from app.models.session import Session
 from app.models.user import User, UserStatus
 from app.models.verification_token import VerificationToken
+from app.repositories.budget_repository import BudgetRepository
+from app.repositories.invitation_repository import InvitationRepository
 from app.repositories.membership_repository import MembershipRepository
+from app.repositories.organization_api_key_repository import OrganizationApiKeyRepository
 from app.repositories.organization_repository import OrganizationRepository
 from app.repositories.password_reset_token_repository import PasswordResetTokenRepository
+from app.repositories.project_repository import ProjectRepository
+from app.repositories.provider_connection_repository import ProviderConnectionRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 from app.repositories.verification_token_repository import VerificationTokenRepository
@@ -131,20 +137,27 @@ class AuthService:
 
     # ── Registration ──────────────────────────────────────────────────────────
 
-    async def _create_personal_workspace(self, user: User) -> Organization:
-        """Create a personal workspace (Organization, is_personal=True) with
-        an OWNER Membership for `user`. Extracted so `register()` and
-        `login_or_register_with_google()` (EP-24.5) share exactly one
-        implementation of "what a brand-new Costorah account's first
-        workspace looks like" — never two copies of this logic.
+    async def _create_workspace(
+        self, user: User, *, name: str, slug_seed: str, is_personal: bool
+    ) -> Organization:
+        """Create an Organization with an OWNER Membership for `user`.
+
+        EP-25.1: generalized from the EP-24.5-era ``_create_personal_workspace``
+        so a single implementation of "create an org + make this user its
+        OWNER" backs both the mandatory personal workspace every account
+        gets and the optional second, real (``is_personal=False``) business
+        workspace a Business registration also gets — never two copies of
+        this logic, and no separate org-creation code path for either case.
+        ``slug_seed`` is separate from the display ``name`` (rather than
+        slugifying ``name`` itself) so a display name like ``"Ada's
+        Workspace"`` still produces the same clean slug format
+        (``ada-workspace``) this codebase has always generated.
         """
         org = Organization()
         org.id = uuid7()
-        org.name = f"{user.display_name}'s Workspace"
-        org.slug = await unique_slug(
-            f"{user.display_name}-workspace", slug_exists=self._org_repo.slug_exists
-        )
-        org.is_personal = True
+        org.name = name
+        org.slug = await unique_slug(slug_seed, slug_exists=self._org_repo.slug_exists)
+        org.is_personal = is_personal
         org.status = OrganizationStatus.ACTIVE
         await self._org_repo.create(org)
 
@@ -158,12 +171,29 @@ class AuthService:
 
         return org
 
+    async def _create_personal_workspace(self, user: User) -> Organization:
+        """Create `user`'s mandatory personal workspace (is_personal=True).
+
+        Every account gets exactly one of these, created here and never
+        anywhere else — `register()` (both account types) and
+        `login_or_register_with_google()` (EP-24.5) all call this one
+        method, never construct an Organization directly.
+        """
+        return await self._create_workspace(
+            user,
+            name=f"{user.display_name}'s Workspace",
+            slug_seed=f"{user.display_name}-workspace",
+            is_personal=True,
+        )
+
     async def register(
         self,
         *,
         email: str,
         password: str,
         display_name: str,
+        account_type: Literal["personal", "business"] = "personal",
+        organization_name: str | None = None,
         ip_address: str | None = None,
         user_agent: str | None = None,
     ) -> tuple[TokenPair | None, User, Organization]:
@@ -174,6 +204,15 @@ class AuthService:
         `app/db/seed.py::seed_demo_data`, extended with the is_personal flag
         and wired to real request-time input instead of hardcoded seed
         constants.
+
+        EP-25.1: every account — personal or business — still gets exactly
+        one personal workspace (unchanged; see `_create_personal_workspace`).
+        A ``account_type="business"`` registration additionally gets a
+        second, real (``is_personal=False``) Organization, named
+        ``organization_name`` (or a sensible default), with the same
+        caller as its OWNER. The returned `Organization` is that business
+        workspace for a business registration, or the personal workspace
+        otherwise — i.e. "the workspace this account should land in."
 
         EP-24.6.1: no longer issues a session. Every prior version of this
         method (EP-21.2 through EP-24.4.1) deliberately logged a brand-new
@@ -201,10 +240,21 @@ class AuthService:
         user.password_hash = hash_password(password)
         await self._user_repo.create(user)
 
-        org = await self._create_personal_workspace(user)
+        personal_org = await self._create_personal_workspace(user)
+
+        org = personal_org
+        if account_type == "business":
+            business_name = (organization_name or "").strip() or f"{display_name}'s Team"
+            org = await self._create_workspace(
+                user, name=business_name, slug_seed=business_name, is_personal=False
+            )
 
         log_auth_event(
-            AuditEvent.REGISTRATION, user_id=user.id, email=user.email, ip_address=ip_address
+            AuditEvent.REGISTRATION,
+            user_id=user.id,
+            email=user.email,
+            ip_address=ip_address,
+            account_type=account_type,
         )
         await self._send_verification_email(user)
 
@@ -530,6 +580,53 @@ class AuthService:
 
     # ── Account deletion (EP-22.2 Settings — Danger Zone) ────────────────────
 
+    async def _cascade_delete_organization(
+        self, org_id: uuid.UUID, *, deleted_by: uuid.UUID
+    ) -> None:
+        """Soft-delete every resource scoped to `org_id`, then the org itself.
+
+        EP-25.1: closes the "no orphan rows" gap §18's own audit flagged —
+        ``Organization.soft_delete`` alone only sets ``deleted_at`` on the
+        org row; ``passive_deletes=True``/``ON DELETE CASCADE`` is a
+        hard-delete FK behavior that a soft-delete UPDATE never triggers,
+        so child rows previously stayed live (``deleted_at IS NULL``)
+        after their parent org was "deleted." This walks every repository
+        that already exists for each resource type (no new repository, no
+        new query shape — the same ``list_by_org``/``list_for_org`` methods
+        each page's own UI already calls) and soft-deletes each row in the
+        same transaction as the org itself, exactly the way a business
+        owner already single-resource-deletes a project/connection/budget/
+        key from its own page today.
+        """
+        # ProjectRepository/ProviderConnectionRepository.list_by_org are
+        # cursor-paginated (default page size 20) — a large explicit limit
+        # is a one-shot fetch of everything a personal or solely-owned
+        # workspace could realistically hold, without adding a second,
+        # unpaginated query variant to either repository.
+        projects_page = await ProjectRepository(self._session).list_by_org(org_id, limit=1000)
+        for project in projects_page.items:
+            await ProjectRepository(self._session).soft_delete(project, deleted_by=deleted_by)
+        connections_page = await ProviderConnectionRepository(self._session).list_by_org(
+            org_id, limit=1000
+        )
+        for conn in connections_page.items:
+            await ProviderConnectionRepository(self._session).soft_delete(
+                conn, deleted_by=deleted_by
+            )
+        for budget in await BudgetRepository(self._session).list_for_org(org_id):
+            await BudgetRepository(self._session).soft_delete(budget, deleted_by=deleted_by)
+        for key in await OrganizationApiKeyRepository(self._session).list(org_id):
+            await OrganizationApiKeyRepository(self._session).soft_delete(
+                key, deleted_by=deleted_by
+            )
+        for invitation in await InvitationRepository(self._session).list_pending_by_org(org_id):
+            invitation.status = InvitationStatus.CANCELLED
+            invitation.cancelled_at = datetime.now(UTC)
+
+        org = await self._org_repo.get(org_id)
+        if org is not None:
+            await self._org_repo.soft_delete(org, deleted_by=deleted_by)
+
     async def delete_account(self, *, user: User, password: str) -> None:
         """
         Verify the caller's password, then permanently (soft-)delete the
@@ -540,9 +637,12 @@ class AuthService:
         would otherwise silently orphan that workspace. The caller must
         transfer ownership or remove the other members first. Workspaces
         the user owns alone (including their personal workspace) are
-        soft-deleted along with the account; memberships where the user
-        holds a non-OWNER role are left as-is (soft-deleting the user is
-        enough to end their access).
+        cascade-soft-deleted along with the account — every project,
+        provider connection, budget, API key, and pending invitation those
+        workspaces own goes with them (EP-25.1, `_cascade_delete_organization`)
+        — and memberships where the user holds a non-OWNER role are left
+        as-is (soft-deleting the user is enough to end their access there).
+        Sessions and refresh tokens are revoked in every case.
         """
         if user.password_hash is None or not verify_password(user.password_hash, password):
             raise InvalidCredentialsError
@@ -555,9 +655,7 @@ class AuthService:
                 raise OwnerOfSharedWorkspaceError(m.organization.name)
 
         for m in owned:
-            org = await self._org_repo.get(m.organization_id)
-            if org is not None:
-                await self._org_repo.soft_delete(org, deleted_by=user.id)
+            await self._cascade_delete_organization(m.organization_id, deleted_by=user.id)
 
         await self._user_repo.soft_delete(user, deleted_by=user.id)
         await self._session_repo.revoke_all_for_user(user.id)

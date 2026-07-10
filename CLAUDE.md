@@ -2703,3 +2703,173 @@ Per this project's own established convention (§9, §10, and every EP since —
 ### Remaining authentication improvements
 
 Carried forward, unaffected by this EP: (1) a more complete self-service "add/change a password" surface in Settings for a Google-only account beyond the mandatory first-time gate this EP added (e.g., revisiting a skipped step, though the gate itself now makes skipping impossible going forward); (2) **wiring `ProviderConnection.encrypted_api_key` into real usage collection** for the 5 currently-zero-volume providers (§23); (3) the still-open **delivery-event webhooks** (bounce/complaint tracking) from EP-24.4's own "Future improvements" list (§24); (4) a CI job asserting every session-issuing code path is one of the small set of documented, intentional exceptions (register() no longer being one of them as of this EP; Google OAuth remains the sole exception) — first proposed in §26, still not built, and now more directly actionable since the "documented exceptions" list this EP leaves behind is shorter and more precise than before.
+
+---
+
+## 29. EP-25.1 — Personal Accounts vs Business Workspaces
+
+**Status: complete.** Introduces two account experiences — **Personal** (a single-user, ChatGPT/Claude/Cursor-style experience) and **Business** (the existing multi-user, GitHub/Notion/Linear-style workspace this product has always been) — without duplicating a single repository, service, RBAC rule, or API endpoint. Every entity introduced by every prior EP (Organization, Membership, RBAC, Projects, Provider Connections, Usage, Budgets, Alerts, API Keys, Invitations) is reused exactly as-is; the only new production code is (1) an optional `account_type` choice at registration, (2) a small number of `is_personal` guards on collaboration endpoints, (3) a cascade-delete extension, and (4) frontend UI gating driven entirely by the `Organization.is_personal` field EP-21.2 already introduced.
+
+### Why this needed almost no new architecture
+
+Before writing any code, every model this EP could plausibly touch was read and categorized:
+
+| Entity | Personal | Business | Both | Reasoning |
+|---|---|---|---|---|
+| `User` | ✓ | ✓ | — | Identical for both — no new column, no `account_type` field on the row itself (see "Why no `User.account_type` column" below). |
+| `Organization` | ✓ (hidden, `is_personal=True`) | ✓ (`is_personal=False`) | ✓ | Already exactly the right shape since EP-21.2 — `is_personal` was introduced then specifically so a personal workspace could exist "not conceptually different from a team org, just flagged." |
+| `Membership` | ✓ (exactly one row, OWNER) | ✓ (one-to-many) | ✓ | Unmodified. A personal org's single membership is structurally identical to a business org's OWNER row — the *count* is what differs, not the schema. |
+| Projects, Provider Connections, Usage, Budgets, Alerts, API Keys | ✓ (scoped to the personal org) | ✓ (scoped to the business org) | ✓ | Every one of these tables is already `organization_id`-scoped (DP-6) and has zero knowledge of *why* an org exists. A personal user's projects/connections/usage/budgets/alerts/keys are just rows where `organization_id` happens to point at their hidden personal org — no code path anywhere needed to know the difference. |
+| RBAC (`Permission`, `MembershipRole`, `ROLE_PERMISSIONS`) | ✓ (structural bypass) | ✓ (unchanged) | ✓ | See "RBAC — bypass is structural, not coded" below — no new branch was needed. |
+| Invitations | ✗ | ✓ | — | The one entity genuinely business-only; gated at the service layer (see below). |
+| Dashboard / Analytics | ✓ | ✓ | ✓ | Entirely org-scoped queries (EP-24.1) — a personal org's dashboard is the exact same `DashboardService`/`AnalyticsService` code path as a business org's, just with one member's data in it. |
+
+The practical upshot: **every "Personal: Own X. Business: Organization X." requirement in this EP's spec was already satisfied by the existing `organization_id`-scoping every table has had since EP-03/DP-6** — a personal user's "own" budgets/connections/usage *are* their organization's budgets/connections/usage, because their organization is a private, single-member one. Nothing needed to be duplicated because nothing was ever organization-type-aware to begin with.
+
+### Account types — no new column on `User`
+
+`account_type` is **not** a persisted field. It's a *registration-time choice* (`personal` | `business`, default `personal`) that decides whether `AuthService.register()` creates one workspace or two — never a durable property of the account. This was a deliberate design decision, not an oversight:
+
+- A user's mix of workspaces can already change after registration (a personal user can be invited into someone else's business org via EP-24.6's invitation flow) — so "is this a personal or business account" was never actually a fixed, single-valued fact about a `User` row; it's a derived one.
+- Storing it anyway would create exactly the kind of duplicate/driftable state this EP's own "no duplicate ownership models" instruction forbids — a `User.account_type` column could disagree with the org memberships that actually exist (e.g. a personal-registered user who later gets invited to three business orgs), and nothing would keep them in sync.
+- Every place this EP needs to know "is this personal or business" is a **UI/permission decision scoped to one specific organization**, not a global fact about the user — "hide the workspace selector" means "hide it while `currentOrg.is_personal === true`," which is already exactly the field EP-21.2 put on `Organization`.
+
+The only genuinely new backend field is `RegisterRequest.account_type` (request-scoped, not persisted) and `RegisterRequest.organization_name` (used only when `account_type == "business"`, also not persisted anywhere beyond becoming the new org's `name`).
+
+### Registration
+
+`AuthService.register()` (`app/auth/service.py`) is extended, not replaced:
+
+```
+register(account_type="personal")            register(account_type="business", organization_name="Acme Inc")
+        │                                             │
+        ▼                                             ▼
+_create_personal_workspace(user)              _create_personal_workspace(user)   ← unchanged, still always runs
+  (unchanged — is_personal=True)                        │
+        │                                               ▼
+        ▼                                     _create_workspace(user, name="Acme Inc",
+   workspace = personal org                              slug_seed="Acme Inc", is_personal=False)
+   (returned to caller)                                   │
+                                                           ▼
+                                              workspace = business org  ← returned to caller,
+                                                                            NOT the hidden personal one
+```
+
+`_create_personal_workspace()` (the EP-24.5-era helper `register()` and `login_or_register_with_google()` already shared) is generalized into `_create_workspace(user, *, name, slug_seed, is_personal)` — `_create_personal_workspace()` now just calls it with `is_personal=True`. This is the *only* new abstraction this EP introduces, and it's a generalization of existing code, not a parallel implementation: `slug_seed` is kept separate from the display `name` specifically so a business org's `name` (e.g. `"Acme Inc"`) still produces a clean slug, and so the personal workspace's slug format (`"{display_name}-workspace"`) is byte-for-byte unchanged from every prior EP — verified by the pre-existing EP-05 slug-collision tests, which required no behavior change, only re-passing.
+
+`login_or_register_with_google()` (EP-24.5) is **untouched** — Google sign-up remains personal-only, per this EP's "Google Login... must continue working exactly the same" instruction. A Google user who wants a business workspace uses the existing Business-workspace-creation path once one exists (out of this EP's scope — see "Known limitations").
+
+### The hidden Personal Organization — reused, not rebuilt
+
+Every rule the spec listed for the personal workspace — "Mark it personal=true. Hidden. Never shown. Never renameable. Never deletable. Never switchable. Never exposed in UI." — maps onto existing or newly-added guards with no new state:
+
+| Rule | Mechanism |
+|---|---|
+| Marked `personal=true` | `Organization.is_personal` (EP-21.2, unchanged) |
+| Never deletable | `DELETE /v1/organizations/{id}` already refused this (EP-22.2) — unchanged |
+| Never renameable | **New this EP** — `PATCH /v1/organizations/{id}` gained an `if org.is_personal: raise 400` guard (it previously had none; a personal org could be silently renamed before this EP, which nobody had actually exploited but was a real gap) |
+| Never invitable | **New this EP** — see "Invitations — Business only" below |
+| Never switchable / never shown | **New this EP, frontend-only** — see "Frontend — the org switcher" below |
+
+No migration. No new column. Every guard above is `if org.is_personal: raise HTTPException(400, ...)` inserted into an endpoint that already existed.
+
+### RBAC — bypass is structural, not coded
+
+The spec asked for: *"No role lookup. No permission lookup. Authenticated owner automatically has access to everything inside their own account... Simply bypass RBAC for Personal organizations."* Auditing `app/auth/rbac.py` before writing anything found this was **already true, by construction, with zero code changes needed**:
+
+- A personal org's only ever membership is created once, at workspace-creation time, as `MembershipRole.OWNER` (`_create_workspace`) — no other code path can ever add a second member (invitations are blocked, see below), so the sole member is *always* OWNER.
+- `_OWNER_PERMS = frozenset(Permission)` (unchanged since before this EP) — OWNER already holds **every** permission in the system, unconditionally.
+- Therefore `has_permission(MembershipRole.OWNER, any_permission)` is already `True` for 100% of the `Permission` enum, for every personal-org owner, without a single special-cased `if org.is_personal` branch anywhere in the permission-checking code.
+
+This EP adds no bypass logic to `app/auth/rbac.py`, `app/auth/dependencies.py`, `RequirePermission`, or `RequireQueryPermission` — "no role lookup, no permission lookup" is satisfied in the strongest possible sense: the lookup still happens (for consistency and auditability — every request still goes through the same `ensure_org_membership`/`RequirePermission` path a business request does), but it can never produce anything other than "allowed," because the role is always OWNER and OWNER is always maximal. `TestPersonalOrgRbacIsStructural` (backend tests, below) pins this as an executable invariant rather than an assumption.
+
+### Invitations — Business only
+
+`InvitationService.create_invitation()` (`app/services/invitation_service.py`, EP-24.6) gained one new guard, at the very top of the method, before any of its existing checks:
+
+```python
+if organization.is_personal:
+    raise PersonalOrganizationError
+```
+
+`PersonalOrganizationError` (new, `InvitationError` subclass) is mapped to `HTTP 400` at the one API call site (`POST /v1/organizations/{org_id}/invitations`, `app/api/v1/organizations.py`) with the message *"Personal workspaces cannot invite members."* This is the single source of truth for "can this org be invited into" — `resend_invitation()`/`accept_invitation()`/`cancel_invitation()`/`decline_invitation()` all operate on *already-created* `Invitation` rows, which can now never exist for a personal org in the first place, so none of them needed their own guard.
+
+The pre-existing **direct-add** endpoint (`POST /v1/organizations/{org_id}/members`, EP-13 — creates a membership immediately, no invitation/consent step) had no `is_personal` guard at all before this EP, and — unlike invitations — its `RequirePermission(Permission.ORG_MANAGE_MEMBERS)` dependency was already structurally satisfiable by a personal org's own owner (per the RBAC section above), meaning a personal-org owner could previously have called this endpoint to add a second member to their "single-user" workspace, silently breaking the "personal = exactly one member" invariant every other guard in this EP depends on. This was a genuine latent gap the account-type audit surfaced — closed with the same `if org.is_personal: raise 400` pattern.
+
+`update_member_role()`/`remove_member()`/`transfer_ownership()` needed **no new guards** — they were already correctly blocked by *existing* logic for an entirely different reason that happens to also cover this case: a personal org has exactly one membership, which is always the caller's own OWNER row, so `update_member_role`'s existing self-demotion guard, `remove_member`'s existing last-owner-count guard, and `transfer_ownership`'s existing "you are already the owner" check all reject any attempt targeting that sole membership before an `is_personal` check would even be reached.
+
+### User deletion — cascade closes the "no orphan rows" gap
+
+`AuthService.delete_account()` (EP-22.2) already refused to delete an account that's OWNER of a workspace with other members (`OwnerOfSharedWorkspaceError`) — that check is **unchanged**, and directly satisfies this EP's "Business owner deletion: Prevent deletion while still owner. Require ownership transfer first" requirement (a shared business workspace can never be solo-deleted; the caller must transfer ownership or remove the other members first, exactly as before).
+
+What changed is what happens to a workspace the account *does* solely own (which, for a Personal account, is always at least the hidden personal workspace). Previously, `delete_account()` called `Organization.soft_delete()` on each solely-owned org and stopped — per §18's own prior audit note, `passive_deletes=True`/`ON DELETE CASCADE` is a **hard-delete** database behavior that a soft-delete `UPDATE` never triggers, so every project/provider connection/budget/API key/pending invitation belonging to that org stayed live (`deleted_at IS NULL`) after its parent "was deleted" — reachable by nothing in the API surface, but not actually gone.
+
+New `AuthService._cascade_delete_organization(org_id, deleted_by)` closes this, reusing every repository that already exists for each resource type — no new repository, no new query shape, the exact same `list_by_org`/`list_for_org`/`list`/`list_pending_by_org` methods each resource's own management page already calls:
+
+```
+_cascade_delete_organization(org_id)
+        │
+        ├─► ProjectRepository.list_by_org(org_id, limit=1000) → soft_delete each
+        ├─► ProviderConnectionRepository.list_by_org(org_id, limit=1000) → soft_delete each
+        ├─► BudgetRepository.list_for_org(org_id) → soft_delete each
+        ├─► OrganizationApiKeyRepository.list(org_id) → soft_delete each
+        ├─► InvitationRepository.list_pending_by_org(org_id) → mark CANCELLED
+        └─► OrganizationRepository.soft_delete(org)   ← the org itself, last
+```
+
+(`ProjectRepository`/`ProviderConnectionRepository.list_by_org` are cursor-paginated with a default page size of 20; the cascade calls them with an explicit `limit=1000` — a one-shot fetch of everything a personal or solely-owned workspace could realistically hold, rather than adding a second, unpaginated query variant to either repository.) Sessions and refresh tokens continue to be revoked unconditionally via the existing `SessionRepository.revoke_all_for_user()` call, regardless of how many/which orgs were cascade-deleted. OAuth linkage (`google_sub`/`google_email`) requires no separate cleanup — it lives on the `User` row itself, which is soft-deleted in the same call.
+
+This is intentionally **soft-delete**, consistent with every other deletion path in this codebase (DP-7) — not literal `DELETE FROM` statements, which would contradict the soft-delete convention documented repeatedly since EP-04. "No orphan rows" here means "no row remains reachable through the normal API surface with its parent gone," the same definition §18 already used when auditing this exact gap for organization deletion in general — this EP is the first to actually close it for the *account*-deletion path, not just document it as a known limitation.
+
+### Frontend — the org switcher, navigation, and Settings
+
+**No new backend fields were needed for any of the frontend gating below** — every one of them is driven by `is_personal`, which `GET /v1/organizations` has returned per-org since EP-22.2.
+
+- **`useOrgStore`** (`apps/dashboard/src/stores/org.ts`) gained an `isPersonal: boolean` field, set alongside `organizationId`/`organizationName` everywhere an org is selected (`OrgSelector`, `Login.tsx`'s auto-select, `consumeSessionHandoff.ts`, `Settings.tsx`'s workspace-rename mutation).
+- **`OrgSelector.tsx`** — the personal workspace is filtered out of the switchable set entirely rather than hidden by convention: `businessOrgs = organizations.filter(o => !o.is_personal)`. Zero business orgs (a pure Personal account) auto-selects the sole personal org silently, with no picker screen ever rendered; exactly one business org auto-selects it; more than one shows the picker — listing **only** business orgs, so the hidden personal workspace can never appear as a choice, for a Personal or a Business account alike.
+- **`Login.tsx`**'s auto-org-selection (on successful password login) mirrors the same filtering logic, so a returning user never sees an org picker with their personal workspace mixed into it.
+- **Navigation** (`apps/dashboard/src/lib/navigation.ts`) — `NavItem` gained a `businessOnly?: boolean` flag, set on exactly the three collaboration-only entries (`/dashboard/organization`, `/users` (Members), `/rbac`). New `visibleNavItems(isPersonal)` filters them out; `Sidebar.tsx` and `CommandPalette.tsx` both call it instead of reading `NAV_ITEMS` directly, so the sidebar and the Cmd+K quick-jump palette can never disagree about what's visible.
+- **`Sidebar.tsx`**'s `UserMenu` — the "Organization" name block and "Switch organization" action are both wrapped in `{!isPersonal && ...}`, per the spec's "Personal: Disabled" organization-switching requirement.
+- **Direct-URL guard** (`App.tsx`) — a new `BusinessOnlyRoute` wrapper redirects `/dashboard/organization`, `/users`, and `/rbac` to `/dashboard` when `isPersonal` is true. This exists because the backend guards are the actual authority (every one of these pages' API calls would 400/403 anyway for a personal org's collaboration attempts) — the frontend guard exists purely so a direct URL visit (bookmark, back button) doesn't render a page full of failed requests, not as a security boundary.
+- **`Settings.tsx`** — the "Workspace" tab (rename/description/delete) is filtered out of the visible `SECTIONS` list entirely when `currentOrg?.is_personal` is true, closing the gap between "Personal: Profile, Password, Preferences, Provider API Keys, Danger Zone" (this EP's spec) and what was previously shown — the tab bar itself now matches that list exactly for a personal account, rather than showing a Workspace tab whose rename/delete actions would 400.
+- **`features/Signup` (website)** — `apps/website/src/routes/signup.tsx` gained a "Choose your account" radio group (Personal / Business, defaulting to Personal per the spec) and a conditional "Workspace name" field shown only for Business, wired through `authSchemas.ts`'s `signupSchema` (a `.refine()` requires `organization_name` only when `account_type === "business"`) and `lib/api.ts`'s `RegisterRequest`.
+
+### Emails, Authentication, Security — reused, unaffected
+
+Per this EP's own instructions, none of these were touched:
+
+- **Invitation emails** continue to go through the exact `EmailService`/`EmailProvider`/`EmailTemplateRenderer` stack EP-24.4/EP-24.6 already built — this EP added a guard *before* an invitation can be created, not a new invitation-sending code path, so there was nothing new to wire to email.
+- **Google OAuth, email verification, password reset, login, sessions, refresh tokens** — none of these methods were modified. `login_or_register_with_google()` is untouched; `login()`, `refresh()`, `verify_email()`, `reset_password()`, `change_password()` are all untouched.
+- **JWT, RBAC framework, audit logging, permissions** — `Permission`/`ROLE_PERMISSIONS`/`has_permission()`/`get_permissions()` in `app/auth/rbac.py` are byte-for-byte unchanged; this EP's RBAC section above explains why no change was needed there.
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep25_1_personal_business.py`, 12 new tests, fully hermetic — no network, no real database):
+  - `TestRegisterAccountTypes` (4) — personal registration creates exactly one (personal) workspace; business registration creates both a personal and a real business workspace and returns the business one as "the" workspace; a business registration with no `organization_name` falls back to `"{display_name}'s Team"`; the default `account_type` (omitted entirely) is personal.
+  - `TestInvitationsRejectPersonalOrgs` (2) — `create_invitation()` raises `PersonalOrganizationError` for a personal org; still works normally for a business org (regression guard against over-broadening the new guard).
+  - `TestApiGuardsForPersonalOrganizations` (3) — `POST /members`, `PATCH /{org_id}`, and `POST /invitations` each 400 for a personal org, with the caller correctly authorized as OWNER throughout (proving the 400 comes from the new `is_personal` guard specifically, not from an RBAC rejection that would mask it).
+  - `TestAccountDeletionCascade` (1) — `delete_account()`'s cascade calls `soft_delete` exactly once on a representative project, provider connection, budget, and API key, cancels a pending invitation, then soft-deletes the org, the user, and revokes all sessions — in that order.
+  - `TestPersonalOrgRbacIsStructural` (2) — pins `_OWNER_PERMS == frozenset(Permission)` as an executable invariant, so any future PR that accidentally narrows OWNER's permission set would also silently break personal-org RBAC and this test would catch it.
+  - Existing tests updated for new behavior (not rewritten in intent, only in fixture/mock setup): `test_ep05.py`'s two register-slug tests needed no assertion changes (confirmed the slug format is unchanged); `test_ep22_2_settings.py::TestDeleteAccount::test_solo_owner_deletes_org_and_account` gained mocks for the five new cascade repositories; `test_member_management.py`'s shared `_active_org()` helper gained `is_personal=False` (every one of its call sites represents a normal business org) and four `TestInviteMemberEndpoint` tests gained a patch for the endpoint's new direct `OrganizationRepository` lookup.
+  - Full backend suite: **1906 passed, 30 skipped** (unchanged skip count — the pre-existing `DATABASE_URL`-gated integration tests), `ruff check`/`black --check`/`mypy app` all clean.
+- **Frontend** (`apps/dashboard`, 6 new tests):
+  - `src/__tests__/navigation.test.ts` (3) — `visibleNavItems(false)` returns every item; `visibleNavItems(true)` excludes Members/RBAC/Organization; `visibleNavItems(true)` still includes every non-collaboration item (Overview, Budgets, Connections, API Keys, Settings).
+  - `src/__tests__/OrgSelector.test.tsx` (3) — a personal-only account auto-selects its personal org silently with no picker ever shown; an account with a personal + one business org auto-selects the business org and marks `isPersonal: false`; an account with a personal + multiple business orgs shows a picker containing only the business orgs, never the personal one.
+  - Full dashboard suite: **278 passed** (272 + 6), lint clean, `tsc -b` clean, production build clean.
+  - Website: `authSchemas.test.ts` extended with 2 new tests (business registration requires `organization_name`; accepts one when supplied) plus the existing suite's fixtures updated to supply `account_type` (now required by the schema's TypeScript type, though the API itself defaults it server-side). Full website suite: **19 passed** (17 + 2), lint clean, `tsc --noEmit` clean (only the pre-existing, unrelated `input-otp`/React-19-types warning), production build clean.
+
+### Validation gate
+
+`pytest` (1906 passed, 30 skipped), `ruff check app tests` (clean), `black --check app tests` (clean), `mypy app` (clean, 200 source files), dashboard `eslint src --max-warnings 0` (clean), dashboard `tsc -b` (clean), dashboard `vite build` (clean), website `eslint .` (clean, only pre-existing shadcn/ui warnings), website `tsc --noEmit` (clean, only the pre-existing unrelated `input-otp` warning), website `vite build` via Nitro (clean, all 13 routes).
+
+### Known limitations
+
+- **No self-service way to add a second (business) workspace to an already-Personal account from within the dashboard.** `account_type` only ever creates a second workspace at *registration* time; a user who registered Personal and later wants a team workspace has no in-product "create a business workspace" action — this EP's own instruction was to reuse existing architecture, and no general-purpose "create an organization" endpoint exists yet (§7's long-standing gap, predating this EP). The natural next step: a "Create a workspace" action reusing `AuthService._create_workspace()` directly (already generalized for exactly this in this EP), exposed as its own endpoint.
+- **A personal account invited into someone else's business workspace (via EP-24.6 invitations) becomes a de facto "Business experience" user for that org, with no dedicated onboarding path distinguishing that from a Personal-registered user who later creates their own org.** The frontend gating is entirely per-org (`currentOrg.is_personal`), which is the architecturally correct behavior — it's disclosed here only because "Personal vs Business" as a *marketing-level* framing implies a more fixed identity than the underlying per-org-scoped reality actually has.
+- **Google OAuth registration remains personal-only** (unchanged from before this EP, and explicitly out of scope per this EP's own "Google Login must continue working exactly the same" instruction) — a Google signup that wants a business workspace must use the (not-yet-built) create-workspace action named above once it exists.
+- **The account-type radio on the website's signup form has no equivalent on the dashboard's own (secondary) registration surfaces** — there are none; `apps/dashboard` has never had its own registration form (only login, per ADR-006), so this is a non-gap, noted for completeness.
+- **No live, continuous browser test of the full Personal-signup → hidden-workspace-dashboard journey or Business-signup → visible-workspace-with-switcher journey** — same caveat as every prior EP in this document: verified in pieces (backend service/API tests, frontend component tests, both full builds), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+### Next milestone recommendation
+
+The standing next-blocker list carried forward unchanged from §25–§28 is unaffected by this EP: (1) a self-service "add a password" flow for Google-only accounts, (2) wiring `ProviderConnection.encrypted_api_key` into real usage collection for the 5 currently-zero-volume providers, (3) delivery-event webhooks. This EP adds one genuinely new item to that list, ahead of those in practical value for the Personal/Business split to feel complete: **a general-purpose "create a business workspace" endpoint** (EP-25.2) — reusing `AuthService._create_workspace()` (already generalized for exactly this purpose in this EP) so a Personal-registered user can upgrade to having a team workspace without re-registering, and so Google-registered users gain a path to a business workspace at all.

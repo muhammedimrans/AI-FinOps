@@ -113,6 +113,7 @@ from app.services.invitation_service import (
     CannotInviteSelfError,
     DuplicatePendingInvitationError,
     InvitationService,
+    PersonalOrganizationError,
 )
 from app.services.organization_api_key_service import (
     InvalidPermissionError,
@@ -275,6 +276,11 @@ async def update_organization(
     org = await repo.get(org_id)
     if org is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if org.is_personal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Your personal workspace cannot be renamed.",
+        )
 
     changes = body.model_dump(exclude_unset=True)
     updated = await repo.update(org, **changes) if changes else org
@@ -356,6 +362,15 @@ async def invite_member(
     event_bus: EventBusDep,
     caller: Annotated[Membership, RequirePermission(Permission.ORG_MANAGE_MEMBERS)],
 ) -> MemberResponse:
+    org = await OrganizationRepository(db).get(org_id)
+    if org is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if org.is_personal:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Personal workspaces cannot invite members.",
+        )
+
     role = _parse_role(body.role)
     if role == MembershipRole.OWNER and caller.role != MembershipRole.OWNER:
         raise HTTPException(
@@ -577,6 +592,11 @@ async def create_invitation(
         created = await service.create_invitation(
             organization=org, email=body.email, role=role, inviter=current_user
         )
+    except PersonalOrganizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Personal workspaces cannot invite members.",
+        ) from exc
     except CannotInviteSelfError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

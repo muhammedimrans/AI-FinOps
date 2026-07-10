@@ -180,6 +180,8 @@ async def register(
             email=body.email,
             password=body.password,
             display_name=body.display_name,
+            account_type=body.account_type,
+            organization_name=body.organization_name,
             ip_address=ip,
             user_agent=ua,
         )
@@ -791,7 +793,11 @@ def _build_dashboard_handoff_url(
         },
     }
     if workspace is not None:
-        payload["workspace"] = {"id": workspace.external_id, "name": workspace.name}
+        payload["workspace"] = {
+            "id": workspace.external_id,
+            "name": workspace.name,
+            "is_personal": workspace.is_personal,
+        }
     encoded = base64.b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
     fragment = quote(encoded, safe="")
     base = settings.dashboard_url.rstrip("/")

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Search, CornerDownLeft, ArrowUp, ArrowDown } from "lucide-react";
-import { NAV_ITEMS } from "../lib/navigation";
+import { visibleNavItems, type NavItem } from "../lib/navigation";
+import { useOrgStore } from "../stores/org";
 import { useUIStore } from "../stores/ui";
 import { cn } from "../utils";
 
@@ -13,18 +14,20 @@ import { cn } from "../utils";
  */
 export default function CommandPalette() {
   const { commandOpen, setCommandOpen } = useUIStore();
+  const { isPersonal } = useOrgStore();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const navItems = useMemo(() => visibleNavItems(isPersonal), [isPersonal]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return NAV_ITEMS;
-    return NAV_ITEMS.filter((item) =>
+    if (!q) return navItems;
+    return navItems.filter((item) =>
       `${item.label} ${item.group} ${item.keywords ?? ""}`.toLowerCase().includes(q),
     );
-  }, [query]);
+  }, [query, navItems]);
 
   useEffect(() => {
     if (commandOpen) {
@@ -43,7 +46,7 @@ export default function CommandPalette() {
     setCommandOpen(false);
   }
 
-  function go(item: (typeof NAV_ITEMS)[number]) {
+  function go(item: NavItem) {
     navigate(item.to);
     close();
   }

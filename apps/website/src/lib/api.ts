@@ -78,6 +78,10 @@ export interface RegisterRequest {
   email: string;
   password: string;
   display_name: string;
+  // EP-25.1 — defaults to "personal" on the backend when omitted;
+  // organization_name is only meaningful (and only required) for "business".
+  account_type?: "personal" | "business";
+  organization_name?: string;
 }
 
 export interface RegisterResponse {
@@ -165,7 +169,13 @@ export function buildDashboardHandoffUrl(
     refresh_token: session.refresh_token,
     user: session.user,
     ...(session.workspace
-      ? { workspace: { id: session.workspace.id, name: session.workspace.name } }
+      ? {
+          workspace: {
+            id: session.workspace.id,
+            name: session.workspace.name,
+            is_personal: session.workspace.is_personal,
+          },
+        }
       : {}),
   };
   const encoded = encodeURIComponent(btoa(JSON.stringify(payload)));

@@ -31,6 +31,8 @@ class TestSecurityHeaders:
             app_secret_key="a" * 32,
             jwt_secret="j" * 32,
             app_env="production",
+            resend_api_key="re_test_key",
+            email_from="noreply@costorah.com",
         )
         app = create_app(settings)
         # Verify the middleware was registered with hsts=True

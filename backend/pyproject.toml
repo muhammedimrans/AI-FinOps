@@ -106,6 +106,9 @@ ignore = [
 "tests/*" = ["ANN", "S"]
 "scripts/*" = ["T201", "S105"]
 "examples/*" = ["T201", "ANN"]
+# EP-24.4: inline HTML email markup — wrapping mid-tag to satisfy line-length
+# would make the templates harder to read/maintain for no real benefit.
+"app/email/renderer.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

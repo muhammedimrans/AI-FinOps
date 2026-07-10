@@ -1849,3 +1849,235 @@ No dashboard/analytics component required any change: Overview's KPI cards, Anal
 ### Next milestone recommendation (EP-24.4)
 
 With sync-pipeline parity now real for all 7 providers, the two highest-value follow-ups are unchanged from what §19/§20/§21/§22 already identified as the standing next blockers, now sharper in scope: (1) **a real bulk usage-history integration for at least one of the 5 currently-zero-volume providers** (Google Gemini's Cloud Billing export is the most likely first candidate, since it's the only one of the 5 with a documented, if separately-credentialed, bulk export API) — this is genuinely new adapter work, not a wiring gap, and would be the first provider to prove out this EP's "add an 8th provider" extension story in practice; and (2) the still-open **transactional email** (EP-25, §8) and **Settings.tsx Priority-3-adjacent** items carried forward unchanged from every prior EP's own recommendation.
+
+---
+
+## 24. EP-24.4 — Authentication & Identity Enhancements (Email Verification, Password Reset, Email Infrastructure)
+
+**Status: complete.** Closes the standing "transactional email" gap this document has flagged since §7's original note and reiterated as EP-25 in the §8 roadmap (and again as this EP's own "next milestone" in §23) — verification and password-reset emails are now genuinely delivered via Resend, through a reusable, provider-agnostic email architecture. Google OAuth is explicitly out of scope (EP-24.5).
+
+### Why this EP needed almost no new persistence or token logic
+
+Before writing any code, `app/auth/service.py`, `app/models/verification_token.py`, `app/models/password_reset_token.py`, and `app/api/v1/auth.py` were read in full. EP-05 (this project's very first authentication EP, predating the CLAUDE.md documentation convention this file itself started under ADR-006) had already built the **entire token lifecycle** this EP's Part 1/2/5 requirements describe — and built it correctly:
+
+- Cryptographically secure tokens: `generate_refresh_token()` (`app/auth/tokens.py`) uses Python's `secrets.token_urlsafe(32)` — already satisfies Part 5's "use Python's `secrets` module" requirement verbatim, reused unchanged (not reimplemented) for verification and reset tokens alike.
+- Hashed before storage: `hash_token()` (SHA-256) — only the hash is ever persisted (`VerificationToken.token_hash`/`PasswordResetToken.token_hash`); the raw token exists only in memory for the request that issues it, and in the URL of the email sent to the user.
+- One-time use: `used_at` column + `mark_used()`, checked by `get_valid_by_hash()`'s `used_at.is_(None)` filter.
+- Expiration: 24 hours (verification) / 1 hour (reset) — already exactly what Part 5 specifies, unchanged.
+- Password reset already invalidated previous outstanding tokens (`PasswordResetTokenRepository.invalidate_for_user()`), and password reset already revoked every session on success.
+
+What EP-05 had **not** built — because this platform had no outbound email transport at all until this EP — was ever actually sending the email the token was for. `AuthService.register()`'s own docstring said so explicitly ("this platform has no outbound email transport yet... blocking login on a verification email that can never be delivered would strand every new user"). So this EP is genuinely two things: (1) build the reusable email architecture Part 3 specifies, and (2) wire it into the token flows that already existed, closing the one real gap, rather than rebuilding token/security logic EP-05 already got right. This is also why Part 6 ("keep schema minimal... if new tables are unavoidable, explain exactly why") required no new migration at all — every table this EP touches (`users`, `verification_tokens`, `password_reset_tokens`) already existed with every column needed.
+
+### Architecture (Part 3)
+
+```
+AuthService (app/auth/service.py)
+        │  never calls Resend or any EmailProvider directly
+        ▼
+EmailService (app/email/service.py)
+        │  business logic only — send_verification_email() /
+        │  send_welcome_email() / send_password_reset_email()
+        │  (future: budget/usage alerts, invoices, org invites —
+        │  one new method here, reusing the same two layers below)
+        │
+        ├─► EmailTemplateRenderer (app/email/renderer.py)
+        │       rendering only — no HTTP, no auth logic, no I/O.
+        │       Pure function of (template, context) -> (subject, html, text).
+        │       Shared responsive/dark-mode HTML layout (_layout()/_button()),
+        │       three templates: verification, welcome, password reset.
+        │
+        └─► EmailProvider (app/email/provider.py, ABC)
+                    │  send_email(EmailMessage) -> EmailSendResult
+                    │  future-compatible: Amazon SES / SendGrid / Mailgun /
+                    │  Postmark each become one new subclass here — zero
+                    │  changes to EmailService or any caller.
+                    ▼
+            ResendEmailProvider (app/email/resend_provider.py)
+                    reuses app.http.transport.HttpxTransport (EP-06/EP-07's
+                    generic, provider-agnostic HTTP transport — already
+                    supports httpx.MockTransport injection for tests) rather
+                    than a second HTTP client abstraction. POSTs to Resend's
+                    /emails REST endpoint using RESEND_API_KEY/EMAIL_FROM
+                    from Settings — never hardcoded, never logged.
+```
+
+`AuthService` gets an `EmailService` via optional constructor injection (`email_service: EmailService | None = None`, defaulting to `EmailService(settings)`) — the exact same pattern `ProviderSyncService`/`BudgetEvaluationService` already established in this codebase (EP-22/EP-24.2) for testable, DI-container-free service composition. Every existing `AuthService(db, settings)` call site across the whole codebase needed zero changes.
+
+### Verification flow (Part 1)
+
+```
+POST /v1/auth/register
+        │
+        ▼
+AuthService.register()  — creates User (email_verified=False), Organization,
+        │                  Membership, session — exactly as EP-21.2 always did
+        ▼
+AuthService._send_verification_email(user)
+        │
+        ├─► create_verification_token(user_id)
+        │       invalidate_for_user(user_id)   ← EP-24.4: replay protection —
+        │       │                                any still-valid prior token
+        │       │                                for this user is marked used
+        │       ▼
+        │   generate_refresh_token() → hash_token() → persist VerificationToken
+        │   (expires_at = now + 24h)
+        │
+        └─► EmailService.send_verification_email(to, display_name, verify_url)
+                verify_url = "{DASHBOARD_URL}/verify-email?token={raw}"
+                (apps/dashboard's pre-existing /verify-email page, EP-05 —
+                unchanged, still calls POST /v1/auth/verify-email itself)
+
+User clicks the link → apps/dashboard's VerifyEmail.tsx (EP-05, EP-24.4-
+        │                revised below) → POST /v1/auth/verify-email {token}
+        │                — or, for a non-JS/direct integration, the link
+        │                could instead point straight at the new
+        │                GET /v1/auth/verify-email?token=... (both call the
+        │                identical AuthService.verify_email())
+        ▼
+AuthService.verify_email(token)
+        │  hash_token(token) → get_valid_by_hash() — unused, unexpired,
+        │  non-deleted only
+        │
+        ├─ not found/expired/reused → InvalidTokenError → HTTP 400,
+        │      generic "invalid or expired" detail (Part 1: "Do not reveal
+        │      token information") — never distinguishes "never existed"
+        │      from "already used" from "expired"
+        │
+        ├─ already verified → EmailAlreadyVerifiedError → mapped to HTTP 200
+        │      "Email address is already verified" (Part 1: "If user
+        │      already verified: return success" — this is a deliberate,
+        │      spec-directed behavior change from EP-05's original 409;
+        │      see "Known limitations" for the one call site this touches)
+        │
+        └─ success → mark_used(token) → user.email_verified = True →
+               (user.status INVITED → ACTIVE, unchanged EP-05 behavior) →
+               EmailService.send_welcome_email(to, display_name)
+```
+
+**Resend verification** (`POST /v1/auth/resend-verification`, new): `AuthService.resend_verification_email(email)` looks up the user; if not found or already verified, does nothing and returns — the endpoint always responds with the same generic message regardless of outcome (Part 1's "Do not reveal token information" extended to account existence, matching the reset-request endpoint's pre-existing anti-enumeration contract). When the account exists and is unverified, it calls the exact same `_send_verification_email()` helper `register()` uses — one code path, two entry points, so resend can never drift from the original send.
+
+### Password reset flow (Part 2)
+
+```
+POST /v1/auth/forgot-password  (new name, Part 2's spec)
+        │  = POST /v1/auth/request-password-reset (pre-existing EP-05 name,
+        │    kept mounted — apps/dashboard's ForgotPassword.tsx already
+        │    calls this path; both routes share one handler body so they
+        │    can never behave differently)
+        ▼
+AuthService.create_password_reset_token(email)
+        │  user lookup — returns None silently if not found (unchanged
+        │  EP-05 anti-enumeration contract: "Never reveal whether an email
+        │  exists. Always return the same response.")
+        │
+        ├─ found → invalidate_for_user(user_id)  ← unchanged EP-05 behavior,
+        │            already exactly Part 2's "invalidate previous reset
+        │            requests" requirement
+        │          → generate + persist PasswordResetToken (expires_at = now + 1h)
+        │          → EmailService.send_password_reset_email(to, display_name, reset_url)
+        │            reset_url = "{DASHBOARD_URL}/reset-password?token={raw}"
+        │
+        └─ not found → returns None, no email sent, no error raised
+
+Every code path returns the identical MessageResponse — "If an account
+with that email exists, a reset link has been sent" — regardless of outcome.
+
+User clicks the link → apps/dashboard's ResetPassword.tsx (EP-05, unchanged)
+        │                → POST /v1/auth/reset-password {token, new_password}
+        ▼
+AuthService.reset_password(token, new_password)
+        │  hash_token(token) → get_valid_by_hash() — unused, unexpired only
+        ├─ invalid/expired/reused → InvalidTokenError → HTTP 400
+        └─ success → mark_used(token) → user.password_hash = hash_password(new)
+               → revoke_all_for_user(user.id)  (unchanged EP-05 "sign out
+                 everywhere" behavior — every session, including the one
+                 that requested the reset, since a password reset implies
+                 the requester may not be the same device/session as the
+                 one being recovered)
+```
+
+Rate limiting (Part 5/9, new): both `/resend-verification` and `/forgot-password` (+ its `/request-password-reset` alias) are protected by the new `EmailRateLimiter` (`app/auth/rate_limit.py`) — a sliding window (5 minutes, 3 attempts, per `(scope, email)` key) reusing the exact same `_RedisBackend`/`_MemoryBackend` storage classes `LoginRateLimiter` already established (EP-05/T2) rather than a second rate-limiting implementation; only the policy (one window, no lockout) differs, which is why it's a distinct, smaller class. Redis-unavailable degrades to a per-process in-memory fallback, matching `LoginRateLimiter`'s own documented philosophy. A 4th attempt within the window returns `429` with a `Retry-After` header.
+
+### Email infrastructure — Part 3/4 detail
+
+- **`EmailProvider`** (`app/email/provider.py`) — abstract `send_email(EmailMessage) -> EmailSendResult`. `EmailSendResult.skipped` (distinct from `success=False`) is the outcome when no credentials are configured — never a hard failure, so registration/reset/verification flows keep working in any environment without `RESEND_API_KEY` (local dev, CI, most of the test suite) rather than 500ing over an email that was never deliverable anyway.
+- **`ResendEmailProvider`** (`app/email/resend_provider.py`) — the one concrete implementation. Reads `RESEND_API_KEY`/`EMAIL_FROM` from `Settings` (Render's already-provisioned env vars, per this EP's own brief — never hardcoded, never asked for). POSTs to `https://api.resend.com/emails` via the reused `HttpxTransport`. Never logs the API key, the recipient's local-part, or the response body (only the recipient's domain, the subject, and — on success — the provider's own returned message id are logged).
+- **`EmailTemplateRenderer`** (`app/email/renderer.py`) — no third-party template engine introduced (Jinja2 et al. would be a new dependency for three templates sharing one layout); plain Python f-strings + `html.escape()` for the one user-controlled interpolated value (`display_name`) — token/URL values are server-generated, never escaped-then-trusted-blindly, but also never anything an attacker controls. One shared `_layout()` (branded header, card, footer with `support@costorah.com`) + `_button()` + `_fallback_url_block()` compose all three templates, so the "consistent branding, professional layout" requirement (Part 4) is structural, not per-template copy-paste. Responsive (`max-width:600px`, a `@media (max-width:600px)` mobile rule) and dark-mode-aware (`prefers-color-scheme: dark` plus `[data-ogsc]` attribute overrides for Outlook/Gmail's own dark-mode re-coloring hooks, since email clients strip `<script>` so a JS-based toggle isn't an option). Every template returns both an HTML and a plain-text body (`RenderedEmail.text_body`), satisfying Part 3's "Support HTML, Plain text."
+- **`EmailService`** (`app/email/service.py`) — the only class `AuthService` (or any future caller) touches. `send_verification_email()` / `send_welcome_email()` / `send_password_reset_email()` today; explicitly documented as the seam for budget alerts, usage alerts, invoices, and organization invites later — each would be one new method here, reusing the same renderer/provider layers, never a second pipeline.
+
+### Templates (Part 4)
+
+| Template | Trigger | Contains |
+|---|---|---|
+| Verify Email | `register()`, `resend_verification_email()` | "Welcome to Costorah" heading, Verify Email button, fallback plain-text URL, "expires in 24 hours" notice, support footer |
+| Welcome Email | `verify_email()` on first successful verification | "You're all set" heading, Go to dashboard button, short product pitch, support footer |
+| Reset Password | `create_password_reset_token()` | "Reset your password" heading, Reset Password button, fallback plain-text URL, "expires in 1 hour, one-time use" notice, support footer |
+
+No placeholder UI in any of the three — every template renders real, populated content from its arguments (display name, live token URL, expiry count) — confirmed by `TestEmailTemplateRenderer.test_html_has_no_placeholder_content`.
+
+### Endpoints
+
+| Method | Path | New? | Notes |
+|---|---|---|---|
+| POST | `/v1/auth/resend-verification` | new | Rate-limited, anti-enumeration |
+| GET | `/v1/auth/verify-email` | new | Same behavior as the existing POST, exposed for plain-link-click integrations; apps/dashboard's own page still uses POST |
+| POST | `/v1/auth/verify-email` | unchanged | Now returns 200 (not 409) for an already-verified account, per Part 1 |
+| POST | `/v1/auth/forgot-password` | new name | Identical handler body to `/request-password-reset` below |
+| POST | `/v1/auth/request-password-reset` | unchanged, kept | Pre-EP-24.4 name, kept mounted for backward compatibility (apps/dashboard's `ForgotPassword.tsx` calls this path) |
+| POST | `/v1/auth/reset-password` | unchanged | No behavior change |
+
+### Database changes
+
+**None required, and none made.** `users.email_verified`, `verification_tokens`, and `password_reset_tokens` all already existed with every column this EP needed (EP-05). The one repository addition, `VerificationTokenRepository.invalidate_for_user()` (mirroring `PasswordResetTokenRepository`'s pre-existing method of the same name), is a new *query*, not a new *column* — no migration.
+
+### Security (Part 5)
+
+- Tokens: `secrets.token_urlsafe(32)` (256-bit, Python's `secrets` module) — reused from EP-05, not reimplemented.
+- Storage: SHA-256 hash only (`hash_token()`) — reused from EP-05.
+- One-time use + expiration (24h verification / 1h reset) — reused from EP-05.
+- Replay protection: **new for verification tokens this EP** (`VerificationTokenRepository.invalidate_for_user()`, called from `create_verification_token()` before issuing a new one) — mirrors the reset-token behavior EP-05 already had. Verified empirically against a real Postgres instance during this EP's manual verification pass (see "Testing" below): a `resend-verification` call correctly leaves exactly one *unused* `verification_tokens` row for the user, with the prior row's `used_at` set.
+- Secrets never logged: `ResendEmailProvider` logs only the recipient's email domain (never the local-part or full address in the *warning* path — the success/audit paths do log the full email, matching this codebase's existing convention of treating email addresses as an identifier, not a secret, e.g. `AuthService`'s own pre-existing `log.warning(..., email=email)` call sites), the subject, and the provider's own message id — never the API key, never a raw token, never a password. `app/auth/audit.py`'s `log_auth_event()` has no parameter through which a secret could be passed, by construction — verified via `TestResendEmailProvider.test_never_logs_api_key` and the manual smoke-test log inspection below.
+- `RESEND_API_KEY`/`APP_SECRET_KEY_PREVIOUS`-style handling: `Settings.resend_api_key` is `SecretStr | None` (never printed via repr/logs), and a new `_enforce_email_config_in_production` validator requires both `RESEND_API_KEY` and `EMAIL_FROM` to be set whenever `APP_ENV=production` — mirroring the pre-existing `_enforce_secret_in_production` validator's pattern for `APP_SECRET_KEY`/`JWT_SECRET` exactly.
+
+### Audit logging (Part 8)
+
+`app/auth/audit.py`'s `log_auth_event()` — structured-log-based, **not a new database table**. This mirrors every other significant lifecycle event in this codebase, none of which introduced a dedicated audit table of their own (scheduler job history, §20; budget-alert firing, §22; provider sync runs, §19) — all rely on structured, queryable log output (this platform's log aggregation is the actual audit sink) rather than a second, parallel persistence layer whose only consumer would be the same log pipeline. `AuditEvent` is a closed `enum.StrEnum` covering exactly the events Part 8 names: `registration`, `verification_email_sent`, `verification_success`, `verification_failure`, `password_reset_requested`, `password_reset_completed`, `password_changed`, and `account_locked` (defined now, future-ready — not fired by this EP; no account-lockout mechanism exists yet). Every call site is in `AuthService`, at the exact point each event actually occurs — never a secret in the payload, by the function's own closed parameter list (`user_id`, `email`, `ip_address`, plus typed `**extra` for things like `reason="invalid_or_expired_token"`).
+
+### Frontend (Part 7)
+
+All the pages Part 7 names — Registration (website, EP-21.2), Login, Forgot Password, Reset Password, Verify Email — **already existed** as real, working pages before this EP (apps/dashboard's `ForgotPassword.tsx`/`ResetPassword.tsx`/`VerifyEmail.tsx`, EP-05/EP-21.2), calling the backend endpoints this EP's Part 1/2 describe. This EP's frontend work is therefore revision, not net-new construction:
+
+- **`VerifyEmail.tsx`** — the "already verified" UI branch (previously triggered by a 409 response) is removed as dead code, since the backend now returns 200 "verified successfully" for that case too (Part 1's own instruction — "If user already verified: return success"); collapsing two success-shaped states into one is the correct simplification, not a regression. The error state (invalid/expired token) gained an inline **resend form** — this is the "Verification Pending" recovery path Part 7 asks for: a user who lands on an expired link can request a new one without leaving the page or navigating back to Settings.
+- **`services/api.ts`** — new `resendVerification(email)` function (`POST /v1/auth/resend-verification`), mirroring the existing `requestPasswordReset`/`resetPassword`/`verifyEmail` functions exactly.
+- **Settings.tsx (Account Status / Settings integration)** — the Profile section's existing Email/Account-status fields gained a new "Email verification" row: a green "Verified" badge when `user.email_verified`, or an amber "Not verified" badge with an inline **"Resend verification email"** button (a `useMutation` wrapping the new `resendVerification` API call, toast-driven success/error feedback) otherwise. This is the "Account Status" + "Settings integration" requirement — a logged-in user with an unverified email always has a visible status and a one-click recovery action without needing to find the original email.
+
+Responsive: no new layout primitives — the resend form and Settings row both reuse this app's existing `AuthShell`/`SectionCard`/`btn-primary`/`btn-outline` design system components, which are already responsive across desktop/tablet/mobile (unchanged from every prior EP's frontend work).
+
+### Testing
+
+- **Backend** (`backend/tests/test_ep24_4_email_auth.py`, 39 new tests, fully hermetic — no real network, no real database):
+  - `TestEmailTemplateRenderer` (6) — link/expiry content present, HTML-escaping of `display_name` (XSS-shaped input), responsive/dark-mode markers present, no placeholder content in any of the three templates.
+  - `TestResendEmailProvider` (6) — unconfigured provider skips without any network call; missing-from-email-only still skips; successful send via `httpx.MockTransport` returns the provider's message id; a 4xx provider response and a network error both return `success=False` without raising; the API key never appears in any log call.
+  - `TestEmailService` (5) — each `send_*` method delegates to the injected provider (never touches Resend directly, confirmed via a fake provider double), the welcome email's dashboard URL comes from `Settings`, default construction builds a real `ResendEmailProvider` from `Settings` with zero extra wiring, a delivery failure doesn't raise.
+  - `TestEmailRateLimiter` (3) — allows exactly `max_attempts` then blocks with the configured `retry_after_seconds`; `verify`/`reset` scopes and different email keys are independent.
+  - `TestVerificationTokenRepositoryInvalidate` (1) — `invalidate_for_user` issues the expected UPDATE.
+  - `TestAuthServiceVerificationEmailFlow` (9) — `create_verification_token` invalidates prior tokens before creating the new one (replay protection); `resend_verification_email` sends for an unverified existing user, is silent for an already-verified user, is silent for an unknown email; `verify_email` sends the welcome email on success and does *not* on an invalid-token failure; `create_password_reset_token` sends the reset email when the user exists and sends nothing for an unknown email; `register` sends the verification email.
+  - API-layer tests (9, `unittest.mock.patch("app.api.v1.auth.AuthService")` + `httpx.AsyncClient`/`ASGITransport`) — resend-verification returns the generic message regardless of outcome and 429s after the rate limit; both verify-email variants (GET and POST) succeed, the GET variant returns 200 (not 409) for `EmailAlreadyVerifiedError`, an invalid token returns 400 with the generic detail; forgot-password and its `request-password-reset` alias both return the identical generic message and both rate-limit independently-keyed correctly.
+  - `tests/test_config.py`/`test_security_headers.py`/`test_startup.py` — 4 pre-existing tests that construct a `production`-mode `Settings` for unrelated assertions (HSTS, docs-disabled) updated to also supply `resend_api_key`/`email_from`, since the new `_enforce_email_config_in_production` validator now requires them in that mode — same accommodation those tests already made for the pre-existing `APP_SECRET_KEY`/`JWT_SECRET` validator.
+  - Full backend suite: **1774 passed** (1735 + 39), ruff/black/mypy clean.
+- **Frontend**: `VerifyEmail.test.tsx` (new, 4 tests) — no-token state, success state, error state with a visible resend form, resend form submission calls `resendVerification` with the entered email and shows a confirmation. `Settings.test.tsx` extended with 2 new tests — a verified user sees the "Verified" badge and no resend button; an unverified user sees "Not verified" plus a working resend button wired to `resendVerification`. Full dashboard suite: **235 passed** (229 + 6), lint clean, typecheck clean, build clean (`tsc -b` + `vite build`).
+- **Manual end-to-end verification** (Part 10) — run against a real local PostgreSQL 16 + Redis instance (not mocked), the full migration chain applied via `alembic upgrade head` (confirming, per Part 6, that this EP required none of its own): registered a real account → confirmed `email_send_skipped_unconfigured` logged (no `RESEND_API_KEY` in this sandbox) without the registration request failing → called `resend-verification` and confirmed via direct SQL that the *prior* `verification_tokens` row's `used_at` was set while the new row stayed unused (replay protection, empirically, not just asserted by a mock) → called `forgot-password` for both a real and a nonexistent email and confirmed byte-identical response bodies (anti-enumeration) → generated a real verification token via `AuthService` directly (bypassing the deliberately-unloggable raw-token boundary) and hit `GET /v1/auth/verify-email?token=...`, confirming 200 + `email_verified=True`; re-hitting the same now-already-verified account's link (a second, never-used token) also returned 200, not a token-replay error, confirming the "already verified → success" behavior end-to-end → generated a real reset token, called `POST /v1/auth/reset-password`, then confirmed `POST /v1/auth/login` succeeds with the new password and correctly rejects the old one with 401.
+
+### Known limitations
+
+- **`POST /v1/auth/verify-email`'s status code for "already verified" changed from 409 to 200**, per this EP's own Part 1 instruction ("If user already verified: return success"). This is a deliberate, spec-directed behavior change, not an oversight — but it is a breaking change for any client that specifically branched on 409 for this case. The only such client in this codebase, `apps/dashboard`'s `VerifyEmail.tsx`, was updated in the same commit; no other caller of this endpoint exists in this repository. An external integration built against the pre-EP-24.4 409 contract would need to update.
+- **`ResendEmailProvider`'s "success" only means Resend accepted the request (HTTP 2xx + a message id)** — it does not confirm the email was actually delivered to the recipient's inbox (bounces, spam-folder placement, etc. are outside this API's synchronous response). Resend's own webhook-based delivery-event system (bounce/complaint/delivered callbacks) is not wired up — a genuine future enhancement, not attempted here since it requires a public webhook endpoint and signature verification, a materially different piece of work than "send the email."
+- **No dedicated "Verification Pending" full-page state was added** — Part 7 names this as a page; this EP implements it as a *state within* `VerifyEmail.tsx`'s existing "verifying…" spinner state (shown for the ~1 request/response round-trip a real verification call takes) plus the persistent Settings.tsx banner for the "I haven't clicked the link yet" case, rather than a fourth standalone route. A dedicated interstitial page shown immediately after registration (before the user has even opened their email) was considered and not built, to avoid inserting a mandatory extra screen into the registration funnel — this platform's own design principle (§21.2, §21.3) has consistently been "never block product access on email verification," and a forced "check your email" page would work against that.
+- **No live, continuous browser test of the full register → check inbox → click link → verified journey** — same caveat as every prior EP in this document: this sandbox has no real inbox to check and no way to drive a real browser against a live deployment. What *was* verified end-to-end against real infrastructure (not mocks) is documented in "Testing" above — real Postgres, real Redis, real token generation/consumption/replay-protection, real HTTP round-trips through the actual FastAPI app — everything except the literal "open Gmail and click the link" step, which is unautomatable in this environment by construction.
+- **`EmailRateLimiter`'s in-memory fallback is per-process** — identical, accepted tradeoff to `LoginRateLimiter`'s own documented behavior (EP-05/T2): a multi-worker deployment without Redis would have independent rate-limit counters per worker. Redis is expected to be available in production (Render's environment already provisions it for the scheduler/realtime features), so this is a degraded-mode fallback, not the primary deployment assumption.
+
+### Future improvements
+
+1. **Delivery-event webhooks** (Resend's bounce/complaint/delivered callbacks) — would let `EmailSendResult` (or a follow-up query) distinguish "accepted by Resend" from "actually landed in an inbox," and could feed the audit log with a `verification_email_bounced`-shaped event. Not attempted here — see "Known limitations."
+2. **Budget/usage alert emails, organization-invite emails** — `EmailService` is explicitly architected for this (see "Email infrastructure" above); each is one new method reusing the existing renderer/provider layers. The organization-invite gap specifically is the same one CLAUDE.md's §7 has flagged since before this EP ("invite emails are never delivered") — closing it is now a template-and-one-method change, not new infrastructure.
+3. **Google OAuth** — explicitly out of scope for this EP by its own instruction; tracked as EP-24.5.

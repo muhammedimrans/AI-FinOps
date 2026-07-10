@@ -10,6 +10,8 @@ import {
   Clock,
   KeyRound,
   Loader2,
+  Mail,
+  MailCheck,
   Palette,
   Save,
   Shield,
@@ -35,6 +37,7 @@ import {
   deleteOrganization,
   getOrganizations,
   getSchedulerStatus,
+  resendVerification,
   updateOrganization,
   updatePreferences,
   updateProfile,
@@ -431,6 +434,19 @@ export default function Settings() {
     profileMutation.mutate(result.data);
   }
 
+  // ── Email verification (EP-24.4) ─────────────────────────────────────────
+
+  const resendVerificationMutation = useMutation({
+    mutationFn: () => resendVerification(user?.email ?? ""),
+    onSuccess: () => {
+      toast.success("Verification email sent", "Check your inbox for the link.");
+    },
+    onError: (err: unknown) => {
+      const { title, description } = apiErrorMessage(err, "Could not send the email. Please try again.");
+      toast.error(title, description);
+    },
+  });
+
   // ── Workspace ──────────────────────────────────────────────────────────────
 
   const orgsQuery = useQuery({
@@ -687,6 +703,32 @@ export default function Settings() {
                       className="w-full bg-app-muted border border-border-subtle rounded-lg px-3 py-2 text-sm text-tx-muted cursor-not-allowed capitalize"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="text-xs text-tx-muted block mb-1.5">Email verification</label>
+                  {user?.email_verified ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-dim px-3 py-2">
+                      <MailCheck size={14} className="text-success flex-shrink-0" />
+                      <span className="text-sm text-success">Verified</span>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-warning/20 bg-warning-dim px-3 py-2">
+                      <Mail size={14} className="text-warning flex-shrink-0" />
+                      <span className="text-sm text-warning flex-1 min-w-[10rem]">Not verified</span>
+                      <button
+                        type="button"
+                        onClick={() => resendVerificationMutation.mutate()}
+                        disabled={resendVerificationMutation.isPending}
+                        className="btn-outline h-8 px-3 text-xs inline-flex items-center gap-1.5 disabled:opacity-60"
+                      >
+                        {resendVerificationMutation.isPending ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : null}
+                        {resendVerificationMutation.isPending ? "Sending…" : "Resend verification email"}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {user?.created_at && (

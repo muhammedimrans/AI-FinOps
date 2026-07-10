@@ -226,6 +226,13 @@ export async function verifyEmail(token: string): Promise<MessageResponse> {
   return post<MessageResponse>("/v1/auth/verify-email", { token }, true);
 }
 
+/** EP-24.4 — re-send the verification email. Anti-enumeration: resolves
+ * with a generic message regardless of whether the account exists or is
+ * already verified. */
+export async function resendVerification(email: string): Promise<MessageResponse> {
+  return post<MessageResponse>("/v1/auth/resend-verification", { email }, true);
+}
+
 export async function logout(): Promise<void> {
   try {
     await request<void>("POST", "/v1/auth/logout", { body: {} });

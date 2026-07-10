@@ -239,6 +239,41 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ─── Transactional email (EP-24.4) ─────────────────────────────────────────
+    # Production provider is Resend; both variables are already provisioned in
+    # Render's environment per EP-24.4's own brief. Optional here (not
+    # required=...) so every environment without them (local dev, CI, the
+    # test suite) keeps working — ResendEmailProvider treats a missing key as
+    # "sending is disabled" and logs+skips rather than raising, matching this
+    # codebase's established graceful-missing-config pattern (e.g. the
+    # optional per-provider API keys above).
+    resend_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RESEND_API_KEY", "resend_api_key"),
+    )
+    email_from: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("EMAIL_FROM", "email_from"),
+    )
+    # The user-facing app the verification/reset links point at — the
+    # dashboard's own public routes (/verify-email, /reset-password, EP-05)
+    # already implement the token-consuming pages these links land on. Falls
+    # back to the dashboard's own local-dev default (Vite on :5173) so local
+    # development needs no extra configuration.
+    dashboard_url: str = Field(
+        default="http://localhost:5173",
+        validation_alias=AliasChoices("DASHBOARD_URL", "VITE_DASHBOARD_URL", "dashboard_url"),
+    )
+
+    @model_validator(mode="after")
+    def _enforce_email_config_in_production(self) -> Settings:
+        if self.app_env == "production" and (not self.resend_api_key or not self.email_from):
+            raise ValueError(
+                "RESEND_API_KEY and EMAIL_FROM must both be set in production — "
+                "verification and password-reset emails cannot be delivered without them."
+            )
+        return self
+
     # ─── Observability ────────────────────────────────────────────────────────
     otel_service_name: str = "aifinops-api"
     metrics_port: int = Field(default=9090, ge=1, le=65535)

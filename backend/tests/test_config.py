@@ -73,7 +73,13 @@ class TestSettings:
         assert settings.is_production is False
 
     def test_is_production_true_in_prod(self) -> None:
-        settings = Settings(app_secret_key="a" * 32, jwt_secret="j" * 32, app_env="production")
+        settings = Settings(
+            app_secret_key="a" * 32,
+            jwt_secret="j" * 32,
+            app_env="production",
+            resend_api_key="re_test_key",
+            email_from="noreply@costorah.com",
+        )
         assert settings.is_production is True
         assert settings.is_development is False
 

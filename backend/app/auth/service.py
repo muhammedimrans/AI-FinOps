@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.audit import AuditEvent, log_auth_event
 from app.auth.exceptions import (
     AccountDisabledError,
     EmailAlreadyRegisteredError,
@@ -26,6 +27,7 @@ from app.auth.tokens import (
 )
 from app.config.settings import Settings
 from app.db.mixins import uuid7
+from app.email.service import EmailService
 from app.models.membership import Membership, MembershipRole
 from app.models.organization import Organization, OrganizationStatus
 from app.models.password_reset_token import PasswordResetToken
@@ -62,7 +64,13 @@ class TokenPair:
 class AuthService:
     """Orchestrates login, logout, token refresh, email verification, and password reset."""
 
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        *,
+        email_service: EmailService | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
         self._user_repo = UserRepository(session)
@@ -71,6 +79,11 @@ class AuthService:
         self._reset_repo = PasswordResetTokenRepository(session)
         self._membership_repo = MembershipRepository(session)
         self._org_repo = OrganizationRepository(session)
+        # Optional-injection, matching ProviderSyncService/BudgetEvaluationService's
+        # established pattern elsewhere in this codebase (EP-22/EP-24.2) — every
+        # real call site needs nothing more than the default; tests substitute a
+        # fake EmailService without any DI container changes.
+        self._email = email_service or EmailService(settings)
 
     # ── Shared session issuance ──────────────────────────────────────────────
 
@@ -132,12 +145,11 @@ class AuthService:
         hardcoded seed constants.
 
         The account is created ACTIVE (not gated on email verification) —
-        this platform has no outbound email transport yet (see CLAUDE.md),
-        so blocking login on a verification email that can never be
-        delivered would strand every new user. `email_verified` starts
-        False; `POST /v1/auth/verify-email` (existing, unchanged) becomes
-        usable the moment email delivery exists — no changes needed here
-        when that lands.
+        requiring a delivered, clicked verification email before a brand
+        new user can even see their own workspace would be a needless
+        activation-funnel drop-off; `email_verified` starts False and a
+        verification email is sent below (EP-24.4), but nothing in the
+        product blocks on it being clicked.
         """
         if await self._user_repo.email_exists(email):
             raise EmailAlreadyRegisteredError
@@ -171,6 +183,12 @@ class AuthService:
 
         pair = await self._issue_session(user, ip_address=ip_address, user_agent=user_agent)
         await self._user_repo.update_last_login(user.id)
+
+        log_auth_event(
+            AuditEvent.REGISTRATION, user_id=user.id, email=user.email, ip_address=ip_address
+        )
+        await self._send_verification_email(user)
+
         return pair, user, org
 
     # ── Login ─────────────────────────────────────────────────────────────────
@@ -287,6 +305,7 @@ class AuthService:
         user.password_hash = hash_password(new_password)
         await self._session.flush()
         await self._session_repo.revoke_all_for_user_except(user.id, current_session_id)
+        log_auth_event(AuditEvent.PASSWORD_CHANGED, user_id=user.id, email=user.email)
 
     # ── Account deletion (EP-22.2 Settings — Danger Zone) ────────────────────
 
@@ -363,10 +382,25 @@ class AuthService:
             expires_in=self._settings.jwt_access_token_expire_minutes * 60,
         )
 
-    # ── Email verification ────────────────────────────────────────────────────
+    # ── Email verification (EP-05 tokens, EP-24.4 delivery) ─────────────────────
+
+    def _frontend_url(self, path: str, *, token: str) -> str:
+        """Build a dashboard URL (the app that owns /verify-email and
+        /reset-password, EP-05) carrying the raw token as a query param —
+        the same shape those pages already read via ``useSearchParams``."""
+        base = self._settings.dashboard_url.rstrip("/")
+        return f"{base}{path}?token={token}"
 
     async def create_verification_token(self, *, user_id: uuid.UUID) -> str:
-        """Create and persist an email verification token; return the raw token."""
+        """Create and persist an email verification token; return the raw token.
+
+        Invalidates every previously-issued, still-valid token for this user
+        first (EP-24.4 replay protection) — mirrors
+        ``create_password_reset_token``'s existing behavior for the same
+        reason: only the newest outstanding link should ever be redeemable.
+        """
+        await self._verify_repo.invalidate_for_user(user_id)
+
         raw = generate_refresh_token()
         token_hash = hash_token(raw)
         expires_at = datetime.now(UTC) + timedelta(hours=24)
@@ -379,15 +413,46 @@ class AuthService:
         await self._verify_repo.create(vt)
         return raw
 
+    async def _send_verification_email(self, user: User) -> None:
+        raw = await self.create_verification_token(user_id=user.id)
+        verify_url = self._frontend_url("/verify-email", token=raw)
+        await self._email.send_verification_email(
+            to=user.email,
+            display_name=user.display_name,
+            verify_url=verify_url,
+        )
+        log_auth_event(AuditEvent.VERIFICATION_EMAIL_SENT, user_id=user.id, email=user.email)
+
+    async def resend_verification_email(self, *, email: str) -> None:
+        """
+        Re-send the verification email for ``email``, if that account
+        exists and isn't already verified.
+
+        Deliberately silent (no return value, never raises for "not
+        found"/"already verified") — the endpoint returns the same generic
+        response regardless of outcome, exactly like
+        ``create_password_reset_token``'s existing anti-enumeration
+        contract, so a caller can't use this endpoint to probe which
+        emails have an account.
+        """
+        user = await self._user_repo.get_by_email(email)
+        if user is None or user.email_verified:
+            return
+        await self._send_verification_email(user)
+
     async def verify_email(self, *, token: str) -> User:
         """Consume a verification token and mark the user's email as verified."""
         token_hash = hash_token(token)
         vt = await self._verify_repo.get_valid_by_hash(token_hash)
         if vt is None:
+            log_auth_event(AuditEvent.VERIFICATION_FAILURE, reason="invalid_or_expired_token")
             raise InvalidTokenError("Verification token is invalid, expired, or already used")
 
         user = await self._user_repo.get(vt.user_id)
         if user is None:
+            log_auth_event(
+                AuditEvent.VERIFICATION_FAILURE, user_id=vt.user_id, reason="user_not_found"
+            )
             raise InvalidTokenError("User associated with this token no longer exists")
         if user.email_verified:
             raise EmailAlreadyVerifiedError
@@ -397,18 +462,24 @@ class AuthService:
             user.status = UserStatus.ACTIVE
         user.email_verified = True
         await self._session.flush()
+
+        log_auth_event(AuditEvent.VERIFICATION_SUCCESS, user_id=user.id, email=user.email)
+        await self._email.send_welcome_email(to=user.email, display_name=user.display_name)
         return user
 
     # ── Password reset ────────────────────────────────────────────────────────
 
     async def create_password_reset_token(self, *, email: str) -> str | None:
         """
-        Create a password-reset token for the given email.
+        Create a password-reset token for the given email, and send the
+        reset email (EP-24.4).
 
         Returns the raw token when the user exists, or None when not found
-        (callers should NOT reveal which outcome occurred to the requester).
+        (callers should NOT reveal which outcome occurred to the requester —
+        the endpoint returns the same response either way).
         """
         user = await self._user_repo.get_by_email(email)
+        log_auth_event(AuditEvent.PASSWORD_RESET_REQUESTED, email=email)
         if user is None:
             return None
 
@@ -424,6 +495,13 @@ class AuthService:
         prt.token_hash = token_hash
         prt.expires_at = expires_at
         await self._reset_repo.create(prt)
+
+        reset_url = self._frontend_url("/reset-password", token=raw)
+        await self._email.send_password_reset_email(
+            to=user.email,
+            display_name=user.display_name,
+            reset_url=reset_url,
+        )
         return raw
 
     async def reset_password(self, *, token: str, new_password: str) -> None:
@@ -442,3 +520,4 @@ class AuthService:
         await self._session.flush()
 
         await self._session_repo.revoke_all_for_user(user.id)
+        log_auth_event(AuditEvent.PASSWORD_RESET_COMPLETED, user_id=user.id, email=user.email)

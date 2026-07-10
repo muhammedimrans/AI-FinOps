@@ -36,12 +36,24 @@ class TestCreateApp:
         assert application.docs_url == "/docs"
 
     def test_docs_disabled_in_production(self) -> None:
-        settings = Settings(app_secret_key="a" * 32, jwt_secret="j" * 32, app_env="production")
+        settings = Settings(
+            app_secret_key="a" * 32,
+            jwt_secret="j" * 32,
+            app_env="production",
+            resend_api_key="re_test_key",
+            email_from="noreply@costorah.com",
+        )
         application = create_app(settings)
         assert application.docs_url is None
 
     def test_openapi_disabled_in_production(self) -> None:
-        settings = Settings(app_secret_key="a" * 32, jwt_secret="j" * 32, app_env="production")
+        settings = Settings(
+            app_secret_key="a" * 32,
+            jwt_secret="j" * 32,
+            app_env="production",
+            resend_api_key="re_test_key",
+            email_from="noreply@costorah.com",
+        )
         application = create_app(settings)
         assert application.openapi_url is None
 

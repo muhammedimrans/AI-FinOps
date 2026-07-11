@@ -1,17 +1,7 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Download,
-  Loader2,
-  MessageSquarePlus,
-  Play,
-  Send,
-  Sparkles,
-  Square,
-  Trash2,
-  Wand2,
-} from "lucide-react";
+import { Download, Loader2, MessageSquarePlus, Play, Sparkles, Square, Trash2, Wand2 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
@@ -29,6 +19,7 @@ import {
   ApiError,
   type PlaygroundConnectionOption,
   type PlaygroundExecutionRecord,
+  type PlaygroundModelInfo,
 } from "../services/api";
 import { getProviderBrand } from "../lib/providerCatalog";
 import { useOrgStore } from "../stores/org";
@@ -37,14 +28,26 @@ import { cn } from "../utils";
 import type { ConversationTurn } from "./playground/types";
 import MessageBubble from "./playground/MessageBubble";
 import ConfigPanel from "./playground/ConfigPanel";
+import PromptEditor from "./playground/PromptEditor";
+import PlaygroundHome from "./playground/PlaygroundHome";
+import ExecutionDetailsDrawer from "./playground/ExecutionDetailsDrawer";
+import SessionAnalyticsSidebar from "./playground/SessionAnalyticsSidebar";
 import HistorySidebar, { MobileHistoryToggle } from "./playground/HistorySidebar";
 import CompareResultCard from "./playground/CompareResultCard";
+import { useConversations } from "./playground/useConversations";
 import { formatCost, formatLatency, groupByRelativeDay } from "./playground/format";
 import type { ModelsForConnection } from "./playground/CostAnalysis";
 
 type Tab = "chat" | "compare" | "history";
 
-function exchangeMarkdown(turn: { model: string; providerType: string; systemPrompt: string; userPrompt: string; execution: PlaygroundExecutionRecord | null; error: string | null }) {
+function exchangeMarkdown(turn: {
+  model: string;
+  providerType: string;
+  systemPrompt: string;
+  userPrompt: string;
+  execution: PlaygroundExecutionRecord | null;
+  error: string | null;
+}) {
   const header = `## ${turn.model} (${turn.providerType})\n`;
   const sys = turn.systemPrompt ? `**System:** ${turn.systemPrompt}\n\n` : "";
   const user = `**Prompt:** ${turn.userPrompt}\n\n`;
@@ -77,6 +80,7 @@ function useConnections(organizationId: string | null) {
 // ── Chat tab ─────────────────────────────────────────────────────────────────
 
 interface RunParams {
+  conversationId: string;
   turnId: string;
   connectionId: string;
   modelId: string;
@@ -94,6 +98,12 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   const connections = connectionsQuery.data?.connections ?? [];
   const configured = connections.filter((c) => c.has_credential || c.provider_type === "ollama");
 
+  // EP-25.4.3 Parts 8/9/12 — conversation memory (client-only, see
+  // conversations.ts's own header comment for the honest disclosure).
+  const { conversations, activeId, setActiveId, active, createNew, setTurns, rename, togglePin, remove, duplicate } =
+    useConversations(organizationId);
+  const turns = active?.turns ?? [];
+
   const [connectionId, setConnectionId] = useState<string>("");
   const [modelId, setModelId] = useState<string>("");
   const [projectId, setProjectId] = useState<string>("");
@@ -102,10 +112,10 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   const [temperature, setTemperature] = useState(0.7);
   const [topP, setTopP] = useState(1);
   const [maxTokens, setMaxTokens] = useState(1024);
-  const [turns, setTurns] = useState<ConversationTurn[]>([]);
   const [pendingDelete, setPendingDelete] = useState<ConversationTurn | null>(null);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [costAnalysisEverOpened, setCostAnalysisEverOpened] = useState(false);
+  const [detailsTurn, setDetailsTurn] = useState<ConversationTurn | null>(null);
 
   const activeConnectionId = connectionId || configured[0]?.id || "";
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
@@ -143,6 +153,11 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConnection, models, otherConnections.map((c) => c.id).join(","), otherModelsQueries.map((q) => q.dataUpdatedAt).join(",")]);
 
+  function modelForTurn(turn: ConversationTurn): PlaygroundModelInfo | undefined {
+    const pool = turn.connectionId === activeConnectionId ? models : modelsByConnection[turn.connectionId]?.models;
+    return pool?.find((m) => m.id === turn.model);
+  }
+
   const execute = useMutation({
     mutationFn: (params: RunParams) =>
       executePlayground(organizationId, {
@@ -154,11 +169,9 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
         temperature,
         top_p: topP,
         max_tokens: maxTokens,
-      }).then((execution) => ({ turnId: params.turnId, execution })),
-    onSuccess: ({ turnId, execution }) => {
-      setTurns((prev) =>
-        prev.map((t) => (t.id === turnId ? { ...t, execution, isPending: false } : t)),
-      );
+      }).then((execution) => ({ conversationId: params.conversationId, turnId: params.turnId, execution })),
+    onSuccess: ({ conversationId, turnId, execution }) => {
+      setTurns(conversationId, (prev) => prev.map((t) => (t.id === turnId ? { ...t, execution, isPending: false } : t)));
       if (execution.status === "failed") {
         toast.error("Playground request failed", execution.error_message ?? "The provider returned an error.");
       } else {
@@ -167,7 +180,7 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
     },
     onError: (err: unknown, params) => {
       const message = err instanceof ApiError ? err.message : "Please try again.";
-      setTurns((prev) => prev.map((t) => (t.id === params.turnId ? { ...t, error: message, isPending: false } : t)));
+      setTurns(params.conversationId, (prev) => prev.map((t) => (t.id === params.turnId ? { ...t, error: message, isPending: false } : t)));
       toast.error("Couldn't reach the provider", message);
     },
   });
@@ -176,11 +189,17 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
     mutationFn: (executionId: string) => deletePlaygroundExecution(organizationId, executionId),
   });
 
+  function ensureConversationId(): string {
+    if (active) return active.id;
+    return createNew().id;
+  }
+
   function run() {
     if (!activeConnectionId || !activeModelId || !userPrompt.trim()) return;
+    const conversationId = ensureConversationId();
     const turnId = crypto.randomUUID();
     const prompt = userPrompt;
-    setTurns((prev) => [
+    setTurns(conversationId, (prev) => [
       ...prev,
       {
         id: turnId,
@@ -195,37 +214,20 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
       },
     ]);
     setUserPrompt("");
-    execute.mutate({ turnId, connectionId: activeConnectionId, modelId: activeModelId, systemPrompt, userPrompt: prompt });
+    execute.mutate({ conversationId, turnId, connectionId: activeConnectionId, modelId: activeModelId, systemPrompt, userPrompt: prompt });
   }
 
   function retry(turn: ConversationTurn) {
-    setTurns((prev) => prev.map((t) => (t.id === turn.id ? { ...t, isPending: true, error: null } : t)));
-    execute.mutate({ turnId: turn.id, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: turn.userPrompt });
-  }
-
-  function regenerate(turn: ConversationTurn) {
-    const newId = crypto.randomUUID();
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: newId,
-        connectionId: turn.connectionId,
-        providerType: turn.providerType,
-        model: turn.model,
-        systemPrompt: turn.systemPrompt,
-        userPrompt: turn.userPrompt,
-        execution: null,
-        error: null,
-        isPending: true,
-      },
-    ]);
-    execute.mutate({ turnId: newId, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: turn.userPrompt });
+    const conversationId = active?.id ?? ensureConversationId();
+    setTurns(conversationId, (prev) => prev.map((t) => (t.id === turn.id ? { ...t, isPending: true, error: null } : t)));
+    execute.mutate({ conversationId, turnId: turn.id, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: turn.userPrompt });
   }
 
   function continueTurn(turn: ConversationTurn) {
+    const conversationId = active?.id ?? ensureConversationId();
     const newId = crypto.randomUUID();
     const continuationPrompt = "Please continue your previous response.";
-    setTurns((prev) => [
+    setTurns(conversationId, (prev) => [
       ...prev,
       {
         id: newId,
@@ -240,57 +242,30 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
         isContinuation: true,
       },
     ]);
-    execute.mutate({ turnId: newId, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: continuationPrompt });
+    execute.mutate({ conversationId, turnId: newId, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: continuationPrompt });
   }
 
-  function exportTurn(turn: ConversationTurn) {
+  function downloadTurnMarkdown(turn: ConversationTurn) {
     downloadMarkdown(`costorah-playground-${turn.id.slice(0, 8)}.md`, exchangeMarkdown(turn));
   }
 
   function confirmDeleteTurn() {
-    if (!pendingDelete) return;
+    if (!pendingDelete || !active) return;
     const turn = pendingDelete;
+    const conversationId = active.id;
     setPendingDelete(null);
     if (turn.execution?.id) {
       deleteExecution.mutate(turn.execution.id, {
-        onSettled: () => setTurns((prev) => prev.filter((t) => t.id !== turn.id)),
+        onSettled: () => setTurns(conversationId, (prev) => prev.filter((t) => t.id !== turn.id)),
       });
     } else {
-      setTurns((prev) => prev.filter((t) => t.id !== turn.id));
+      setTurns(conversationId, (prev) => prev.filter((t) => t.id !== turn.id));
     }
   }
 
   function copy(text: string) {
     void navigator.clipboard.writeText(text);
     toast.info("Copied to clipboard");
-  }
-
-  function downloadConversation() {
-    const content = turns.map(exchangeMarkdown).join("\n---\n\n");
-    downloadMarkdown(`costorah-playground-conversation-${Date.now()}.md`, content);
-  }
-
-  function loadHistoryEntry(execution: PlaygroundExecutionRecord) {
-    setTurns((prev) => [
-      ...prev,
-      {
-        id: `history-${execution.id}-${Date.now()}`,
-        connectionId: execution.provider_connection_id,
-        providerType: execution.provider,
-        model: execution.model,
-        systemPrompt: execution.system_prompt ?? "",
-        userPrompt: execution.user_prompt,
-        execution,
-        error: null,
-        isPending: false,
-      },
-    ]);
-    const matchingConnection = connections.find((c) => c.id === execution.provider_connection_id);
-    if (matchingConnection) {
-      setConnectionId(matchingConnection.id);
-      setModelId(execution.model);
-    }
-    setMobileHistoryOpen(false);
   }
 
   if (connectionsQuery.isLoading) {
@@ -324,96 +299,100 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
 
       <div className="flex flex-col lg:flex-row gap-4 items-start">
         <div className={cn("w-full lg:w-auto", !mobileHistoryOpen && "hidden lg:block")}>
-          <HistorySidebar organizationId={organizationId} onSelect={loadHistoryEntry} onNewChat={() => setTurns([])} />
+          <HistorySidebar
+            conversations={conversations}
+            activeId={activeId}
+            onSelect={(id) => {
+              setActiveId(id);
+              setMobileHistoryOpen(false);
+            }}
+            onNewChat={() => {
+              createNew();
+              setMobileHistoryOpen(false);
+            }}
+            onRename={rename}
+            onTogglePin={togglePin}
+            onDuplicate={duplicate}
+            onDelete={remove}
+          />
         </div>
 
         <div className="flex-1 min-w-0 w-full">
-          <Section title="Conversation" bodyClassName="p-0">
-            <div className="flex flex-col gap-4 p-4 max-h-[560px] overflow-y-auto">
-              {turns.length === 0 ? (
-                <EmptyState
-                  icon={MessageSquarePlus}
-                  title="Start a conversation"
-                  description="Send a prompt below — the response, tokens, and cost will appear here, and this request becomes real Costorah usage immediately."
-                />
-              ) : (
-                <AnimatePresence initial={false}>
-                  {turns.map((turn) => (
-                    <MessageBubble
-                      key={turn.id}
-                      turn={turn}
-                      allTurns={turns}
-                      modelsByConnection={modelsByConnection}
-                      onCopy={copy}
-                      onRetry={retry}
-                      onRegenerate={regenerate}
-                      onContinue={continueTurn}
-                      onExport={exportTurn}
-                      onDelete={setPendingDelete}
-                      onCostAnalysisOpen={() => setCostAnalysisEverOpened(true)}
-                    />
-                  ))}
-                </AnimatePresence>
-              )}
-            </div>
-
-            <div className="border-t border-border-subtle p-4 flex flex-col gap-2">
-              <textarea
-                value={userPrompt}
-                onChange={(e) => setUserPrompt(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    run();
-                  }
+          {!active ? (
+            <Section bodyClassName="p-0">
+              <PlaygroundHome
+                connections={connections}
+                recentConversations={conversations}
+                onSuggestedPrompt={(prompt) => {
+                  createNew();
+                  setUserPrompt(prompt);
                 }}
-                placeholder="Send a message…"
-                rows={3}
-                aria-label="Message"
-                className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
+                onOpenConversation={(id) => setActiveId(id)}
+                onNewChat={() => createNew()}
+                onGoToConnections={() => window.location.assign("/connections")}
               />
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+            </Section>
+          ) : (
+            <Section title="Conversation" bodyClassName="p-0">
+              <div className="flex flex-col gap-4 p-4 max-h-[560px] overflow-y-auto">
+                {turns.length === 0 ? (
+                  <EmptyState
+                    icon={MessageSquarePlus}
+                    title="Start a conversation"
+                    description="Send a prompt below — the response, tokens, and cost will appear here, and this request becomes real Costorah usage immediately."
+                  />
+                ) : (
+                  <AnimatePresence initial={false}>
+                    {turns.map((turn) => (
+                      <MessageBubble
+                        key={turn.id}
+                        turn={turn}
+                        allTurns={turns}
+                        modelsByConnection={modelsByConnection}
+                        connection={connections.find((c) => c.id === turn.connectionId)}
+                        model={modelForTurn(turn)}
+                        onCopy={copy}
+                        onRetry={retry}
+                        onContinue={continueTurn}
+                        onDownloadMarkdown={downloadTurnMarkdown}
+                        onDelete={setPendingDelete}
+                        onCostAnalysisOpen={() => setCostAnalysisEverOpened(true)}
+                        onOpenDetails={setDetailsTurn}
+                      />
+                    ))}
+                  </AnimatePresence>
+                )}
+              </div>
+
+              <div className="border-t border-border-subtle p-4 flex flex-col gap-2">
+                <PromptEditor value={userPrompt} onChange={setUserPrompt} onSubmit={run} disabled={execute.isPending} />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled
+                      title="Streaming isn't implemented yet — requests are synchronous, so there's nothing to stop mid-flight."
+                      className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 opacity-40 cursor-not-allowed"
+                    >
+                      <Square size={12} /> Stop
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    onClick={downloadConversation}
-                    disabled={turns.length === 0}
-                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
+                    onClick={run}
+                    disabled={!userPrompt.trim() || !activeModelId || execute.isPending}
+                    className="btn-primary h-9 px-4 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
                   >
-                    <Download size={12} /> Download
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTurns([])}
-                    disabled={turns.length === 0}
-                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
-                  >
-                    <Trash2 size={12} /> Clear
-                  </button>
-                  <button
-                    type="button"
-                    disabled
-                    title="Streaming isn't implemented yet — requests are synchronous, so there's nothing to stop mid-flight."
-                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 opacity-40 cursor-not-allowed"
-                  >
-                    <Square size={12} /> Stop
+                    {execute.isPending ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                    Send
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={run}
-                  disabled={!userPrompt.trim() || !activeModelId || execute.isPending}
-                  className="btn-primary h-9 px-4 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
-                >
-                  {execute.isPending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-                  Send
-                </button>
               </div>
-            </div>
-          </Section>
+            </Section>
+          )}
         </div>
 
-        <div className="w-full lg:w-80 flex-shrink-0">
+        <div className="w-full lg:w-80 flex-shrink-0 flex flex-col gap-3">
           <ConfigPanel
             connections={connections}
             activeConnectionId={activeConnectionId}
@@ -440,6 +419,7 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
             systemPrompt={systemPrompt}
             onSystemPromptChange={setSystemPrompt}
           />
+          <SessionAnalyticsSidebar turns={conversations.flatMap((c) => c.turns)} />
         </div>
       </div>
 
@@ -452,6 +432,8 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
         onCancel={() => setPendingDelete(null)}
         onConfirm={confirmDeleteTurn}
       />
+
+      <ExecutionDetailsDrawer turn={detailsTurn} open={!!detailsTurn} onClose={() => setDetailsTurn(null)} />
     </div>
   );
 }
@@ -472,6 +454,29 @@ function CompareTab({ organizationId }: { organizationId: string }) {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [results, setResults] = useState<PlaygroundExecutionRecord[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>("fastest");
+
+  const selectedConnections = Object.values(selected);
+
+  // EP-25.4.3 Part 11 — fetch each selected connection's real, live model
+  // catalog (same query key ChatTab/CompareModelRow already use) so
+  // CompareResultCard can render real strengths/weaknesses/largest-context
+  // badges instead of guessing.
+  const modelQueries = useQueries({
+    queries: selectedConnections.map((c) => ({
+      queryKey: ["playground-models", organizationId, c.id],
+      queryFn: () => listPlaygroundModels(organizationId, c.id),
+    })),
+  });
+  const modelByConnectionId = useMemo(() => {
+    const map: Record<string, PlaygroundModelInfo> = {};
+    selectedConnections.forEach((c, i) => {
+      const models = modelQueries[i]?.data ?? [];
+      const found = models.find((m) => m.id === modelByConnection[c.id]);
+      if (found) map[c.id] = found;
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConnections.map((c) => c.id).join(","), modelByConnection, modelQueries.map((q) => q.dataUpdatedAt).join(",")]);
 
   const compare = useMutation({
     mutationFn: () => {
@@ -511,6 +516,10 @@ function CompareTab({ organizationId }: { organizationId: string }) {
     sorted.length > 0
       ? [...sorted].sort((a, b) => Number(a.estimated_cost ?? Infinity) - Number(b.estimated_cost ?? Infinity))[0]?.id
       : undefined;
+  const maxContextWindow = Math.max(
+    0,
+    ...sorted.map((r) => modelByConnectionId[r.provider_connection_id]?.context_window ?? 0),
+  );
 
   function copy(text: string) {
     void navigator.clipboard.writeText(text);
@@ -642,15 +651,20 @@ function CompareTab({ organizationId }: { organizationId: string }) {
           }
         >
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {sorted.map((r) => (
-              <CompareResultCard
-                key={r.id}
-                result={r}
-                onCopy={copy}
-                isFastest={r.id === fastestId && sorted.length > 1}
-                isCheapest={r.id === cheapestId && sorted.length > 1}
-              />
-            ))}
+            {sorted.map((r) => {
+              const model = modelByConnectionId[r.provider_connection_id];
+              return (
+                <CompareResultCard
+                  key={r.id}
+                  result={r}
+                  model={model}
+                  onCopy={copy}
+                  isFastest={r.id === fastestId && sorted.length > 1}
+                  isCheapest={r.id === cheapestId && sorted.length > 1}
+                  isLargestContext={!!model?.context_window && model.context_window === maxContextWindow && maxContextWindow > 0 && sorted.length > 1}
+                />
+              );
+            })}
           </div>
         </Section>
       )}

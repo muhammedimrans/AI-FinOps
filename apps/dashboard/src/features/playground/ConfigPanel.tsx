@@ -1,8 +1,10 @@
-import { Cpu, Settings2, Terminal } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Cpu, Settings2, Terminal } from "lucide-react";
 import ProviderLogo from "../../components/ProviderLogo";
 import CollapsibleSection from "./CollapsibleSection";
 import ProviderInfoCard from "./ProviderInfoCard";
-import { formatNumber } from "../../utils";
+import ModelInfoPanel from "./ModelInfoPanel";
+import { formatNumber, cn } from "../../utils";
 import type { PlaygroundConnectionOption, PlaygroundModelInfo } from "../../services/api";
 
 interface ProjectOption {
@@ -59,6 +61,7 @@ export default function ConfigPanel({
   systemPrompt,
   onSystemPromptChange,
 }: ConfigPanelProps) {
+  const [showModelDetails, setShowModelDetails] = useState(false);
   return (
     <div className="flex flex-col gap-3">
       <CollapsibleSection title="Provider &amp; model" icon={Cpu} defaultOpen>
@@ -106,10 +109,26 @@ export default function ConfigPanel({
               ))}
             </select>
             {activeModel && (
-              <p className="text-[10px] text-tx-muted mt-1">
-                {activeModel.context_window ? `${formatNumber(activeModel.context_window)} ctx` : ""}
-                {activeModel.capabilities.length > 0 ? ` · ${activeModel.capabilities.join(", ")}` : ""}
-              </p>
+              <>
+                <p className="text-[10px] text-tx-muted mt-1">
+                  {activeModel.context_window ? `${formatNumber(activeModel.context_window)} ctx` : ""}
+                  {activeModel.capabilities.length > 0 ? ` · ${activeModel.capabilities.join(", ")}` : ""}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowModelDetails((v) => !v)}
+                  aria-expanded={showModelDetails}
+                  className="mt-1 inline-flex items-center gap-1 text-[10px] font-medium text-brand hover:text-brand-hover"
+                >
+                  <ChevronDown size={11} className={cn("transition-transform", showModelDetails && "rotate-180")} />
+                  {showModelDetails ? "Hide model details" : "Model details"}
+                </button>
+                {showModelDetails && (
+                  <div className="mt-2">
+                    <ModelInfoPanel model={activeModel} providerType={activeConnection?.provider_type ?? ""} />
+                  </div>
+                )}
+              </>
             )}
           </div>
 

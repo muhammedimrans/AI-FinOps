@@ -98,8 +98,21 @@ function renderPlayground() {
   );
 }
 
+async function startNewChat(user: ReturnType<typeof userEvent.setup>) {
+  await screen.findByText("Welcome to AI Playground");
+  await user.click(screen.getByRole("button", { name: /start a new chat/i }));
+}
+
+async function sendMessage(user: ReturnType<typeof userEvent.setup>, text = "Say hello") {
+  await startNewChat(user);
+  const textarea = screen.getByLabelText("Message");
+  await user.type(textarea, text);
+  await user.click(screen.getByRole("button", { name: /^send$/i }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme", isPersonal: false });
   mockedApi.listPlaygroundConnections.mockResolvedValue(CONNECTIONS);
   mockedApi.listPlaygroundModels.mockResolvedValue(MODELS);
@@ -121,6 +134,14 @@ describe("Playground — Chat tab", () => {
     expect(await screen.findByText("128,000 tok")).toBeInTheDocument();
   });
 
+  it("shows the Playground homepage with suggested prompts when no chat is active", async () => {
+    renderPlayground();
+    expect(await screen.findByText("Welcome to AI Playground")).toBeInTheDocument();
+    expect(screen.getByText("Suggested prompts")).toBeInTheDocument();
+    expect(screen.getByText("Your providers")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /explain kubernetes/i })).toBeInTheDocument();
+  });
+
   it("disables sending a prompt to a connection with no credential", async () => {
     renderPlayground();
     await screen.findAllByText("Production OpenAI");
@@ -128,15 +149,27 @@ describe("Playground — Chat tab", () => {
     expect(option).toBeInTheDocument();
   });
 
+  it("starting a new chat clears the homepage and reveals the composer", async () => {
+    const user = userEvent.setup();
+    renderPlayground();
+    await startNewChat(user);
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to AI Playground")).not.toBeInTheDocument();
+  });
+
+  it("a suggested prompt starts a new chat and pre-fills the composer", async () => {
+    const user = userEvent.setup();
+    renderPlayground();
+    await screen.findByText("Welcome to AI Playground");
+    await user.click(screen.getByRole("button", { name: /explain kubernetes/i }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>("Message").value).toContain("Kubernetes");
+  });
+
   it("sends a prompt, clears the composer, and displays the real response and stats panel", async () => {
     mockedApi.executePlayground.mockResolvedValue(EXECUTION);
     const user = userEvent.setup();
     renderPlayground();
-    await screen.findByText("GPT-4o");
-
-    const textarea = screen.getByLabelText("Message");
-    await user.type(textarea, "Say hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await sendMessage(user);
 
     await waitFor(() =>
       expect(mockedApi.executePlayground).toHaveBeenCalledWith(
@@ -150,37 +183,48 @@ describe("Playground — Chat tab", () => {
     );
 
     expect(await screen.findByText("Hello there!")).toBeInTheDocument();
-    expect(textarea).toHaveValue("");
+    expect(screen.getByLabelText("Message")).toHaveValue("");
     expect(screen.getByText("Input tokens")).toBeInTheDocument();
     expect(screen.getByText("10")).toBeInTheDocument();
     expect(screen.getByText("Succeeded")).toBeInTheDocument();
   });
 
-  it("shows response actions (Copy, Regenerate, Continue, Export, Delete) on a completed response", async () => {
+  it("Ctrl+Enter in the prompt editor sends the message", async () => {
     mockedApi.executePlayground.mockResolvedValue(EXECUTION);
     const user = userEvent.setup();
     renderPlayground();
-    await screen.findByText("GPT-4o");
-    await user.type(screen.getByLabelText("Message"), "Say hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await startNewChat(user);
+    const textarea = screen.getByLabelText("Message");
+    await user.type(textarea, "Say hello");
+    await user.keyboard("{Control>}{Enter}{/Control}");
+    await waitFor(() => expect(mockedApi.executePlayground).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the full response-actions row on a completed response", async () => {
+    mockedApi.executePlayground.mockResolvedValue(EXECUTION);
+    const user = userEvent.setup();
+    renderPlayground();
+    await sendMessage(user);
     await screen.findByText("Hello there!");
 
-    expect(screen.getByRole("button", { name: "Regenerate" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download Markdown" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download JSON" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Share" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Raw JSON" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "View Execution Details" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
   });
 
-  it("regenerate re-sends the same prompt as a new turn", async () => {
+  it("retry re-runs the same turn in place with its own captured params", async () => {
     mockedApi.executePlayground.mockResolvedValue(EXECUTION);
     const user = userEvent.setup();
     renderPlayground();
-    await screen.findByText("GPT-4o");
-    await user.type(screen.getByLabelText("Message"), "Say hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await sendMessage(user);
     await screen.findByText("Hello there!");
 
-    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(mockedApi.executePlayground).toHaveBeenCalledTimes(2));
     expect(mockedApi.executePlayground).toHaveBeenLastCalledWith(
       "org_1",
@@ -188,13 +232,24 @@ describe("Playground — Chat tab", () => {
     );
   });
 
+  it("View Execution Details opens the drawer with the real execution id", async () => {
+    mockedApi.executePlayground.mockResolvedValue(EXECUTION);
+    const user = userEvent.setup();
+    renderPlayground();
+    await sendMessage(user);
+    await screen.findByText("Hello there!");
+
+    await user.click(screen.getByRole("button", { name: "View Execution Details" }));
+    const dialog = await screen.findByRole("dialog", { name: /execution details/i });
+    expect(within(dialog).getByText("pgexec_1")).toBeInTheDocument();
+    expect(within(dialog).getByText("201 Created")).toBeInTheDocument();
+  });
+
   it("opens the Cost Analysis panel on a completed response", async () => {
     mockedApi.executePlayground.mockResolvedValue(EXECUTION);
     const user = userEvent.setup();
     renderPlayground();
-    await screen.findByText("GPT-4o");
-    await user.type(screen.getByLabelText("Message"), "Say hello");
-    await user.click(screen.getByRole("button", { name: /send/i }));
+    await sendMessage(user);
     await screen.findByText("Hello there!");
 
     await user.click(screen.getByRole("button", { name: /cost analysis/i }));
@@ -230,13 +285,40 @@ describe("Playground — Chat tab", () => {
     expect(screen.getByLabelText("Temperature")).toBeInTheDocument();
   });
 
-  it("the chat history sidebar lists past prompts grouped by day and supports New chat", async () => {
-    mockedApi.listPlaygroundHistory.mockResolvedValue({ executions: [EXECUTION], total: 1 });
+  it("shows Model details for the selected model on demand", async () => {
+    const user = userEvent.setup();
     renderPlayground();
     await screen.findByText("GPT-4o");
+    await user.click(screen.getByRole("button", { name: /model details/i }));
+    expect(screen.getByText("Input pricing")).toBeInTheDocument();
+    expect(screen.getByText(/knowledge cutoff/i)).toBeInTheDocument();
+  });
+
+  it("a sent conversation appears in the sidebar grouped under Today, and New chat starts fresh", async () => {
+    mockedApi.executePlayground.mockResolvedValue(EXECUTION);
+    const user = userEvent.setup();
+    renderPlayground();
+    await sendMessage(user);
+    await screen.findByText("Hello there!");
+
     expect(await screen.findByText("Today")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /say hello/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /new chat/i })).toBeInTheDocument();
+    expect(screen.getAllByText(/say hello/i).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: /^new chat$/i }));
+    expect(screen.getByText("Start a conversation")).toBeInTheDocument();
+    expect(screen.getByLabelText("Message")).toHaveValue("");
+  });
+
+  it("updates the current-session analytics sidebar after a successful response", async () => {
+    mockedApi.executePlayground.mockResolvedValue(EXECUTION);
+    const user = userEvent.setup();
+    renderPlayground();
+    await sendMessage(user);
+    await screen.findByText("Hello there!");
+
+    expect(screen.getByText("Current session")).toBeInTheDocument();
+    const requestsStat = screen.getByText("Requests").closest("div");
+    expect(requestsStat).toHaveTextContent("1");
   });
 });
 

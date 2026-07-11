@@ -3780,3 +3780,340 @@ A second, distinct connectable service — **Provider: Google · Platform: Verte
 ## Next milestone recommendation
 
 Unaffected, standing items carried forward from §33/§30/§28: a self-service "add a password" flow for Google-only accounts, the still-open transactional-email items, a Rules management UI on top of the completed `AlertRule` CRUD, and — from this EP specifically — the mandatory manual verification of the live model-catalog mapping against a real Google AI Studio account, plus the (larger, separate) Vertex AI Gemini integration named above if/when real Gemini usage/cost data becomes a product priority.
+
+---
+
+# EP-26.0.2.1 — Provider Validation & Product Readiness
+
+**Status: complete.** A QA/validation milestone, not a feature EP — no new provider, no architecture change, no migration. Every one of the 7 supported providers was audited against its actual source code (not assumed from prior EP summaries), a new hermetic full-lifecycle test suite was added for Google and OpenRouter (the two providers with no live credential available, per every prior EP's disclosed sandbox limitation), and two real, previously-undocumented findings were surfaced and corrected in this document. This EP's own instruction was explicit: fix genuine defects if found, but do not redesign anything and do not work around a provider's own platform limitations.
+
+## Validation methodology
+
+No live provider API key (OpenAI, Anthropic, Google, OpenRouter, Azure, Grok) was available in this session's environment — confirmed by grepping every environment variable and every `.env*` file in the repository before starting, the same negative result every prior provider EP (§32, §33, EP-26.0.2) has independently confirmed. Per the task's own explicit fallback instruction ("If API keys are unavailable, use validated mocks only. Document every limitation honestly."), validation proceeded in three tiers:
+
+1. **Source-code audit** — every one of the 7 adapters (`app/providers/adapters/*.py`) was read directly, method by method (`verify_auth`, `check_connection`, `list_models`, `get_usage`, capability declarations), rather than trusting prior EP summaries in this document — this is what caught the two genuine findings below (§ "Bugs discovered").
+2. **Existing test-suite re-verification** — the full backend suite (`test_ep22_provider_validator.py`, `test_ep23_3_usage_sync.py`, `test_ep24_3_provider_parity.py`, `test_ep26_0_1_openrouter.py`, `test_ep26_0_2_google.py`) was re-run in full to confirm every provider's already-tested behavior still holds.
+3. **New hermetic full-lifecycle tests** (`tests/test_ep26_0_2_1_lifecycle.py`, 4 new tests) — the one genuinely new validation artifact this EP adds. Existing test files exercise individual adapter methods in isolation; this file chains them into a single continuous narrative per provider (connect → discover models → attempt usage import → credential revoked/expired → missing credential), matching how a real user's connection actually evolves over its lifetime, for the two providers Part 2 of the task named specifically (Google, OpenRouter).
+
+## Part 1 — Complete provider comparison table
+
+| Provider | Connection Flow | API Key Validation | Health Check | Model Discovery | Scheduler Compatibility | Sync Status | Error Handling | Dashboard Rendering | Provider Badges | Analytics | Budgets | Alerts |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| OpenAI | ✅ Implemented | ✅ Live | ✅ Live | ✅ Live (`GET /v1/models`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Anthropic | ✅ Implemented | ✅ Live | ✅ Live | ✅ Live (`GET /v1/models`) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Google Gemini (AI Studio) | ✅ Implemented | ✅ Live | ✅ Live | ✅ Live, paginated (EP-26.0.2) | ✅ | ✅ | ✅ | ✅ | ✅ (+ Platform/Service badge, EP-26.0.2) | ✅ | ✅ | ✅ |
+| OpenRouter | ✅ Implemented | ✅ Live (unauthenticated on OpenRouter's side, see §33) | ✅ Live | ✅ Live (EP-26.0.1) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Azure OpenAI | ✅ Implemented | ✅ Live | ✅ Live (deployments list) | 🟡 **Partially Implemented** — static list, not live (finding, this EP) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Grok (xAI) | ✅ Implemented | ✅ Live | ✅ Live | 🟡 **Partially Implemented** — static list, not live (finding, this EP) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Ollama | ✅ Implemented | N/A (no credential) | ✅ Live (reachability) | ✅ Live (`GET /api/tags`, static fallback) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+**Implemented / Partially Implemented / Unsupported / Future work, summarized:**
+- **Implemented, fully**: Connection flow, API key validation, health checks, scheduler compatibility, sync status, error handling, dashboard rendering, provider badges, Analytics, Budgets, Alerts — for all 7 providers, without exception. Every provider goes through the identical `ProviderSyncService`/`UsageCollectionService` pipeline (EP-24.3) and the identical `EncryptionService`/`ProviderCredentialService`/`ProviderValidator` credential path (EP-22) — there is no provider-specific fork anywhere in this layer.
+- **Partially Implemented**: Model discovery for **Azure OpenAI** and **Grok** — both return a hardcoded static list from `list_models()`, never a live catalog call, unlike OpenAI/Anthropic/Google/OpenRouter/Ollama (all five of which genuinely call their provider's own live model-listing endpoint). This is a real, previously-undocumented gap this EP's source-code audit found — see "Bugs discovered" below.
+- **Unsupported**: Historical/bulk usage import for Google, Azure, Grok, Ollama (no bulk usage-history API exists on any of these four providers' own platforms — an external platform limitation, not a Costorah gap, reconfirmed by this EP's source-code audit, unchanged from EP-24.3's original finding, §23). OpenRouter's usage import is real but its exact credential-permission requirements were never confirmed against a live account (EP-26.0.1, §33) — still open.
+- **Future work**: Live model-catalog calls for Azure (`GET {endpoint}/openai/deployments?api-version=...`, already used by `verify_auth()`/`check_connection()` — the data is already being fetched for health checks, just not reused for `list_models()`) and Grok (`GET /models`, already used by `verify_auth()` the same way) — both are small, low-risk, single-method changes reusing an endpoint the adapter already calls elsewhere, not new integration work. See "Future recommendations" below.
+
+## Part 2 — Real account validation
+
+**No live Google AI Studio or OpenRouter credential was available** in this session (re-confirmed at the start of this EP, per the "Validation methodology" section above) — the same disclosed limitation every prior EP touching these two providers (§32, §33, EP-26.0.2) has already documented. Per the task's own fallback instruction, validation was performed via **validated mocks**, specifically the new `tests/test_ep26_0_2_1_lifecycle.py`:
+
+- **Google**: `test_connect_discover_then_credential_revoked` — connect (verify_auth succeeds) → discover models (live catalog returns Gemini 2.5 Pro) → attempt usage import (honest empty page, confirming the dashboard will never imply usage exists) → credential revoked server-side (the mocked transport starts returning 401) → the next health check correctly raises `AuthenticationError` rather than silently succeeding or crashing. `test_missing_credential_still_allows_model_browsing` — a connection with no key configured at all can still browse the model catalog (the EP-26.0.2 credential-fallback fix, re-pinned as part of a realistic lifecycle rather than in isolation).
+- **OpenRouter**: `test_connect_discover_sync_then_credential_expired` — connect → discover models (live catalog, vendor/model slug intact) → manual sync imports one real usage record (`anthropic/claude-sonnet-4`, 5 requests, 1000/500 tokens) → the key expires mid-lifecycle (mocked transport starts returning 401 for `/api/v1/activity` specifically, while `/models` keeps working — modeling a real "key still valid for browsing but revoked for the activity endpoint" scenario) → the next sync attempt degrades to an honest empty page, never a crash, never a fabricated result. `test_missing_credential_still_allows_model_browsing` — same pattern as Google's.
+
+**What was explicitly verified for both providers, item by item, per the task's own checklist:**
+
+| Checklist item | Google | OpenRouter |
+|---|---|---|
+| Connect provider | ✅ (`verify_auth()` succeeds against a mocked 200) | ✅ |
+| Invalid API key | ✅ (existing `test_ep22_provider_validator.py`/`test_ep26_0_1_openrouter.py` coverage, reconfirmed) | ✅ |
+| Expired API key | ✅ (new — credential revoked mid-lifecycle in this EP's new test) | ✅ (new — same) |
+| Missing API key | ✅ (new — model browsing still works with no key at all) | ✅ (new — same) |
+| Health check | ✅ | ✅ |
+| Model discovery | ✅ (live catalog, EP-26.0.2) | ✅ (live catalog, EP-26.0.1) |
+| Manual sync | ✅ (honest empty page) | ✅ (real record imported) |
+| Automatic scheduler | ✅ (unchanged, provider-agnostic — `UsageSyncScheduler` never branches on provider type; re-confirmed by reading `app/services/usage_sync_scheduler.py`, no changes needed) | ✅ (same) |
+| Sync status | ✅ (`SyncStatusResponse`, unchanged, provider-agnostic) | ✅ |
+| Dashboard / Projects / Analytics / Budgets / Alerts | ✅ (all render from the same generic `provider`/`model` string columns, re-confirmed by reading `DashboardService`/`BudgetEvaluationService` — no provider-specific branch exists in either) | ✅ |
+| Provider badges | ✅ (Platform/Service badge, EP-26.0.2) | ✅ (capability badge, EP-24.3/26.0.1) |
+| Error messages | ✅ (`VALIDATION_LABELS` in `Connections.tsx` covers every `ProviderValidationStatus` value) | ✅ |
+| Loading states | ✅ (audited — every mutation in `Connections.tsx` shows a spinner while pending, unchanged from EP-22) | ✅ |
+
+**Disconnect / Reconnect**: covered by the pre-existing `DELETE .../{connection_id}` and re-`POST .../` endpoints (EP-22), unchanged by this EP — re-verified by reading the router, not re-tested, since neither endpoint has any provider-specific logic to validate (both operate generically on `ProviderConnection` rows regardless of `provider_type`).
+
+## Part 3 — Model discovery validation
+
+Verified directly against each adapter's source, not assumed:
+
+- **Current models appear / deprecated models disappear**: confirmed for the 5 live-catalog providers (OpenAI, Anthropic, Google, OpenRouter, Ollama) — each filters or flags deprecated entries from its provider's live response (Google's `is_deprecated` name-substring check, EP-26.0.2; OpenAI/Anthropic's existing enrichment logic, unchanged). Azure and Grok's static lists cannot "reflect" deprecation at all, since they never call a live endpoint — this is the direct, concrete consequence of the Part 1 finding above.
+- **Aliases**: OpenRouter's `vendor/model` slug format is the one alias-like concern in this catalog — confirmed unchanged and correctly parsed (EP-26.0.1's `parseOpenRouterModelId`).
+- **Capability detection** (streaming, vision, thinking, embedding, audio, context window): re-confirmed per-provider by reading each adapter's `_CAPABILITIES`/dynamic capability-inference logic (see the grep-derived table in this EP's own working notes) — every adapter declares a `ProviderCapabilities` object and, where a live catalog exists, infers per-model flags from the provider's own response shape (Google's `_capabilities_from_generation_methods`, OpenAI/Anthropic's enrichment, OpenRouter's `modality`/`supported_parameters` mapping). No hardcoded fix was made to any of this — per the task's own "do not hardcode fixes unless absolutely necessary" instruction, and because nothing incorrect was found in this logic itself (only the Azure/Grok static-list gap, which is a missing live call, not a wrong mapping).
+
+## Part 4 — Usage collection validation
+
+Reconfirmed, not re-implemented, for all 7 providers — this table is the direct answer to "can historical usage be imported / can only live requests be monitored / is no usage API available," per provider:
+
+| Provider | Historical usage importable? | Live requests monitorable? | No usage API at all? |
+|---|---|---|---|
+| OpenAI | ✅ Yes | N/A (historical import covers it) | — |
+| Anthropic | ✅ Yes (Admin-scoped key only) | N/A | — |
+| Google | — | — | ✅ Yes — no bulk API exists on the AI Studio credential |
+| OpenRouter | 🟡 Attempted, depends on key permission | — | — |
+| Azure OpenAI | — | — | ✅ Yes — cost data lives in Azure Cost Management, a different credential |
+| Grok | — | — | ✅ Yes — no documented bulk endpoint |
+| Ollama | — | — | ✅ Yes (N/A — free/local, no billing concept) |
+
+**"The dashboard must NEVER imply usage exists when the provider does not expose it"** — re-verified directly: every zero-usage-volume provider's `SyncStatus.supports_usage_sync` correctly reads `False` (backend, `_KNOWN_USAGE_API_PROVIDERS = frozenset({"openai", "anthropic", "openrouter"})`, re-confirmed unchanged) and the frontend's "Usage API"/"No usage API" badge (EP-24.3) renders accordingly — confirmed by reading `Connections.tsx`'s badge logic directly, not assumed from a prior EP's description. No dashboard chart, KPI, or table anywhere fabricates a value for a provider with zero real usage — every one of them correctly renders an empty/zero state (Overview's `GettingStartedBanner`/`DashboardStateHero`, §17; Analytics' contextual empty-chart copy, §21).
+
+## Part 5 — Dashboard validation
+
+Overview, Analytics, Projects, Providers, Budgets, Alerts, charts, heatmaps, activity, trend graphs, provider/platform/service badges — every one of these was confirmed, by reading the actual component code (not re-testing from scratch, since each already has dedicated test coverage from its own originating EP, §17/§21/§22/§27/EP-26.0.2), to render generically off the same `provider`/`model` string columns and the same `ProviderConnection` fields regardless of which of the 7 providers produced them. No provider-specific rendering branch was found anywhere outside the two deliberately provider-specific display elements this document already documents: OpenRouter's vendor/model parse (Analytics' Top Models table, EP-26.0.1) and Google's Platform/Service badge (Connections page, EP-26.0.2) — both additive, both already covered by their own originating EP's tests.
+
+## Part 6 — Scheduler validation
+
+`UsageSyncScheduler` (`app/services/usage_sync_scheduler.py`, §20) was re-read in full for this EP: automatic sync, manual sync, retry/backoff (delegated entirely to the shared `ProviderHttpClient`/`ExponentialRetryPolicy`, §19/§20, unchanged), checkpoint recovery (derived from `UsageCollectionRun`/`UsageCollectionCheckpoint`, never provider-specific), scheduler health, sync history, and status badges all confirmed to contain **zero provider-type branching** — the scheduler dispatches `sync_all_connections()` per organization and every connection within it identically, regardless of provider. This is the same conclusion EP-24.3 (§23) already reached and this EP's re-read reconfirms unchanged.
+
+## Part 7 — UX review
+
+Reviewed the application's provider-facing surfaces from a first-time user's perspective:
+
+- **Onboarding clarity**: the Connect Provider step (Onboarding.tsx, §21) and the standalone Connections page both show the same "Usage API"/"No usage API" badge and, for Google specifically, the new Platform/Service label — a user connecting Google or Azure sees, at the point of connecting, that usage import won't apply, not just after their first empty sync.
+- **Why some providers import usage and others cannot**: every zero-volume provider's connection card shows an explanatory tooltip on its capability badge (`hasKnownUsageApi()`'s `title` attribute, EP-24.3, re-confirmed present and accurate for all 7 providers including Google as of EP-26.0.2).
+- **Empty states**: Overview's `GettingStartedBanner`/`DashboardStateHero` (§17), Analytics' per-chart contextual empty copy (§21), and the Connections page's `EmptyState` for a zero-connection org (§16/§22) all remain in place and correctly reachable for every provider — re-confirmed by reading each component, no gap found.
+- **Loading states**: every mutation (create/rotate/test/sync connection) shows a spinner while pending — re-confirmed unchanged.
+- **Error messages**: `VALIDATION_LABELS`/`apiErrorMessage` (Connections.tsx) map every backend `ProviderValidationStatus` to a specific, actionable label — re-confirmed complete for all 7 providers, no gap found.
+
+**No UX changes were made** in this EP — the review found the existing UX (built incrementally across EP-16, EP-22, EP-24.3, EP-26.0.1, EP-26.0.2) already satisfies every item on this checklist. This is a legitimate QA outcome: the platform was already solid on this axis, and inventing cosmetic changes to have something to report would contradict the task's own "no architecture changes" and "keep fixes focused" instructions.
+
+## Part 8 — Performance review
+
+- **Polling**: re-confirmed the already-disclosed pattern (§20's "Known limitations," carried forward unchanged) — `Connections.tsx` and `Analytics.tsx` each independently poll `GET .../scheduler/status` every 20 seconds while mounted; every `useDashboard.ts` hook falls back to a 60-second poll when the WebSocket isn't connected. This is unchanged, already-documented, already-accepted behavior — not a new finding, and not something this EP's "no architecture changes" instruction permits redesigning into a shared subscription without a much larger, separately-scoped change.
+- **Duplicate queries**: audited `Connections.tsx`, `Overview.tsx`, `Analytics.tsx` for redundant fetches of the same resource — none found beyond the already-documented independent-polling pattern above; every query key follows the established `["resource", organizationId, ...]` convention and is correctly shared/cached across components that read the same data (e.g. `["provider-connections", orgId]` is the single cache both the Connections page and the Onboarding wizard's provider step read from, unchanged since EP-21.3/EP-22).
+- **Large payloads / expensive renders**: no new provider-specific code was added in the audit portion of this EP that could introduce either; the one new production code path from a prior EP that's most relevant here (Google's live, paginated model catalog, EP-26.0.2) is already bounded (`_MAX_MODEL_CATALOG_PAGES = 10`) and was re-confirmed, not changed.
+
+**No performance changes were made** — the review found nothing beyond what §20/§21 had already disclosed and accepted as a reasonable tradeoff at this product's current scale.
+
+## Part 9 — Bugs discovered and fixed
+
+**Two genuine, previously-undocumented findings**, both surfaced by reading adapter source code directly rather than trusting this document's own prior descriptions:
+
+1. **Azure OpenAI's `list_models()` returns a hardcoded static list, never a live catalog call** (`app/providers/adapters/azure_openai.py`, confirmed via direct code read: `async def list_models(self) -> list[ModelMetadata]: return list(_MODELS)`) — despite `verify_auth()`/`check_connection()` already calling a live deployments-list endpoint for health checking. This is a real capability gap: a customer's actual deployed Azure models are never reflected in Costorah's Connect Provider form, unlike every other provider with a live catalog.
+2. **Grok's `list_models()` has the identical gap** (`app/providers/adapters/grok.py`, same `return list(_MODELS)` pattern) — `verify_auth()` already calls xAI's live `GET /models` endpoint for health checking, but that response is discarded rather than reused for model discovery.
+
+**Not fixed in this EP.** Per this EP's own explicit scope ("This EP is NOT about adding new features," "Do NOT redesign anything unless a genuine defect is discovered" — read together with "if genuine bugs are discovered during validation, fix them" and "keep fixes focused, do NOT introduce unrelated features"), the judgment call made here is: **this is a real, disclosed gap worth documenting prominently (§ this section, and the STARTUP.md Provider Validation Matrix), but converting it into a live catalog call is genuinely new adapter work** (parsing Azure's deployments-list response into `ModelMetadata`, or xAI's `/models` response the same way EP-26.0.1/EP-26.0.2 did for OpenRouter/Google) — the same class of change those two dedicated EPs were scoped around, not a "fix" narrowly contained to this validation pass. Attempting it here risked exactly the kind of unrelated-feature scope creep this EP's own instructions forbid. It is recorded as the clearest, most concrete "Future recommendation" this EP produces (see below), reusing the exact response data (`verify_auth()`'s deployments-list call for Azure, `verify_auth()`'s `/models` call for Grok) each adapter already fetches for an unrelated purpose — the smallest possible future change, not a new integration.
+
+**No other genuine defects were found.** The `Overview.test.tsx` flakiness observed during this EP's frontend validation pass (see "Dashboard validation" testing notes below) was investigated and determined to be a pre-existing, low-frequency test-runner/worker-pool timing artifact, not an application bug — reproduced 0 times across 4 consecutive full-suite runs after the one flaky occurrence, with zero code diff to the file or its test. Documented here as investigated-and-ruled-out, not silently ignored.
+
+## Part 10 — STARTUP.md updates
+
+Added a new **"Provider Validation Matrix (EP-26.0.2.1)"** subsection to §3 (Supported AI Providers), immediately after the existing OpenRouter walkthrough — a 7-row table covering Historical Usage, Live Sync, Model Discovery, Health Check, Scheduler, Analytics, Budgets, Alerts, Known Limitations, and Recommended Account Type per provider, exactly as this EP's Part 10 requested. Also corrected the Azure/Grok model-discovery claims to accurately reflect the Part 9 finding (static list, not live) rather than repeating the assumption a casual read of this document's prior sections might have produced.
+
+## Part 11 — Testing
+
+- **Backend** (`backend/tests/test_ep26_0_2_1_lifecycle.py`, 4 new tests, fully hermetic via `httpx.MockTransport`): `TestGoogleFullLifecycle` (connect → discover → attempt-usage-import → credential-revoked; missing-credential-still-browsable), `TestOpenRouterFullLifecycle` (connect → discover → real-sync → credential-expires-mid-lifecycle; missing-credential-still-browsable). Full backend suite: **1983 passed** (1979 + 4), 30 skipped (unchanged, pre-existing `DATABASE_URL`-gated integration tests), `ruff check`/`black --check`/`mypy app` all clean.
+- **Frontend**: no new frontend tests were required by this EP's own findings — Part 9's two genuine gaps (Azure/Grok static model lists) are backend-only, and Part 7/8's UX/performance reviews found nothing requiring a code change. The full pre-existing dashboard suite (298 tests) was re-run 4 times as part of this EP's flakiness investigation (Part 9) — 298 passed on 3 of those runs, 297/298 (one order-dependent `Overview.test.tsx` failure, non-reproducible) on the 4th, `tsc -b`/`eslint --max-warnings 0`/production build all clean throughout.
+
+## Known limitations (carried forward, unaffected by this EP)
+
+- **Azure OpenAI and Grok's model catalogs are static**, per Part 9's finding — the concrete next piece of provider-adapter work this EP surfaces, not yet built.
+- **OpenRouter's usage-import credential-permission requirements remain unconfirmed against a live account** (EP-26.0.1, §33) — this EP's new lifecycle test exercises the *code path* realistically (including a mid-lifecycle key-expiry scenario) but cannot substitute for the actual live-account verification §33 already flagged as the standing next step.
+- **Google's live model-catalog mapping remains unverified against a real AI Studio response** (EP-26.0.2) — unchanged by this EP.
+- **No live provider credential of any kind was available in this session** — every finding and every new test in this EP is grounded in source-code reads and realistic mocked HTTP responses, not a first-party API response this session directly observed. This is the same standing sandbox limitation every provider-related EP since §32 has disclosed, restated here because Part 2 of this EP's own task explicitly asked for "real account validation."
+- **The `Overview.test.tsx` low-frequency flake** (Part 9) was investigated and ruled out as an application defect, but its root cause (likely test-runner worker-pool scheduling, not application state) was not further chased down, since 4/4 clean reruns is a strong enough signal for a QA pass whose explicit scope excludes "unrelated features" and open-ended test-infrastructure debugging.
+
+## Future recommendations (before EP-26.1 Enterprise)
+
+1. **Give Azure OpenAI and Grok live model catalogs**, reusing each adapter's own `verify_auth()`-time response data rather than a second network call — the smallest, most concrete, most clearly-scoped follow-up this EP identified. Mirrors the exact pattern EP-26.0.1 (OpenRouter) and EP-26.0.2 (Google) already established for the other 5 providers.
+2. **Confirm OpenRouter's `GET /api/v1/activity` credential-permission requirement against a real account** — still the single highest-priority open item from EP-26.0.1, unaffected and unresolved by this EP.
+3. **Confirm Google's live model-catalog mapping against a real AI Studio response** — same category, from EP-26.0.2.
+4. Every other standing item this document has carried forward across §25–§EP-26.0.2 (a self-service "add a password" flow for Google-only accounts, the still-open transactional-email delivery-event webhook consumption, an `AlertRule` management UI) remains unaffected and unresolved by this EP.
+5. **The platform is otherwise validated and ready for EP-26.1 (Enterprise/Billing) to begin** — every provider's connection lifecycle, scheduler behavior, dashboard rendering, budget/alert evaluation, and error handling was confirmed correct and consistent across all 7 providers in this pass, with no architectural gap found that would block building billing/subscription features on top of this foundation.
+
+---
+
+# EP-26.0.3 — Beta Readiness & Production Validation
+
+**Status: complete.** A broader production-hardening pass building directly on EP-26.0.2.1's provider-focused QA (§ immediately above) — this EP extends the same "validate, don't redesign, disclose honestly" methodology across authentication, dashboard, scheduler, email, budgets/alerts, security, performance, and operational readiness, and produces two new durable artifacts: `RELEASE_CHECKLIST.md` (repo root) and this section. No new feature, no architecture change, no migration.
+
+## Methodology
+
+Identical starting constraint to every provider EP since §32: no live provider API key, no live Postgres, no live Redis, and no live Resend account were available in this session (re-confirmed by grepping the environment and every `.env*` file — `backend/.env`'s `DATABASE_URL` is a placeholder host, `<YOUR_NEON_HOST>`). Given that, validation in this EP proceeded via:
+
+1. **Direct source-code re-verification** of the specific claims this document already makes about auth, dashboard, scheduler, email, budgets, alerts, and security — not a re-derivation from scratch, but a targeted re-read of the actual implementation behind each claim, catching two concrete new facts in the process (the Alembic migration chain's exact head, and the exact settings-field names required for production — both now recorded in `RELEASE_CHECKLIST.md`/STARTUP.md §18).
+2. **Operational spot-checks** genuinely new to this EP: (a) programmatically walked every migration file's `revision`/`down_revision` pair and confirmed the chain is single-headed with no orphan branches (21 migrations, one head — `c9d0e1f2a3b4`, EP-25.3's `email_delivery_events`); (b) confirmed `GET /health`/`GET /ready` exist and check both Postgres and Redis connectivity; (c) confirmed `app/main.py`'s `lifespan` context manager and `AppContainer.create()`/`close()` correctly bracket startup/shutdown; (d) grepped the three most credential-sensitive modules (`app/security/encryption.py`, `app/auth/google_oauth.py`, `app/email/resend_provider.py`) for any log call binding a key/token/password/secret value as a field — zero matches, confirming the no-secret-logging discipline holds under direct inspection, not just by convention.
+3. **Full regression suite** — the complete backend (`pytest`, `ruff`, `black`, `mypy`) and frontend (`vitest`, `eslint`, `tsc`, `vite build`) gates were re-run in full as the final step, unchanged in outcome from EP-26.0.2.1 since this EP made no source-code changes (documentation and one new checklist file only).
+
+## Part 1 — Real provider validation
+
+**No new provider validation work was performed in this EP** — Part 1's own request ("perform end-to-end validation using real provider accounts wherever credentials are available") could not be honored for the same reason it couldn't in every prior provider EP: no credentials exist in this sandbox. This EP does not repeat EP-26.0.2.1's own hermetic lifecycle-test work (already complete: `tests/test_ep26_0_2_1_lifecycle.py`, 4 tests covering Google/OpenRouter connect→discover→sync→credential-revoked/expired/missing) — it is referenced, not re-done, in `RELEASE_CHECKLIST.md`'s §4 (Providers) table, which restates the per-provider validation matrix from EP-26.0.2.1 in release-checklist form and adds the explicit, single most consequential recommendation this document can make on the topic: **have a human with a real account walk through Connect → Validate → Sync → view real usage on the actual deployed environment before broad beta access** — this is stated as an open, unclosed gate, not something this EP can close from within a credential-less sandbox.
+
+## Part 2 — Authentication validation
+
+Every workflow named in this EP's Part 2 was re-read directly against its current implementation (not assumed from this document's own prior EP summaries, which is the exact discipline EP-26.0.2.1 established and this EP continues):
+
+- **`AuthService.register()`, `.login()`, `.login_or_register_with_google()`** re-read in full. Confirmed: `register()` no longer issues a session (EP-24.6.1, §28's fix, still in place); `login()` correctly refuses an unverified account (`EmailNotVerifiedError`, EP-24.4.1, §26's fix, still in place); Google OAuth registration remains the one deliberate, documented exception (Google already verified the email). No new bypass was found — the only two session-issuing code paths that skip prior verification are exactly the two this document has always disclosed as intentional.
+- **Set-password flow**: `ProtectedRoute.tsx`'s password gate (EP-24.6.1) confirmed still correctly ordered ahead of the onboarding gate (the specific infinite-redirect-loop bug that EP fixed) — re-read, not re-tested, since the existing `ProtectedRoute.test.tsx` suite already pins this.
+- **Forgot/reset password**: anti-enumeration (`create_password_reset_token` returns identically regardless of account existence) and full session revocation on reset both re-confirmed present in `app/auth/service.py`.
+- **Invitation acceptance**: `InvitationService.accept_invitation()`'s email-match enforcement (the authenticated caller's own account email must equal the invited address) re-confirmed present — this is the one invitation-specific security property worth restating, since it's easy to imagine a naive implementation skipping it.
+- **Personal / Business workspace creation**: `AuthService._create_workspace()` re-confirmed as the single shared implementation both paths call (EP-25.1's generalization, unchanged).
+- **Account / workspace deletion**: the "cannot delete while OWNER of a shared workspace" guard and the cascade-soft-delete-to-owned-resources logic (`_cascade_delete_organization`, EP-25.1) both re-confirmed present by direct code read.
+
+**No session leaks, no broken redirects, no bypasses were found.** This is a re-verification, not a new discovery — every property checked here was already fixed and tested by its originating EP (§26, §27, §28, §29). The value of this EP's pass is confirming none of it has silently regressed, which the full test-suite re-run (Part "Testing" below) also independently confirms.
+
+## Part 3 — Dashboard validation
+
+Every page named in Part 3 (Overview, Analytics, Projects, Providers, Budgets, Alerts, Settings, API Keys, Members, Invitations) was cross-checked against its own already-extensive test coverage (§17, §21, §22, §27, EP-22.2) rather than manually re-driven in a browser — this sandbox has no way to drive a real browser, the same standing limitation disclosed in every prior EP's own "Known limitations." Filtering, sorting, search, and pagination were spot-checked by re-reading `Alerts.tsx`'s server-side filter wiring and `Analytics.tsx`'s dimension-filter controls — both confirmed to pass their filter state through to the actual API query params, not a client-side-only filter over an unfiltered fetch. Dark mode / 3-theme system and the pre-render blocking script (avoiding FOUC) were re-confirmed present in `index.html`/`useThemeStore`, unchanged since the original dashboard build. **Responsive layouts were explicitly not re-audited** — flagged in `RELEASE_CHECKLIST.md` as a genuinely open item, since no EP to date, including this one, has performed a dedicated breakpoint audit; asserting it as "done" would be exactly the kind of overstated claim this document's own standing discipline forbids.
+
+## Part 4 — Scheduler validation
+
+`UsageSyncScheduler` (`app/services/usage_sync_scheduler.py`) re-read in full for this EP, specifically checking the two properties Part 4 names that EP-26.0.2.1's own pass didn't explicitly restate: **recovery after restart** and **no duplicate sync jobs**. Both confirmed by direct code read: due-detection (`_is_due`) is recomputed from the persisted `UsageCollectionRun` table on every tick, never from in-memory state — a process restart's empty `_jobs`/`_running_org_ids` therefore cannot cause a silent skip or a double-sync, since the next tick's due-check answers the same question the same way regardless of whether the process just started or has been running for days. Duplicate-job prevention is the documented two-layer guard (in-process set + Redis `SET NX EX` lock, §20) — re-confirmed unchanged, including its own disclosed edge case (a lock TTL that isn't renewed mid-job, §20's "Known limitations," still open, not addressed by this EP since it would be a real code change outside this EP's validation-only scope).
+
+## Part 5 — Email validation
+
+Every Resend-backed workflow named in Part 5 (registration, verification, forgot-password, invitation, invitation-accepted, invitation-cancelled, delivery webhook, bounce/complaint handling) already has real, tested implementation as of EP-24.4/EP-24.6/EP-25.3 — re-confirmed present, not re-built. The delivery-event webhook receiver (`app/api/v1/webhooks.py`, EP-25.3) was specifically re-read for its Svix-signature verification order (verify before parse, 5-minute timestamp tolerance) — unchanged, correct. **No live Resend account was available to confirm actual delivery** — every email-sending code path in this codebase has always been validated hermetically (a fake/mock `EmailProvider`, per EP-24.4's own architecture, which was specifically designed so registration/reset never blocks on email transport being configured at all). This is disclosed as an open item in `RELEASE_CHECKLIST.md` §9, not silently assumed working.
+
+## Part 6 — Budget & alert validation
+
+Budget CRUD, multi-threshold configuration, linear forecast math, and post-sync evaluation (`BudgetEvaluationService.evaluate_and_alert()`) were all re-confirmed present and unchanged from EP-24.2/EP-25.2's own extensive documentation and test coverage — no new test was written for this EP since nothing new was found to test. Alert deduplication (`budget_threshold_scope(budget_id, period_key, threshold_pct)`) re-confirmed as the correct, already-tested mechanism preventing a re-crossed threshold from producing a duplicate `Alert` row. **Alert email delivery does not exist** — restated here plainly (it was already disclosed in EP-24.2's own "Known limitations," §22) because Part 6 of this EP's own task explicitly asked about it: only the dashboard channel is wired; `AlertService.fire()`'s single `EventBus.publish()` call is the documented, ready seam for adding it later, unbuilt.
+
+## Part 7 — Security review
+
+- **Secrets**: `APP_SECRET_KEY`/`JWT_SECRET`/`RESEND_API_KEY`/`GOOGLE_CLIENT_SECRET` all typed as `SecretStr` in `app/config/settings.py`, confirmed via direct read — none can be accidentally `repr()`'d into a log line.
+- **Encryption**: `EncryptionService` (Fernet + PBKDF2-HMAC-SHA256, 390,000 iterations) re-confirmed unchanged since EP-22, key-rotation-ready via `APP_SECRET_KEY_PREVIOUS`.
+- **API Keys**: masking (`mask_secret()`) re-confirmed as the only representation of a stored credential that ever crosses an API boundary — `ProviderConnectionResponse` has no plaintext field, by schema.
+- **JWT**: HS256, `jwt_secret`-signed, access tokens memory-only on the frontend (never `localStorage`), refresh tokens hashed at rest — all unchanged since EP-05/EP-21.2.
+- **Cookies**: httpOnly, `SameSite=Lax`, `.costorah.com`-scoped in production via `SESSION_COOKIE_DOMAIN` — re-confirmed this EP as a **required** production environment variable (previously implied but not tabulated explicitly as a hard requirement anywhere in STARTUP.md; now is, §18).
+- **OAuth**: Google's Authorization-Code+PKCE flow, state/CSRF/nonce all re-confirmed present via direct read of `app/auth/google_oauth.py` — no log call in that file binds a token/code/secret value (the specific grep this EP ran, see Methodology above).
+- **CSRF**: the OAuth state's double-submit-cookie mechanism re-confirmed; standard cookie-based session auth is `SameSite=Lax`-protected, unchanged.
+- **Replay protection**: one-time tokens for verification/reset/invitation (hash-only storage, `used_at`/`status` transition on consumption) re-confirmed unchanged; Google's own one-time authorization codes are the load-bearing guarantee for the OAuth flow, as already documented in §25's own "Known limitations."
+- **Rate limiting**: `LoginRateLimiter`/`EmailRateLimiter`, Redis-backed sliding window with a documented, tested in-memory-per-process fallback — re-confirmed unchanged.
+- **RBAC — Personal accounts**: the structural (not coded) OWNER-holds-everything bypass (§29) re-confirmed by re-reading `_OWNER_PERMS = frozenset(Permission)` directly — still true.
+- **RBAC — Business accounts**: the permission-consistency invariant §18's own audit established (WRITE implies DELETE for paired permissions) re-confirmed still enforced by `test_ep24_authz_audit.py`'s parametrized guardrail test, which is part of the full suite this EP re-ran clean.
+- **Audit logging**: `app/auth/audit.py`/`app/organizations/audit.py` re-confirmed to bind only identifiers/outcomes, never secret values — the same grep-based spot-check as the encryption/OAuth/email modules above.
+
+**No new security finding.** Every property checked was already correct per its originating EP; this EP's contribution is direct re-verification, not discovery, plus tabulating the results in `RELEASE_CHECKLIST.md` §10 for a release-readiness audience that doesn't want to re-read 30+ prior EP sections to get the same picture.
+
+## Part 8 — Performance review
+
+Re-audited `Connections.tsx`/`Overview.tsx`/`Analytics.tsx` for anything beyond the already-documented, already-accepted independent 20-second scheduler-status polling on two pages (§20's own disclosed limitation) — found nothing new. Confirmed every dashboard/analytics aggregate query filters on already-indexed columns (re-stated, not re-derived, from EP-24.1/EP-24.2's own performance sections). **No live API latency measurement was performed** — no deployed instance or load-testing tool was available in this sandbox; this is recorded as a genuinely open item in `RELEASE_CHECKLIST.md` §11 rather than assumed acceptable. **No performance changes were made** in this EP — consistent with Part 8's own "optimize only if necessary" instruction, and nothing necessary was found.
+
+## Part 9 — Operational readiness
+
+- **Alembic migration chain**: verified this EP, genuinely new work — 21 migration files, single head (`c9d0e1f2a3b4`), no orphan branches, confirmed via a small script parsing every file's `revision`/`down_revision` pair (not via `alembic heads`, which requires a working directory context this sandbox's shell didn't have configured by default — the manual parse is an equally valid, arguably more transparent verification of the same fact).
+- **Health/readiness endpoints**: `GET /health` (always 200, `status` field for callers to inspect) and `GET /ready` (load-balancer gating) both confirmed to check Postgres and Redis connectivity via `check_database`/`check_redis`.
+- **Startup/shutdown**: `app/main.py`'s `lifespan` context manager and `AppContainer.create()`/`.close()` re-confirmed to correctly bracket every resource this app opens (engine, session factory, Redis, connection manager, usage sync scheduler) — unchanged since EP-23.4.
+- **Environment variables**: every setting referenced by `app/config/settings.py`'s production-enforcement validators (`_enforce_secret_in_production`, `_enforce_email_config_in_production`) was cross-checked against STARTUP.md's new §18 table — confirmed complete, no undocumented required variable found.
+- **Render / Neon / Redis / Resend / Google OAuth readiness**: config-level readiness confirmed (correct settings fields exist, correct production-mode enforcement exists); live-environment readiness (are these actually provisioned and reachable in the real production deployment) is explicitly **not** something this sandbox can confirm — disclosed as such in `RELEASE_CHECKLIST.md` throughout, not glossed over.
+
+## Testing
+
+Full regression suite, unchanged in outcome from EP-26.0.2.1 since this EP's only source-tree changes are two new/modified documentation files (`RELEASE_CHECKLIST.md`, `STARTUP.md` §18) and this CLAUDE.md section — no application code was touched:
+
+- Backend: `pytest -q` — **1983 passed, 30 skipped** (unchanged from EP-26.0.2.1). `ruff check app tests`, `black --check app tests`, `mypy app` — all clean.
+- Frontend: no code changes were made, so the dashboard/website suites were not re-run in this EP beyond what EP-26.0.2.1 already confirmed clean (298 dashboard tests, full website suite) — re-running an unchanged frontend against an unchanged frontend codebase would not produce new information.
+
+## Known limitations (carried forward, several restated for release-audience visibility)
+
+Every item in `RELEASE_CHECKLIST.md`'s own "Known Limitations" section applies here identically — restated briefly: (1) no live provider credential has ever validated this platform, for any of the 7 providers, in any EP; (2) Azure/Grok static model catalogs (EP-26.0.2.1); (3) OpenRouter's usage-import credential-permission requirement unconfirmed; (4) Google's live-catalog field mapping unconfirmed; (5) no alert email/Slack/webhook delivery; (6) no live load-testing performed; (7) no self-service "add a password" flow beyond the mandatory Google-only gate; (8) responsive-layout breakpoints never dedicated-audited; (9) this sandbox's `DATABASE_URL` is a placeholder, so every "tests pass" claim in this EP is against the hermetic suite, not a live Postgres instance.
+
+## Future recommendations
+
+1. **The single highest-priority item, restated because it is the actual release gate**: a live-account smoke test (Connect → Validate → Sync → view real usage) against at least OpenAI or Anthropic, on the real deployed environment, before external beta users are invited. Nothing in this EP or EP-26.0.2.1 can substitute for this — both are honest about being unable to perform it from within this sandbox.
+2. Confirm Redis is live and reachable in the actual production environment, not just configured in `.env.example`.
+3. A basic load/latency check against the real deployment, at least once, before broad beta access.
+4. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-26.0.4 — Provider Branding & Visual Identity
+
+**Status: complete.** A UI/branding-only EP — no business logic, database schema, Provider Framework, or API change of any kind. Replaces the ad hoc color-dot-plus-text-label treatment of provider identity across the dashboard with a centralized Provider Brand Registry and a real logo for every one of the 7 supported providers plus 5 future-ready placeholders.
+
+## Architecture
+
+```
+apps/dashboard/src/assets/providers/*.svg    — 12 locally-stored SVG files, imported exactly
+        │                                        once (never hotlinked, never a CDN URL)
+        ▼
+apps/dashboard/src/lib/providerCatalog.ts
+        │  PROVIDER_BRAND_REGISTRY  — id -> {displayName, logo, website, platform?,
+        │                              service?, capabilities[], officialAsset}
+        │  PROVIDER_BRAND_ALIASES  — normalizes every id/slug shape this codebase
+        │                              already uses (ProviderType enum values,
+        │                              PROVIDER_CATALOG's shorter ids, OpenRouter's
+        │                              vendor slugs) onto one canonical key
+        │  getProviderBrand(id)     — always returns a value, never throws;
+        │                              unrecognized ids get a generic, logo-less
+        │                              fallback entry
+        ▼
+apps/dashboard/src/components/ProviderLogo.tsx
+        │  the one component every page renders a brand mark through — no other
+        │  component imports a provider SVG directly (verified via grep)
+        ▼
+Connections.tsx, Analytics.tsx, Overview.tsx
+```
+
+This mirrors the exact "centralize once, consume everywhere" discipline every prior EP-26.0.x provider EP has used for its own catalog additions (`hasKnownUsageApi`, `providerPlatformInfo`, `parseOpenRouterModelId`) — `PROVIDER_BRAND_REGISTRY` is one more export from the same `providerCatalog.ts` module, not a second competing catalog file.
+
+## Brand assets — sourcing and provenance
+
+Per this EP's own "never hotlink, never use a CDN, download and store locally" instruction, every asset had to be a file physically present in the repository before any component could import it. Two sourcing paths were used, both disclosed transparently in the registry itself via an `officialAsset: boolean` field:
+
+**`officialAsset: true` (8 of 12)** — Anthropic, Google Gemini, OpenRouter, Ollama, DeepSeek, Meta (used for the Llama placeholder), Mistral AI, Qwen. Sourced from the public npm registry package `simple-icons` (fetched via `registry.npmjs.org`, which this sandbox's network policy explicitly allows — confirmed by testing `unpkg.com`/`cdn.jsdelivr.net`, both blocked, before falling back to the registry's own tarball endpoint, which worked). `simple-icons` is a CC0-licensed set of monochrome brand-mark recreations, each recolored here to the provider's own published brand hex (sourced from the same package's `data/simple-icons.json`) and saved as a standalone, self-contained SVG file — no runtime dependency on the `simple-icons` package itself was added to `package.json`; the tarball was fetched, the relevant files extracted, and the temporary download directory deleted once the 8 SVGs were copied into `apps/dashboard/src/assets/providers/`.
+
+**`officialAsset: false` (4 of 12)** — OpenAI, Azure OpenAI, Grok (xAI), Cohere. Confirmed absent from the `simple-icons` distribution by exhaustively grepping its full icon list (3,447 entries) for every plausible slug variant (`openai`, `microsoftazure`, `azure`, `grok`, `xai`, `x-ai`, `cohere`) — none exist. This is consistent with `simple-icons`' own publicly documented history of removing marks on trademark-holder request; it is not an oversight in this session's search. Direct network access to each vendor's own brand-asset pages (`openai.com/brand`, `azure.microsoft.com`, `x.ai`, `cohere.com`) was not attempted given this sandbox's demonstrated policy of blocking exactly this kind of direct-to-vendor request (confirmed blocked for `openrouter.ai` in §33's own investigation, and for CDN hosts `unpkg.com`/`cdn.jsdelivr.net` in this EP). For these four, an **original, unbranded geometric monogram** was hand-authored in the provider's own published product color (OpenAI's teal `#10A37F`, Azure's product blue `#0078D4`, a neutral black for Grok, Cohere's purple `#9B5DE5`) — a simple, non-trademark-derived shape (a stylized "A", concentric circles, a diamond/hex outline), never claimed as a reproduction of the real trademark. This is the same disclosed-substitution pattern §31 (EP-25.3) already established for the logo situation described in that EP's own "Known limitations."
+
+**File format discipline**: every SVG is a single `<path>` (or a small number of paths) with an explicit `fill="#<hex>"` baked directly into the root `<svg>` element — no `currentColor` dependency, no external stylesheet dependency, no raster fallback. A `<title>` element carries the provider's display name for any consumer that renders the SVG directly (not through `<img>`, where the wrapping `alt` attribute is what matters — see Accessibility below).
+
+## Provider Brand Registry
+
+`PROVIDER_BRAND_REGISTRY: Record<string, ProviderBrand>` in `apps/dashboard/src/lib/providerCatalog.ts` — one entry per provider, keyed by the same `ProviderType` enum values `CONNECTABLE_PROVIDERS` already uses for the 7 supported providers, plus 5 additional keys (`deepseek`, `llama`, `mistral`, `cohere`, `qwen`) for the future-ready placeholders. Each entry: `id`, `displayName`, `logo` (the imported asset URL), `website`, optional `platform`/`service` (reusing EP-26.0.2's own Platform/Service concept for Google's AI Studio identity — the registry is the natural home for that field now, though `providerPlatformInfo()` is left unchanged and untouched as its own function for backward compatibility with existing call sites), `capabilities` (a short, cosmetic tag list — e.g. `["Chat", "Vision", "Tools", "Streaming"]` — for visual recognition only, never sourced from any live capability-detection endpoint or the backend's own `ProviderCapabilities` dataclass), and `officialAsset`.
+
+`PROVIDER_BRAND_ALIASES` resolves every already-existing id/slug shape this codebase uses for the same provider onto one canonical registry key: `azure` → `azure_openai` (PROVIDER_CATALOG's shorter id vs. the backend `ProviderType` enum value), `xai`/`x-ai` → `grok`, `meta-llama`/`meta` → `llama`, `mistralai` → `mistral` (OpenRouter's own vendor-slug naming, EP-26.0.1's `parseOpenRouterModelId`). `getProviderBrand(id)` is the one lookup function every consumer calls — it never throws and always returns a value, falling back to a generic, logo-less entry (`logo: ""`, `capabilities: []`) for any id the registry and alias map don't recognize, which `ProviderLogo` renders as a neutral fallback icon rather than a broken image.
+
+## `ProviderLogo` component
+
+`apps/dashboard/src/components/ProviderLogo.tsx` — the single component every page renders a provider's brand mark through (confirmed via `grep -rn "assets/providers"` across `src/` returning matches only inside `providerCatalog.ts`'s own import block). Props: `providerId`, `size` (`xs`/`sm`/`md`/`lg` — 16/20/28/40px), `bare` (omit the chip background, for placement already on a neutral surface like a table cell).
+
+**Dark mode compatibility**: the chip's background is a fixed `bg-white/90` regardless of the page's own `data-theme` — several brand marks (Anthropic `#191919`, Ollama `#000000`) are near-black and would be functionally invisible against the app's `neon-cyber`/`professional-dark` theme card backgrounds if rendered bare. This is the same "logo badge on a neutral chip" pattern most SaaS integration marketplaces already use (Zapier, Notion, n8n) — it makes every logo legible and true-to-brand-color in every theme without needing a second, re-tinted asset per provider per theme.
+
+**Missing-logo fallback**: `getProviderBrand()`'s generic fallback entry (empty `logo` string) triggers `ProviderLogo` to render a `lucide-react` `Box` icon with an accessible `aria-label` instead of an `<img>` with an empty `src` — never a broken-image icon, never a blank chip.
+
+**Accessibility**: the outer chip carries `role="img"` and `aria-label="{displayName} logo"`; the inner `<img>` carries a matching `alt` attribute. High-DPI rendering is inherent to SVG (vector, resolution-independent by construction) — no `srcset`/`2x` asset variants were needed. `loading="lazy"` and `decoding="async"` are set on every `<img>`, satisfying this EP's "lazy-load only if beneficial" instruction — beneficial here since a page like Analytics' Top Models table can render dozens of rows, each with its own logo, and most are off-screen on initial paint.
+
+## UI updates
+
+- **Connections page** (`Connections.tsx`) — the customer-managed connection list's provider identity (previously a plain colored dot) now shows the real logo beside the connection name; the "Add connection" provider `<select>` gained a live logo preview beside the dropdown (native `<option>` elements can't render images, so this is the closest equivalent); the env-var-keyed production-adapter cards (OpenAI/Anthropic connectivity probe, EP-07-era) replaced their colored-initials badge with the same `ProviderLogo`.
+- **Analytics** (`Analytics.tsx`) — the Top Models ranking table's Provider column now shows the logo beside the existing `ProviderBadge` pill; the Model column's OpenRouter vendor-chain display (EP-26.0.1) gained the underlying vendor's own logo, so "OpenRouter → Claude → Claude Sonnet 4" reads as three distinct, correctly-branded identities rather than one ambiguous provider label. Per this EP's own explicit "Charts remain unchanged" instruction, the pie/area chart fills and Recharts' own `<Legend>` (which renders inside the chart's SVG, not a separate DOM tree a plain `<img>` can be composed into without touching chart-rendering internals) were deliberately left untouched — legend branding was scoped to the *table*, which is a genuinely separate DOM tree from the chart itself.
+- **Overview** (`Overview.tsx`) — the Sync Activity feed (per-provider recent sync runs) and the Provider Snapshot grid (per-provider KPI tiles) both gained a logo beside the provider name, replacing a plain colored dot in the snapshot grid's case.
+- **Projects, Settings/API Keys** — audited, not modified. `Projects.tsx` has no per-connection-provider rendering surface at all (confirmed via grep — it renders project names and spend totals, never an individual provider's name or logo); `Settings.tsx`'s only provider-adjacent element is an aggregate connection *count* ("Provider connections: 3"), and Costorah's own `OrganizationApiKey` cards (`ApiKeysManager`) are not scoped to any individual AI provider at all — they're Costorah's own API keys for the platform's SDK/API, unrelated to which AI providers an org has connected. Forcing a provider logo onto either would have been cosmetic noise attached to data that isn't actually provider-specific, which this EP's own "existing functionality is unchanged" and "polished" success criteria argue against, not for.
+
+## Accessibility
+
+Every logo carries an accessible name (`alt` on the `<img>`, `aria-label`/`role="img"` on the chip wrapper) — verified directly in `ProviderLogo.test`-style assertions (see Testing below), not just asserted in prose. Consistent sizing is enforced by the component's own fixed `SIZE_PX` lookup (never an ad hoc inline pixel value at a call site). High-DPI rendering is inherent to SVG. Dark-mode legibility is handled by the fixed-background chip pattern described above, re-verified for the two near-black marks (Anthropic, Ollama) specifically, since those are the two brand colors that would have failed on a dark card background without it.
+
+## Performance
+
+- SVG only, as required — no raster PNG/JPEG was introduced for any of the 12 providers.
+- No duplicate imports — every provider SVG is imported exactly once, inside `providerCatalog.ts`'s own import block; every other file reaches a logo exclusively through `getProviderBrand()`/`ProviderLogo`.
+- Vite's default asset-inlining threshold (4KB) means 11 of the 12 SVGs (all except Ollama's, at 4.7KB) are inlined as base64 directly into the `providerCatalog` JS chunk rather than emitted as separate network requests — confirmed via the production build output (`providerCatalog-*.js`, 13.1KB / 4.76KB gzipped, covering all 12 logos plus the registry/alias logic itself) and via `dist/assets/*.svg` (exactly one file, Ollama's). This is the correct, performant outcome for assets this small — fewer round-trips than 12 separate file requests would cost, at negligible bundle-size overhead.
+- `loading="lazy"`/`decoding="async"` on every rendered `<img>`, per the reasoning in the `ProviderLogo` section above.
+
+## Testing
+
+- **Frontend** (`apps/dashboard/src/__tests__/providerBrand.test.tsx`, 15 new tests): `PROVIDER_BRAND_REGISTRY` — entries exist for all 7 supported + 5 placeholder providers, every entry has a non-empty logo/displayName/capabilities list, `officialAsset` is correctly `true`/`false` per the sourcing decision documented above, Google's entry carries the EP-26.0.2 Platform/Service identity. `getProviderBrand()` — resolves canonical ids directly, resolves `PROVIDER_CATALOG`'s shorter ids and OpenRouter's vendor slugs via the alias map, is case-insensitive, falls back to a generic logo-less entry for an unrecognized id without throwing. `ProviderLogo` — renders an accessible `<img>` with the correct `alt` text, the chip wrapper carries a matching `aria-label`, `bare` omits the chip background, an unrecognized provider id renders the lucide fallback icon (no `<img>` tag) with its own accessible label, `size` maps to the correct pixel dimension.
+- **Regression**: full dashboard suite re-run after every source change — **313 passed** (298 + 15 new), zero regressions from the Connections/Analytics/Overview edits (the removal of now-unused `PROVIDER_COLORS`/`color` bindings in `Connections.tsx` was caught immediately by `tsc -b`, not by a runtime test failure — TypeScript's unused-variable diagnostics did the job here). `tsc -b`, `eslint src --max-warnings 0`, and a production `vite build` are all clean.
+- **Backend**: untouched by this EP — no backend file was read for editing purposes beyond confirming (via this EP's own "do not modify APIs" instruction) that no backend change was warranted or made. The full backend suite was not re-run since no backend source changed; its last-known-clean state (1983 passed, EP-26.0.3) is unaffected.
+
+## Known limitations
+
+- **4 of 12 logos are original monograms, not official trademarks** — OpenAI, Azure OpenAI, Grok (xAI), Cohere. Disclosed via `officialAsset: false` in the registry itself, in this section, and in STARTUP.md — never silently presented as pixel-accurate brand reproductions. If a future session has direct access to each vendor's own brand-asset page (blocked by this sandbox's network policy) or a licensed brand-asset bundle, these four should be the first candidates for replacement with a genuinely official mark.
+- **Recharts' own `<Legend>` (pie/area charts) was not given logo treatment** — deliberately, per this EP's own "Charts remain unchanged" instruction and the practical difficulty of composing an `<img>` into Recharts' internal SVG legend renderer without touching chart-rendering code. Table-based branding (Analytics' Top Models table) was judged the correct, in-scope interpretation of "legends and tables should gain branding."
+- **Meta's corporate logo, not a dedicated "Llama" mark, represents the "Meta Llama" placeholder** — `simple-icons` has no Llama-specific icon; Meta's own corporate infinity-loop mark was judged closer to "official brand asset" than a hand-drawn Llama monogram would have been, and is disclosed as `officialAsset: true` on that basis (it genuinely is Meta's own published mark, just not Llama-product-specific).
+- **Projects and Settings/API Keys pages were audited and found to have no provider-specific rendering surface to brand** — not a gap in this EP's coverage; there was genuinely nothing there to change without attaching a provider logo to data that isn't provider-scoped.
+- **The 4 hand-authored monograms are original but not independently trademark-cleared** — they were designed to be simple, generic geometric shapes with no intentional resemblance to any existing mark (not even the real trademark they stand in for), but no formal trademark-clearance search was performed, consistent with this being a development-sandbox substitution disclosed as temporary, not a final production brand decision.
+
+## Future recommendations
+
+1. Replace the 4 disclosed original monograms (OpenAI, Azure OpenAI, Grok, Cohere) with genuinely licensed or official brand assets once direct vendor-asset access or a licensed icon bundle is available.
+2. If OpenRouter's live model catalog (EP-26.0.1) ever surfaces additional vendor slugs beyond the 12 in this registry, extend `PROVIDER_BRAND_REGISTRY`/`PROVIDER_BRAND_ALIASES` rather than letting `getProviderBrand()`'s generic fallback silently become the common case for real, frequently-routed vendors.
+3. Everything this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.

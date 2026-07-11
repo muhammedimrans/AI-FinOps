@@ -33,6 +33,7 @@ import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge from "../components/ProviderBadge";
+import ProviderLogo from "../components/ProviderLogo";
 import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, parseOpenRouterModelId } from "../lib/providerCatalog";
 import { useTimeSeries, useModels, useProviders, useProjects, useHeatmap } from "../hooks/useDashboard";
 import { linearForecast, detectAnomalies } from "../lib/insights";
@@ -282,7 +283,12 @@ export default function Analytics() {
       }),
       columnHelper.accessor("provider", {
         header: "Provider",
-        cell: (info) => <ProviderBadge provider={info.getValue()} size="sm" />,
+        cell: (info) => (
+          <div className="flex items-center gap-1.5">
+            <ProviderLogo providerId={info.getValue()} size="xs" />
+            <ProviderBadge provider={info.getValue()} size="sm" />
+          </div>
+        ),
       }),
       columnHelper.accessor("model_id", {
         header: "Model",
@@ -293,12 +299,16 @@ export default function Analytics() {
           // rather than pretending the request belongs directly to that
           // vendor (CLAUDE.md's EP-26.0.1 Part 5). Every other provider's
           // model_id is unaffected — parseOpenRouterModelId only applies
-          // when provider === "openrouter".
+          // when provider === "openrouter". EP-26.0.4 additionally shows
+          // the underlying vendor's own logo, so "OpenRouter -> Claude ->
+          // Claude Sonnet 4" is never confused with a direct Anthropic
+          // connection despite sharing the same visual identity element.
           if (info.row.original.provider === "openrouter") {
             const parsed = parseOpenRouterModelId(info.getValue());
             if (parsed) {
               return (
-                <span className="font-mono text-xs text-tx-primary">
+                <span className="flex items-center gap-1.5 font-mono text-xs text-tx-primary">
+                  <ProviderLogo providerId={parsed.vendorSlug} size="xs" bare />
                   <span className="text-tx-muted">{parsed.vendorLabel}</span>{" "}
                   {modelDisplayName(parsed.modelSlug)}
                 </span>

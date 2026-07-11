@@ -43,6 +43,7 @@ import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import LiveActivityFeed from "../components/LiveActivityFeed";
 import CriticalAlertBanner from "../components/CriticalAlertBanner";
+import ProviderLogo from "../components/ProviderLogo";
 import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
@@ -390,6 +391,7 @@ function RunRow({ run }: { run: ActivityRunItem }) {
   const failed = run.status === "failed";
   return (
     <li className="flex items-center gap-2.5 py-2 border-b border-border-subtle last:border-0">
+      <ProviderLogo providerId={run.provider} size="xs" bare />
       <span
         className={cn(
           "w-1.5 h-1.5 rounded-full flex-shrink-0",
@@ -1087,10 +1089,7 @@ export default function Overview() {
                     className="rounded-xl border border-border-subtle bg-app-bg p-3 transition-shadow duration-base hover:shadow-card"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-2 h-2 rounded-full flex-shrink-0"
-                        style={{ background: PROVIDER_COLORS[p.provider] ?? chrome.primary }}
-                      />
+                      <ProviderLogo providerId={p.provider} size="xs" bare />
                       <span className="truncate text-xs font-medium text-tx-secondary">
                         {providerDisplayName(p.provider)}
                       </span>

@@ -88,6 +88,14 @@ The Overview page shows real-time KPI cards (total spend, today's spend, this mo
 
 Costorah has a real, working adapter for 7 providers. Every one of them supports **live credential validation** and goes through the **identical background sync pipeline** (checkpointing, retries, scheduling) — there is no special-cased "second-class" provider in how connections are managed. What genuinely differs between providers is whether Costorah can pull **usage volume** from them at all, because that depends entirely on whether the provider itself exposes a bulk, organization-level usage-history API — something outside Costorah's control.
 
+### Visual identity / provider recognition (EP-26.0.4)
+
+Every provider Costorah connects to — the 7 supported today, plus 5 future-ready placeholders (DeepSeek, Meta Llama, Mistral, Cohere, Qwen) reserved for when a real adapter exists — has a real logo mark, not just a colored dot and a text label. Logos appear consistently across the Connections page, dashboard widgets (Overview's Provider Snapshot and Sync Activity feed), and Analytics' provider/model tables — so a customer scanning any of these screens recognizes a provider by its mark, not just by reading its name.
+
+**Brand assets.** Every logo is a locally-stored SVG file under `apps/dashboard/src/assets/providers/` — never a hotlinked image, never a CDN reference, never a raster PNG. 8 of the 12 assets (Anthropic, Google Gemini, OpenRouter, Ollama, DeepSeek, Meta Llama, Mistral, Qwen) are real, official-style brand marks sourced from [simple-icons](https://simpleicons.org) (a CC0-licensed, redistributable set of brand-icon recreations), recolored to each provider's own published brand hex and stored locally. **4 of the 12 (OpenAI, Azure OpenAI, Grok/xAI, Cohere) do not have a redistributable official mark available** — these four have been removed from simple-icons' own distribution (a documented trademark-holder-driven removal, not an oversight on Costorah's side), and this environment's network policy blocks direct access to each vendor's own brand-asset pages. For these four, Costorah uses an original, unbranded geometric monogram in the provider's own published product color — disclosed as such in the Provider Brand Registry (`officialAsset: false`), never presented as a pixel-accurate reproduction of a trademark. See CLAUDE.md's EP-26.0.4 section for the full sourcing methodology and provenance of every asset.
+
+**Provider recognition in the UI.** Every provider logo renders inside a small, fixed-background "chip" (the same pattern most SaaS integration marketplaces use — Zapier, Notion, n8n) so brand marks stay legible in both light and dark theme regardless of how dark or light the mark's own color is. OpenRouter-routed models show a three-level identity chain — **OpenRouter → underlying vendor's own logo → the specific model** (e.g. OpenRouter → Anthropic's mark → "Claude Sonnet 4") — so a request routed through OpenRouter is never visually confused with a direct connection to the vendor actually serving it.
+
 | Provider | Auth type | Credential validation | Usage volume import | Notes |
 |---|---|---|---|---|
 | OpenAI | API key | ✅ Live (`GET /v1/models`) | ✅ Real (`GET /v1/organization/usage/completions`) | Full production support |
@@ -141,6 +149,22 @@ For each provider, the sections below cover: supported authentication, where to 
 - Usage import's actual data depends on your specific API key's permission level (see above) — this is the one provider connection where "0 records imported" doesn't unambiguously mean "no usage happened."
 - OpenRouter's own credential-validation endpoint (`GET /models`) is unauthenticated on OpenRouter's side — a successful connection save confirms the key is reachable and well-formed, not that it's genuinely valid (a truly invalid key is only caught the first time it's actually used to make a request).
 - Costorah does not fabricate a vendor/model breakdown from any aggregate number — if usage import isn't working for your key, you will see zero records, never an invented estimate.
+
+### Provider Validation Matrix (EP-26.0.2.1)
+
+Every row below was verified by reading and exercising the actual adapter/service code for that provider (unit + lifecycle tests, all hermetic via mocked HTTP transports — see CLAUDE.md's EP-26.0.2.1 section for the full methodology). No live OpenAI/Anthropic/Google/OpenRouter/Azure/Grok credential was available in this sandbox at validation time; every "✅" below reflects a passing, mocked-but-realistic test exercising the real code path, not an assumption.
+
+| Provider | Historical Usage | Live Sync (pipeline runs) | Model Discovery | Health Check | Scheduler | Analytics | Budgets | Alerts | Known Limitations | Recommended Account Type |
+|---|---|---|---|---|---|---|---|---|---|---|
+| OpenAI | ✅ Real | ✅ | ✅ Live (`GET /v1/models`) | ✅ Live | ✅ | ✅ | ✅ | ✅ | None beyond needing an org-level key with usage-read access. | Standard API key, org billing enabled. |
+| Anthropic | ✅ Real | ✅ | ✅ Live (`GET /v1/models`) | ✅ Live | ✅ | ✅ | ✅ | ✅ | Usage import requires an **Admin**-scoped key (`GET /v1/usage`) — a normal workspace key can validate and sync but will import 0 records. | An **Admin** API key, not a regular workspace key. |
+| Google Gemini (AI Studio) | ⬜ Unavailable (no bulk usage API on this credential) | ✅ (runs the real pipeline, imports 0 records honestly) | ✅ Live (`GET /v1beta/models`, paginated, EP-26.0.2) | ✅ Live | ✅ | ✅ (renders correctly with 0 usage) | ✅ (usable, will just never trigger from Gemini spend) | ✅ (usable, same caveat) | No usage/cost data, ever, on this credential — a real Google platform gap, not a Costorah defect. See §3's Google walkthrough. | Any AI Studio key — this limitation is independent of account tier. |
+| OpenRouter | 🟡 Attempted, real when the key has permission | ✅ | ✅ Live (`GET /models`) | ✅ Live (but unauthenticated on OpenRouter's side, so it only confirms reachability, not validity) | ✅ | ✅ | ✅ | ✅ | Usage import depends on the key's permission level for `GET /api/v1/activity` — see §3's OpenRouter walkthrough; not fully confirmed against a live account. | A key with confirmed "management"-level access, if you want real usage import; a standard key still works for validation/model-browsing. |
+| Azure OpenAI | ⬜ Unavailable (cost data lives in Azure Cost Management, a different credential) | ✅ (runs the real pipeline, imports 0 records honestly) | 🟡 Static list (verified via code read — `list_models()` is not a live catalog call; health check *is* live against the deployments endpoint) | ✅ Live (deployments list) | ✅ | ✅ (renders correctly with 0 usage) | ✅ | ✅ | Requires both an API key and the resource endpoint (`base_url`) to validate at all — a config-validation failure, not a network error, if the endpoint is missing. Model discovery is a static list, unlike OpenAI/Anthropic/Google/OpenRouter/Ollama's live catalogs — a real gap this EP found, not previously documented; see CLAUDE.md's EP-26.0.2.1 section. | An Azure OpenAI resource with at least one deployed model. |
+| Grok (xAI) | ⬜ Unavailable (no documented bulk usage endpoint) | ✅ (runs the real pipeline, imports 0 records honestly) | 🟡 Static list (verified via code read — `list_models()` is not a live catalog call) | ✅ Live | ✅ | ✅ (renders correctly with 0 usage) | ✅ | ✅ | No usage/cost data — an xAI platform gap. Model discovery is a static list, same gap-class as Azure above. | Any xAI API key. |
+| Ollama | ⬜ N/A (free, local, no billing concept) | ✅ (runs the real pipeline, imports 0 records honestly) | ✅ Live (`GET /api/tags`) | ✅ Live (reachability only — no credential to validate) | ✅ | ✅ (renders correctly with 0 usage) | ✅ (usable, will just never trigger) | ✅ (usable, same caveat) | "Health check" here means "is the server reachable," not "is a secret correct" — Ollama has no secret. | A reachable, running local/LAN Ollama server — no account needed. |
+
+**Reading this table**: every ✅ in every column except "Historical Usage" means the code path is real, wired, and was exercised (by real tests against realistic mocked responses, or by reading and confirming the shared pipeline it reuses) — not that live usage data flows for that provider. "Live Sync (pipeline runs)" is deliberately a separate column from "Historical Usage": every provider without exception goes through the identical `ProviderSyncService` → `UsageCollectionService` pipeline on every sync (EP-24.3), so "the sync ran successfully" and "usage records were imported" are two different, independently-true-or-false facts — a provider can be ✅ on the former and ⬜ on the latter, and the dashboard is designed to make that distinction visible (via the "Usage API"/"No usage API" badge and each connection's own sync status) rather than implying usage exists where it doesn't.
 
 ---
 
@@ -466,4 +490,55 @@ No — a provider connection belongs to exactly one workspace (organization). If
 
 ---
 
-*This document reflects the implementation as of the EP-25.3 milestone. See `CLAUDE.md` for the full engineering changelog and the "Future Roadmap — EP-26" section for what's planned but not yet built.*
+## 18. Production Deployment Guide (EP-26.0.3)
+
+This section is written for whoever actually deploys Costorah, not for a developer running it locally (§2 already covers that). See `RELEASE_CHECKLIST.md` (repo root) for the full pre-launch checklist this section supports.
+
+### Required environment variables
+
+| Variable | Required in production? | Purpose |
+|---|---|---|
+| `DATABASE_URL` | ✅ Always | Neon (or any Postgres) connection string, `postgresql+asyncpg://...` |
+| `REDIS_URL` (or `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`) | Strongly recommended | Backs rate limiting, the scheduler's cross-process lock, and the realtime event bus — all three degrade gracefully without Redis (documented, tested fallback behavior), but a production deployment without it loses cross-instance coordination |
+| `APP_SECRET_KEY` | ✅ Always in production | Root of `EncryptionService` (credential encryption at rest) — boot refuses to start with the dev default when `APP_ENV=production` |
+| `APP_SECRET_KEY_PREVIOUS` | Only during a key rotation | Lets old ciphertext keep decrypting during a rotation window |
+| `JWT_SECRET` | ✅ Always in production | Signs access tokens — same production-default-refusal enforcement as `APP_SECRET_KEY` |
+| `SESSION_COOKIE_DOMAIN` | ✅ For the website↔dashboard subdomain flow | Set to `.costorah.com` in production so the session cookie is valid on both `costorah.com` and `app.costorah.com` (§6). Left unset it defaults to host-only, which is correct for local dev but breaks the cross-subdomain handoff in production. |
+| `RESEND_API_KEY` / `EMAIL_FROM` | ✅ Always in production | Boot refuses to start without both when `APP_ENV=production` — verification, password-reset, and invitation emails have no transport otherwise |
+| `RESEND_WEBHOOK_SECRET` | Recommended | Enables the delivery-event webhook receiver (`POST /v1/webhooks/resend`, EP-25.3) — without it the endpoint returns 503 rather than accepting unverifiable payloads |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional | "Continue with Google" is additive, not required — omitting these returns 503 on the Google OAuth start/link endpoints but never breaks password auth |
+| `SCHEDULER_ENABLED` | Optional (default `True`) | Set to `False` only if you deliberately want no background sync (e.g. a read-only staging mirror) |
+| `SCHEDULER_TICK_INTERVAL_SECONDS` | Optional (default `60`) | How often the scheduler checks which organizations are due |
+| `API_CORS_ORIGINS` | ✅ Always in production | Must include the real `https://costorah.com`, `https://www.costorah.com`, `https://app.costorah.com` — a missing entry here surfaces to users as a generic "Could not reach the server." (§10's own documented incident) |
+| `DASHBOARD_URL` | ✅ Always in production | The website's post-auth redirect target and the target embedded in invitation/verification email links |
+| `API_BASE_URL` | ✅ Always in production | Used to build absolute links in emails |
+
+Never commit real values for any of these — `backend/.env.example` documents every variable with a placeholder; `backend/.env` (gitignored) holds real local-dev values only.
+
+### Provider onboarding (production)
+
+Every provider's own account-creation and API-key-generation walkthrough lives in §3–§11 above (OpenAI, Anthropic, Google, OpenRouter, Azure, Grok, Ollama). Nothing about onboarding a *production* connection differs from a development one — the same encrypted-credential storage, live validation, and sync pipeline runs identically in both environments; the only production-specific consideration is making sure `RESEND_API_KEY`/`EMAIL_FROM` are set so the invitation/verification emails those workflows depend on actually send (see above).
+
+### Troubleshooting (production-specific)
+
+- **"Could not reach the server." on login/signup from the website** — almost always a missing `API_CORS_ORIGINS` entry for the exact origin the request came from (`www.` vs. bare domain matters), not a real outage. See §10's full incident writeup for the exact diagnostic steps.
+- **A freshly-deployed backend crashes on boot with `ModuleNotFoundError: No module named 'cryptography'`** — a real, previously-shipped incident (EP-22.1, §15): confirm the deploy's build step ran `pip install -e "."` against the *declared* production dependencies, not a dev venv that happened to have `cryptography` installed transitively. Fixed in the dependency declaration since EP-22.1; only relevant if deploying from a commit that predates it.
+- **Website nav routes 404 in production but work locally** — a Cloudflare **project-type** mismatch (Pages vs. Workers), not an application bug; see §10's deployment checklist.
+- **A provider connection stays "healthy" but never imports usage** — check the Provider Validation Matrix in §3 first; for 4 of 7 providers (Google, Azure, Grok, Ollama) this is expected, permanent, honest behavior, not a bug to chase.
+- **Scheduler never seems to run** — confirm `SCHEDULER_ENABLED` isn't set to `False`, and check `GET /v1/organizations/{org_id}/provider-connections/scheduler/status` for the org's own `auto_sync_enabled`/interval settings (Settings → Workspace tab).
+- **Emails never arrive** — confirm `RESEND_API_KEY`/`EMAIL_FROM` are actually set in the deployed environment (not just `.env.example`); a missing key doesn't error, it silently logs `email_send_skipped_unconfigured` and the request that triggered it still succeeds (by design — registration/reset must never block on email transport, §24).
+
+### Known provider limitations (production)
+
+Unchanged from §3's own Provider Validation Matrix — repeated here because it's the single most common source of a "is this broken?" support question: **Google, Azure OpenAI, Grok, and Ollama will never show non-zero historical usage**, by design, because none of those four platforms exposes a bulk usage-history API on the credential type Costorah connects to. This is a real, external platform constraint, not a Costorah defect — see §3 for the full per-provider explanation and CLAUDE.md's EP-26.0.2.1/EP-26.0.3 sections for the underlying validation evidence.
+
+### Production recommendations
+
+1. Before inviting external beta users, perform at least one real Connect → Validate → Sync walkthrough against a live OpenAI or Anthropic account on the actual deployed environment — every provider's code has been validated hermetically (mocked HTTP against researched, realistic response shapes) but never against a live account from within this development sandbox. See `RELEASE_CHECKLIST.md`'s "Go / No-Go Decision" for the full reasoning.
+2. Confirm Redis is genuinely reachable in production, not just configured — the scheduler's cross-process locking and the login rate limiter both degrade to weaker, single-process behavior without it (safe, documented, but not the intended production posture).
+3. Re-run `alembic upgrade head` against the real production database as part of every deploy, not just in CI against a throwaway instance.
+4. Monitor `/health` and `/ready` from your load balancer/uptime tooling — both already report Postgres and Redis connectivity, no additional instrumentation needed to start.
+
+---
+
+*This document reflects the implementation as of the EP-26.0.3 milestone. See `CLAUDE.md` for the full engineering changelog, `RELEASE_CHECKLIST.md` for the pre-launch checklist, and the "Future Roadmap — EP-26" section for what's planned but not yet built.*

@@ -1,3 +1,16 @@
+import openaiLogo from "../assets/providers/openai.svg";
+import anthropicLogo from "../assets/providers/anthropic.svg";
+import googleGeminiLogo from "../assets/providers/google-gemini.svg";
+import openrouterLogo from "../assets/providers/openrouter.svg";
+import azureOpenaiLogo from "../assets/providers/azure-openai.svg";
+import ollamaLogo from "../assets/providers/ollama.svg";
+import grokLogo from "../assets/providers/grok.svg";
+import deepseekLogo from "../assets/providers/deepseek.svg";
+import llamaLogo from "../assets/providers/llama.svg";
+import mistralLogo from "../assets/providers/mistral.svg";
+import cohereLogo from "../assets/providers/cohere.svg";
+import qwenLogo from "../assets/providers/qwen.svg";
+
 // Full catalog of AI providers the Costorah UI can display. Only the ids in
 // `SUPPORTED_PROVIDER_IDS` are backed by real backend cost data — the rest
 // render as "not connected" placeholders so the Providers page reflects the
@@ -145,4 +158,191 @@ export const PROVIDER_PLATFORM_INFO: Record<string, ProviderPlatformInfo> = {
 
 export function providerPlatformInfo(providerType: string): ProviderPlatformInfo | null {
   return PROVIDER_PLATFORM_INFO[providerType] ?? null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EP-26.0.4 — Centralized Provider Brand Registry.
+//
+// UI-only: purely a display concern (name/logo/website/platform/service/
+// capability tags). Never touches the Provider Framework, the backend API,
+// or ProviderConnection's schema — capabilities here are a short, cosmetic
+// tag list for recognition, not sourced from any live capability-detection
+// endpoint. Every logo asset is an SVG stored locally under
+// src/assets/providers/ (never a CDN/hotlinked URL, never a raster PNG),
+// imported once here and consumed everywhere else through this registry —
+// no component imports a provider SVG directly (verified: `grep -rn
+// "assets/providers"` outside this file returns nothing).
+//
+// `officialAsset: true` — an unmodified (only recolored to the brand's own
+// published hex) SVG sourced from simple-icons (CC0-licensed icon
+// recreations of real trademarks, npm package `simple-icons`, MIT/CC0),
+// fetched from the public npm registry in this session. `officialAsset:
+// false` — no redistributable official mark could be sourced for that
+// provider in this environment (OpenAI, Azure, Grok/xAI, and Cohere have
+// all been removed from simple-icons' own distribution, and this sandbox's
+// network policy blocks direct access to each vendor's own brand-asset
+// pages) — these four are original, unbranded geometric monograms in the
+// provider's own published product color, disclosed here rather than
+// silently presented as pixel-accurate trademarks. See CLAUDE.md's
+// EP-26.0.4 section for the full sourcing methodology.
+export interface ProviderBrand {
+  id: string;
+  displayName: string;
+  logo: string;
+  website: string;
+  platform?: string;
+  service?: string;
+  capabilities: string[];
+  officialAsset: boolean;
+}
+
+export const PROVIDER_BRAND_REGISTRY: Record<string, ProviderBrand> = {
+  openai: {
+    id: "openai",
+    displayName: "OpenAI",
+    logo: openaiLogo,
+    website: "https://openai.com",
+    service: "Chat Completions API",
+    capabilities: ["Chat", "Vision", "Tools", "Streaming"],
+    officialAsset: false,
+  },
+  anthropic: {
+    id: "anthropic",
+    displayName: "Anthropic",
+    logo: anthropicLogo,
+    website: "https://anthropic.com",
+    service: "Claude API",
+    capabilities: ["Chat", "Vision", "Tools", "Streaming"],
+    officialAsset: true,
+  },
+  google: {
+    id: "google",
+    displayName: "Google Gemini",
+    logo: googleGeminiLogo,
+    website: "https://ai.google.dev",
+    platform: "AI Studio",
+    service: "Gemini API",
+    capabilities: ["Chat", "Vision", "Audio", "Tools", "Streaming"],
+    officialAsset: true,
+  },
+  openrouter: {
+    id: "openrouter",
+    displayName: "OpenRouter",
+    logo: openrouterLogo,
+    website: "https://openrouter.ai",
+    service: "Unified Chat Completions Gateway",
+    capabilities: ["Chat", "Vision", "Tools", "Streaming", "Multi-vendor"],
+    officialAsset: true,
+  },
+  azure_openai: {
+    id: "azure_openai",
+    displayName: "Azure OpenAI",
+    logo: azureOpenaiLogo,
+    website: "https://azure.microsoft.com/products/ai-services/openai-service",
+    platform: "Azure AI",
+    service: "OpenAI Service",
+    capabilities: ["Chat", "Vision", "Tools", "Streaming"],
+    officialAsset: false,
+  },
+  grok: {
+    id: "grok",
+    displayName: "Grok (xAI)",
+    logo: grokLogo,
+    website: "https://x.ai",
+    service: "Chat Completions API",
+    capabilities: ["Chat", "Tools", "Streaming"],
+    officialAsset: false,
+  },
+  ollama: {
+    id: "ollama",
+    displayName: "Ollama",
+    logo: ollamaLogo,
+    website: "https://ollama.com",
+    service: "Local Model Runtime",
+    capabilities: ["Chat", "Streaming", "Self-hosted"],
+    officialAsset: true,
+  },
+  // Future-ready placeholders — registry entries only, per this EP's own
+  // scope: no adapter, no connection type, no backend ProviderType member
+  // exists for any of these five yet. Present so a future connectable
+  // provider can be wired in without a second branding pass, and so
+  // OpenRouter's underlying-vendor display (Analytics' Top Models table,
+  // EP-26.0.1) can show a real logo for the vendor behind a routed model.
+  deepseek: {
+    id: "deepseek",
+    displayName: "DeepSeek",
+    logo: deepseekLogo,
+    website: "https://deepseek.com",
+    capabilities: ["Chat", "Tools", "Reasoning"],
+    officialAsset: true,
+  },
+  llama: {
+    id: "llama",
+    displayName: "Meta Llama",
+    logo: llamaLogo,
+    website: "https://llama.meta.com",
+    capabilities: ["Chat", "Tools", "Open-weight"],
+    officialAsset: true,
+  },
+  mistral: {
+    id: "mistral",
+    displayName: "Mistral",
+    logo: mistralLogo,
+    website: "https://mistral.ai",
+    capabilities: ["Chat", "Tools", "Streaming"],
+    officialAsset: true,
+  },
+  cohere: {
+    id: "cohere",
+    displayName: "Cohere",
+    logo: cohereLogo,
+    website: "https://cohere.com",
+    capabilities: ["Chat", "Embeddings", "Tools"],
+    officialAsset: false,
+  },
+  qwen: {
+    id: "qwen",
+    displayName: "Qwen",
+    logo: qwenLogo,
+    website: "https://qwenlm.ai",
+    capabilities: ["Chat", "Tools", "Open-weight"],
+    officialAsset: true,
+  },
+};
+
+// Aliases resolve every id/slug this codebase already uses for the same
+// provider onto one canonical registry key — CONNECTABLE_PROVIDERS'
+// backend-enum values ("azure_openai"), PROVIDER_CATALOG's shorter ids
+// ("azure", "xai"), and OpenRouter's vendor slugs ("meta-llama", "x-ai",
+// "mistralai") all resolve to the same brand entry, so every surface in
+// the app looks up a provider's logo the same way regardless of which
+// string shape that surface happens to already carry.
+const PROVIDER_BRAND_ALIASES: Record<string, string> = {
+  azure: "azure_openai",
+  xai: "grok",
+  "x-ai": "grok",
+  "meta-llama": "llama",
+  meta: "llama",
+  mistralai: "mistral",
+};
+
+/**
+ * Resolve a provider id/slug (any shape already used in this codebase —
+ * ProviderType enum value, PROVIDER_CATALOG id, or an OpenRouter vendor
+ * slug) to its brand entry. Always returns a value — an unrecognized id
+ * falls back to a generic, logo-less entry (`ProviderLogo` renders a
+ * neutral fallback glyph for this case, never a broken image).
+ */
+export function getProviderBrand(id: string): ProviderBrand {
+  const key = id.toLowerCase();
+  const resolved = PROVIDER_BRAND_REGISTRY[key] ?? PROVIDER_BRAND_REGISTRY[PROVIDER_BRAND_ALIASES[key] ?? ""];
+  if (resolved) return resolved;
+  return {
+    id: key,
+    displayName: connectableLabel(id) !== id ? connectableLabel(id) : id,
+    logo: "",
+    website: "",
+    capabilities: [],
+    officialAsset: false,
+  };
 }

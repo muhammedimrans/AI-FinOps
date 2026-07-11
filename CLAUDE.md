@@ -3120,3 +3120,97 @@ The website's auth pages previously rendered as two separately-bordered boxes st
 ### Next milestone recommendation
 
 The standing next-blocker list carried forward from §25–§30 is unaffected by this EP: (1) a self-service "add a password" flow for Google-only accounts beyond the mandatory first-time gate (§28's own next-item, still open), (2) wiring the remaining 5 providers' bulk usage APIs if/when those platforms ever expose one (§23's own disclosed, external-dependency blocker, unchanged), (3) a Rules management UI on top of the now-complete `AlertRule` CRUD (§30's carry-forward). This EP adds one new item: **a pixel-accurate rollout of the attached reference logo**, if that mark (rather than the existing `costorah-mark.png`) is confirmed as the intended go-forward brand identity — blocked only on receiving the actual image file in a future session, not on any remaining code work.
+
+---
+
+# Future Roadmap — EP-26
+
+**Status: planned, not started.** Nothing in this section has been implemented. It exists so a future session (or a future reader) has a single, durable place to see what's intentionally deferred and in what order, without having to reconstruct it from scattered "known limitations"/"next milestone" notes across §7–§31. Every item below is a milestone name and scope only — no schema, no endpoint, no component from this section exists in the codebase yet. Do not treat any wording here as already-built; cross-check against the actual "Status: complete" sections above (§1–§31) for what's real today.
+
+This roadmap is distinct from, and additive to, the standing next-blocker list every recent EP has carried forward (self-service password-for-Google-only accounts, the remaining 5 providers' bulk usage APIs, an `AlertRule` management UI, delivery-event webhook consumption beyond the raw event log) — those are still open, smaller items layered on top of EP-21–EP-25's work; EP-26 is the next tier of *new* product surface area, none of which currently exists in any form (not even a stub or placeholder route) anywhere in `apps/dashboard`, `apps/website`, or `backend`.
+
+## EP-26.1 — Organization Billing & Subscription Management
+
+- **Subscription Plans** — Free, Pro, Business, Enterprise.
+- **Stripe Integration**.
+- **Seat Management**.
+- **Usage Limits**.
+- **Feature Gating**.
+- **Billing Portal**.
+- **Invoices**.
+- **Trial Management**.
+
+Confirmed absent today: §8's roadmap (EP-27, "Billing") and §21's audit both state plainly that no Stripe/subscription code exists anywhere in this codebase — no `Plan`/`Subscription`/`Invoice` model, no Stripe SDK dependency, no billing webhook endpoint, no seat-count enforcement anywhere in `app/auth/rbac.py`'s permission model. This milestone is genuinely first-of-its-kind for the product, not an extension of anything that partially exists.
+
+## EP-26.2 — Multi-Workspace Management
+
+- **Multiple Workspaces** (beyond the single personal + however-many-invited-into business workspaces a user has today).
+- **Workspace Switcher** (the existing `OrgSelector.tsx` switches between workspaces a user already belongs to — this milestone is about a user *creating* more than one business workspace of their own, which §7/§25.1/§25.2 have repeatedly flagged as not yet possible: there is still no general-purpose "create an additional organization" endpoint, only the once-at-registration and once-at-upgrade paths).
+- **Cross Workspace Dashboard** (an aggregate view spanning multiple workspaces — no such view or endpoint exists; every `/v1/dashboard/*`/`/v1/budgets`/`/v1/alerts` endpoint today is scoped to exactly one `organization_id` at a time).
+- **Workspace Transfer** (transferring an entire workspace — including its projects/connections/budgets/members — to a different owner or entity; distinct from the existing single-workspace ownership-transfer-between-existing-members flow §27 already built, which reassigns the OWNER role within one workspace, not the workspace itself between accounts).
+- **Workspace Export**.
+- **Workspace Import**.
+
+## EP-26.3 — Enterprise SSO
+
+- **SAML**.
+- **OIDC** (as a general, configurable-per-org protocol — distinct from the one hardcoded Google-specific OIDC integration §25 already built, which is a single, fixed identity provider wired directly into `AuthService`, not a per-organization SSO configuration surface).
+- **Azure AD**.
+- **Okta**.
+- **Google Workspace SSO** (distinct from §25's personal Google OAuth login — this is org-level enforced/managed SSO, not an individual user's optional sign-in method).
+- **SCIM Provisioning**.
+
+## EP-26.4 — Audit & Compliance
+
+- **Complete Audit Trail** — every EP since §24.4 has logged security/lifecycle events (`app/auth/audit.py`, `app/organizations/audit.py`) through structured logs only, by deliberate design ("structlog is the durable audit sink, no new DB table" — reasoned explicitly in §24.4, §24.6, §27). A queryable, persisted, in-product audit trail is a genuinely different requirement than a log stream, and does not exist today.
+- **Export Audit Logs**.
+- **Security Events**.
+- **Compliance Dashboard**.
+- **Retention Policies**.
+
+## EP-26.5 — Public API & SDK
+
+- **API Tokens** — distinct from the existing `OrganizationApiKey` mechanism (EP-14/§13/§16, `costorah_live_...` keys used for the SDK's *usage-ingestion* M2M path). This milestone is about tokens for driving Costorah's own management API on a customer's behalf (creating projects, reading budgets, etc.), not submitting usage data.
+- **OAuth Applications** (third-party apps authenticating against Costorah as an OAuth provider — distinct from §25's Costorah-as-OAuth-*client*-of-Google integration).
+- **OpenAPI** (a published, versioned public API spec/reference — FastAPI's auto-generated schema exists today for internal/dev use, but nothing is published as a stable public contract).
+- **Webhooks** (outbound — Costorah notifying a customer's own endpoint of events; distinct from the inbound Resend delivery-event webhook §31 built, which is Costorah *receiving* webhooks from an email provider, not sending them to customers).
+- **TypeScript SDK** / **Python SDK** — the existing `sdk/` package (EP-18.1–18.7) is the *usage-instrumentation* SDK (wraps a customer's own AI provider calls to report usage to Costorah). This milestone is a separate *management*-API client SDK (CRUD against Costorah's own resources), a different SDK with a different purpose.
+- **CLI** — the existing `costorah` CLI (EP-18.4) is the instrumentation-agent CLI (`costorah doctor`, agent lifecycle). This milestone is a CLI for managing a Costorah account/workspace itself.
+
+## EP-26.6 — AI Cost Intelligence (Flagship Feature)
+
+This is expected to become **Costorah's biggest differentiator and flagship capability**. Every EP through §31 has focused on faithfully *collecting and displaying* AI spend — real provider credentials, real usage sync, real analytics, real budgets and threshold alerts. EP-26.6 is the deliberate next tier beyond that: instead of only showing customers what they spent, Costorah should actively help them spend less. None of the capabilities below exist yet, even in a labeled/client-side-approximated form (contrast with, e.g., the pre-EP-19 Analytics page's client-side forecast/anomaly detection, which was real but explicitly labeled as a stopgap before EP-19's real backend alerting — EP-26.6 is new product surface, not a promotion of an existing stopgap).
+
+- **Budget Forecasting** — distinct from `Budget`'s existing linear `projected_period_spend`/`remaining_daily_allowance` math (§22, a simple run-rate extrapolation for one budget's current period). This milestone implies materially more sophisticated forecasting (seasonality, trend detection across periods, etc.).
+- **Cost Anomaly Detection** — no anomaly-detection code exists in the backend today.
+- **Provider Recommendations** — e.g., suggesting a cheaper provider for a given workload.
+- **Model Optimization Suggestions**.
+- **Cheaper Alternative Recommendations**.
+- **Prompt Cost Comparison**.
+- **AI Generated Spend Insights** — narrative, LLM-generated summaries of a customer's own spend data.
+- **Executive Reports**.
+
+## Recommended implementation order
+
+```
+EP-26.1  (Billing & Subscriptions)
+   │
+   ▼
+EP-26.2  (Multi-Workspace Management)
+   │
+   ▼
+EP-26.3  (Enterprise SSO)
+   │
+   ▼
+EP-26.4  (Audit & Compliance)
+   │
+   ▼
+EP-26.5  (Public API & SDK)
+   │
+   ▼
+EP-26.6  (AI Cost Intelligence — flagship)
+```
+
+This ordering is deliberate, not arbitrary: billing (EP-26.1) is the monetization gate that makes every downstream feature commercially meaningful to build; multi-workspace (EP-26.2) and SSO (EP-26.3) are the enterprise-account-shape prerequisites that Business/Enterprise-tier billing plans (EP-26.1) would otherwise be selling before they exist; audit/compliance (EP-26.4) is typically a hard requirement for the same Enterprise buyers SSO (EP-26.3) targets, so it follows directly; a public API/SDK (EP-26.5) is most valuable once there's a stable multi-workspace, audited platform underneath it worth integrating against; and AI Cost Intelligence (EP-26.6) — the flagship differentiator — is sequenced last deliberately, so it's built on top of a commercially and structurally mature platform (billing, workspaces, SSO, audit, a public API) rather than racing ahead of the foundation it will need to sit on.
+
+**No implementation work for any EP-26 milestone has started.** This section is a planning record only, per this session's explicit instruction — do not begin EP-26.1 (or any other EP-26 milestone) without a separate, explicit go-ahead.

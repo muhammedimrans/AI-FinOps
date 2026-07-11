@@ -11,15 +11,18 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 
-// EP-25.3.2 — cache-busting version tag for the favicon/icon set below.
+// EP-25.3.3 — cache-busting version tag for the favicon/icon set below.
 // Browsers cache /favicon.ico extremely aggressively (often ignoring normal
 // HTTP cache-control and persisting across hard refreshes), unlike Vite's
 // content-hashed imported assets — a bare `/favicon.ico` URL that never
 // changes can keep serving a stale icon indefinitely even after the file on
 // disk is replaced. Appending a query string tied to the source artwork's
 // own content hash forces every browser to treat a real logo change as a
-// new URL. Bump this whenever apps/website/src/assets/Costorah.png changes.
-const FAVICON_VERSION = "5368fa29";
+// new URL. Bump this whenever apps/website/src/assets/BrowserFavicon.png
+// changes (the browser-tab favicon set is sourced from BrowserFavicon.png,
+// a separate asset from Costorah.png, which remains the in-app logo source
+// for SiteNav/CostorahLogo).
+const FAVICON_VERSION = "af963841";
 
 function NotFoundComponent() {
   return (

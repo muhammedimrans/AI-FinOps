@@ -118,7 +118,7 @@ def _parse_provider_type(value: str) -> ProviderType:
 
 def _to_response(conn: ProviderConnection) -> ProviderConnectionResponse:
     return ProviderConnectionResponse(
-        id=conn.external_id,
+        id=conn.id,  # EP-26.0.3.1 — raw UUID, matches every {connection_id} path param
         provider_type=conn.provider_type.value,
         display_name=conn.display_name,
         project_id=str(conn.project_id) if conn.project_id else None,

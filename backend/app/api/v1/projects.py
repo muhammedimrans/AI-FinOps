@@ -55,7 +55,7 @@ def _parse_environment(value: str) -> ProjectEnvironment:
 
 def _to_response(project: Project) -> ProjectResponse:
     return ProjectResponse(
-        id=project.external_id,
+        id=project.id,  # EP-26.0.3.1 — raw UUID, matches the {project_id} path param type
         name=project.name,
         description=project.description,
         environment=project.environment.value,

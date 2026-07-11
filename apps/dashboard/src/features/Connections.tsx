@@ -45,6 +45,7 @@ import {
   getSchedulerStatus,
   ApiError,
   type TestConnectionResponse,
+  type TestProviderConnectionResult,
   type ProviderConnectionRecord,
   type SyncStatusResponse,
 } from "../services/api";
@@ -53,6 +54,7 @@ import {
   connectableLabel,
   hasKnownUsageApi,
   providerPlatformInfo,
+  getProviderBrand,
 } from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
@@ -594,6 +596,8 @@ function ConnectionRow({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [rotating, setRotating] = useState(false);
   const [newKey, setNewKey] = useState("");
+  const [lastTestResult, setLastTestResult] = useState<TestProviderConnectionResult | null>(null);
+  const brand = getProviderBrand(connection.provider_type);
 
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["provider-connections", organizationId] });
@@ -627,13 +631,20 @@ function ConnectionRow({
     mutationFn: () => testProviderConnectionById(organizationId, connection.id),
     onSuccess: (result) => {
       void invalidate();
+      setLastTestResult(result);
       if (result.tested) {
         toast[result.health_status === "healthy" ? "success" : "error"]("Test complete", result.detail);
       } else {
         toast.info("Not testable yet", result.detail);
       }
     },
-    onError: () => toast.error("Test failed", "Unexpected error while testing the connection."),
+    onError: () => {
+      setLastTestResult(null);
+      toast.error(
+        "Test failed",
+        `Couldn't reach ${brand.displayName}. Check the connection's API key and try again.`,
+      );
+    },
   });
 
   const rotate = useMutation({
@@ -806,6 +817,47 @@ function ConnectionRow({
           )}
           {lastValidatedLabel && <span>Last checked {lastValidatedLabel}</span>}
           {connection.last_error && <span className="text-danger">{connection.last_error}</span>}
+        </div>
+      )}
+
+      {/* EP-26.0.3.1 Part 5 — a richer "Test Connection" result than a
+          one-line toast: provider/platform/service identity + capability
+          tags, all sourced from the client-side Provider Brand Registry
+          (EP-26.0.4) so this needs no new backend call, plus the real
+          health/detail the test endpoint already returned. */}
+      {lastTestResult && (
+        <div
+          className={cn(
+            "flex flex-col gap-1.5 rounded-lg border p-2.5 ml-5 text-[11px]",
+            lastTestResult.health_status === "healthy"
+              ? "border-success/30 bg-success-dim/40"
+              : "border-danger/30 bg-danger-dim/40",
+          )}
+        >
+          <div className="flex items-center gap-1.5 font-medium text-tx-primary">
+            {lastTestResult.health_status === "healthy" ? (
+              <CheckCircle2 size={12} className="text-success flex-shrink-0" />
+            ) : (
+              <XCircle size={12} className="text-danger flex-shrink-0" />
+            )}
+            {lastTestResult.health_status === "healthy" ? "Connected successfully" : "Connection test failed"}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-tx-muted">
+            <span>Provider: {brand.displayName}</span>
+            {brand.platform && <span>Platform: {brand.platform}</span>}
+            {brand.service && <span>Service: {brand.service}</span>}
+            <span>API status: {lastTestResult.tested ? "Reachable" : "Not testable"}</span>
+          </div>
+          {brand.capabilities.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {brand.capabilities.map((cap) => (
+                <span key={cap} className="badge bg-app-muted text-tx-secondary text-[10px]">
+                  {cap}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-tx-secondary">{lastTestResult.detail}</p>
         </div>
       )}
 

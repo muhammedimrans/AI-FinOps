@@ -10,6 +10,7 @@ from app.api.v1 import (
     ingest,
     invitations,
     organizations,
+    playground,
     pricing,
     projects,
     provider_connections,
@@ -67,3 +68,6 @@ api_router.include_router(invitations.router, prefix="/v1")
 
 # EP-25.3 — Inbound webhooks (Resend delivery events)
 api_router.include_router(webhooks.router, prefix="/v1")
+
+# EP-25.4 — AI Playground (Prompt Studio)
+api_router.include_router(playground.router, prefix="/v1")

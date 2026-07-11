@@ -15,6 +15,7 @@ import {
   LifeBuoy,
   Wallet,
   Bell,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 
@@ -38,6 +39,7 @@ export interface NavItem {
 // Shared between Sidebar (navigation) and CommandPalette (quick jump / search).
 export const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard",              icon: LayoutDashboard, label: "Overview",       group: "Analytics" },
+  { to: "/playground",             icon: Sparkles,        label: "AI Playground",  group: "Analytics", keywords: "chat compare test prompt studio" },
   { to: "/dashboard/analytics",    icon: TrendingUp,      label: "Cost Analytics", group: "Analytics", keywords: "spend trend chart" },
   { to: "/dashboard/providers",    icon: Cpu,             label: "Providers",      group: "Analytics", keywords: "openai anthropic google azure" },
   { to: "/dashboard/models",       icon: Boxes,           label: "Models",         group: "Analytics", keywords: "gpt claude gemini" },

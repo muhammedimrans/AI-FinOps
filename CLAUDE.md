@@ -4288,3 +4288,165 @@ Frontend: `tsc -b` clean, `eslint src --max-warnings 0` clean, full `vitest run`
 - **The "Platform diagnostics" ops-probe section (Connections.tsx) still shows Google under a "No ops probe" badge** — accurate (no env-var-keyed credential is wired for it), but a user who doesn't read the new explanatory copy could still misread it as a capability gap. A more thorough fix (e.g. removing this section from the customer-facing page entirely, moving it to an internal/admin-only view) was considered and not done — out of scope for a "smallest necessary" UI fix, and this section predates this EP by many revisions (EP-07).
 - **No live Google account was used to reproduce the originally reported symptoms** — this investigation traced every claim against the actual source code and existing hermetic test suites, consistent with every prior provider-validation EP's disclosed sandbox limitation (§32, §33, EP-26.0.2, EP-26.0.2.1, EP-26.0.3). The fixes are grounded in what the code demonstrably does, not a live reproduction.
 - Every other standing item this document has carried forward (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-25.4 — AI Playground (Prompt Studio)
+
+**Status: complete.** A permanent, flagship product surface — not a developer testing page. Adds a real, working chat/comparison/history interface that sends live requests through the exact same Provider Framework every other real usage-producing path in this codebase already uses, so every Playground request becomes real, tracked Costorah usage the instant it completes: visible in Analytics, Overview, Top Models/Top Providers, and evaluated against Budgets, with zero new aggregation or analytics code required.
+
+## Why `adapter.complete()` was the one genuinely missing capability
+
+Before this EP, every one of the 7 provider adapters' `complete()` method was `NotImplementedError` — confirmed by direct source read, not assumed. CLAUDE.md §13 had already documented this explicitly: *"No completion/usage calls are exercised by validation... `complete()` remains `NotImplementedError` on every adapter."* Every other piece of infrastructure a Playground needs — `ProviderRequest`/`ProviderResponse`/`Message`/`MessageRole`/`UsageData` (`app/providers/models.py`), `ProviderFactory`/`ProviderRegistry`, `ProviderCredentialService.decrypt()`, `build_provider_config()` (shared with `ProviderValidator`/`ProviderSyncService`), `PricingEngine.calculate_event_cost()`, `UsageEventRepository`/`UsageCostRecordRepository`, `BudgetEvaluationService` — already existed and was already fully generic. This EP's actual scope was therefore narrow and precise: implement `complete()` for real on all 7 adapters, then build one new orchestration service that chains the pieces together exactly like `UsageCollectionService`/`ProviderSyncService` already do for background sync.
+
+## Architecture — the mandatory reuse chain, verified end to end
+
+```
+Frontend (Playground.tsx)
+        │  POST /v1/organizations/{org_id}/playground/execute
+        ▼
+app/api/v1/playground.py
+        │  RequirePermission(Permission.PROVIDER_READ) — see RBAC below
+        ▼
+PlaygroundService.execute()                    (app/services/playground_service.py, new)
+        │
+        ├─► ProviderCredentialService.decrypt()      — EP-22, unchanged, the only place
+        │                                               a plaintext key exists in memory
+        ├─► build_provider_config()                  — EP-22/23.3, unchanged, shared
+        │                                               with ProviderValidator/ProviderSyncService
+        ├─► ProviderFactory(registry).create()        — EP-06, unchanged
+        ├─► adapter.complete(ProviderRequest)          — NEW this EP, real HTTP call,
+        │                                               one implementation per provider
+        ├─► UsageEventRepository.upsert()              — EP-08, same table every
+        │                                               background sync writes to
+        ├─► PricingEngine.calculate_event_cost()       — EP-08/09, same engine
+        ├─► UsageCostRecordRepository.upsert()         — EP-08, same table
+        └─► PlaygroundExecution row persisted          — the ONE new table, history only
+
+app/api/v1/playground.py (after service returns)
+        └─► BudgetEvaluationService.evaluate_and_alert()   — EP-24.2, same post-usage
+                                                               hook ProviderSyncService's
+                                                               manual-sync path already calls
+```
+
+**No separate AI client, no duplicated pricing logic, no duplicated provider implementation** — every one of those reuse points was verified by direct code read before writing `PlaygroundService`, not assumed from a prior EP's description.
+
+## Provider adapter changes — `complete()`, all 7 providers
+
+Each adapter's `complete()` reuses the exact same authenticated `ProviderHttpClient`/`_build_client()` every other method on that adapter already builds — no second HTTP path per provider:
+
+| Provider | Endpoint | Provider-specific shaping |
+|---|---|---|
+| OpenAI | `POST /v1/chat/completions` | None — the reference shape every OpenAI-compatible provider below reuses |
+| Anthropic | `POST /v1/messages` | System prompt extracted from `messages` into a top-level `system` field (Anthropic's own convention, not a message with `role="system"`) |
+| OpenRouter | `POST /chat/completions` | None — OpenAI-compatible gateway; `model_id` is the `vendor/model` slug (EP-26.0.1) |
+| Grok | `POST /chat/completions` | None — OpenAI-compatible |
+| Azure OpenAI | `POST /openai/deployments/{model_id}/chat/completions?api-version=...` | `model_id` is treated as the deployment name (Azure has no bare model-id completion endpoint) |
+| Google Gemini | `POST /v1beta/models/{model}:generateContent?key=<key>` | Messages become `contents` (role `user`/`model`, never `assistant`); system prompt is a separate top-level `systemInstruction` field |
+| Ollama | `POST /api/chat`, `stream: false` | No credential resolved (Ollama needs none); tokens read from `prompt_eval_count`/`eval_count` |
+
+Every implementation normalizes into the same `ProviderResponse{model_id, content, usage: UsageData, finish_reason, raw_response}` shape — `PlaygroundService` never branches on provider type after calling `complete()`.
+
+## Database — one new table, per the task's own "only if absolutely necessary"
+
+`playground_executions` (migration `d1e2f3a4b5c6`, chains off EP-25.3's `c9d0e1f2a3b4`), model `app/models/playground_execution.py`. This is the only genuinely new persistence this EP introduces — no existing table stores prompt/response *text*, and `UsageEvent`/`UsageCostRecord` deliberately never will (by design, since EP-08). Every metric field on this table (tokens, cost, latency) is a denormalized copy of the same values already written to `UsageEvent`/`UsageCostRecord` for the same request — convenient for the History panel to read without a join, never the source of truth for Analytics/Budgets/Dashboard, which continue to read exclusively from `UsageCostRecord` as they always have.
+
+`PlaygroundExecutionStatus` = `SUCCEEDED | FAILED`. `comparison_group_id` (nullable) is set and shared across several rows only when the execution was part of a Comparison Mode run. `usage_event_id` (nullable FK) links back to the real `UsageEvent` row when one was written — `NULL` for a failed request, since no provider call means no usage occurred.
+
+## The "no usage on failure" contract
+
+`PlaygroundService.execute()` always persists a `PlaygroundExecution` row (so History shows what was attempted), but only writes a `UsageEvent`/`UsageCostRecord` on success. A failed request — bad key, provider error, network failure, or even a credential-decrypt failure — is caught, logged (never the raw exception text if it could carry sensitive detail), and returned as `status=FAILED` with a normalized `error_message`. This mirrors real provider billing exactly: no provider charges you for a failed call, so Costorah doesn't record spend for one either.
+
+## Comparison Mode — sequential, not concurrent
+
+`POST /v1/organizations/{org_id}/playground/compare` loops over up to 8 target connections **sequentially**, never `asyncio.gather()` — SQLAlchemy async sessions are not safe for concurrent use, and every target in one request shares the same `AsyncSession`. One connection's slow provider delays the others' results, but never corrupts them. Every execution in one comparison run shares a single `comparison_group_id` (a `uuid7()`), letting the History panel and any future "view this comparison again" feature group them.
+
+## Usage/Analytics/Budgets integration — literally zero new code
+
+Because `PlaygroundService` writes to the exact same `UsageEvent`/`UsageCostRecord` tables and repositories `UsageCollectionService` already writes to, every existing read path picks up Playground-originated usage automatically: `DashboardService`'s Overview KPIs, `AnalyticsService`'s Top Models/Top Providers/heatmap/trend queries, `BudgetEvaluationService`'s threshold evaluation (triggered explicitly after every `execute`/`compare`/`rerun` call, the same post-usage hook `ProviderSyncService`'s manual-sync path already calls). None of these components required a single line of change for this EP.
+
+## How Playground solves providers with no historical usage API (Google AI Studio and friends)
+
+Google AI Studio, Azure OpenAI, Grok, and Ollama have no bulk usage-history endpoint a background sync can pull from (§23/EP-24.3's own disclosed, external platform limitation — unchanged, still true). This has never been a Costorah gap; it's an absence on those providers' own platforms. **The Playground sidesteps this limitation entirely for the *forward-looking* case**: instead of asking "what did you already spend," it makes the completion call itself and records the result directly — the same mechanism every provider's real API already supports, since a chat/completion endpoint is universally available even where a usage-history endpoint isn't. This means all 7 providers, including the 4 with permanently zero background-sync volume, work identically and fully in the Playground — the one place in the product where "no bulk usage API" stops being a limitation.
+
+## RBAC — one permission, reused
+
+Every Playground endpoint (`app/api/v1/playground.py`) is gated on `Permission.PROVIDER_READ` — granted to every role including VIEWER. Reasoning, recorded directly in the router's own module docstring: Playground *uses* an already-connected credential, it never creates/mutates/deletes a `ProviderConnection` (that stays `PROVIDER_WRITE`/`PROVIDER_DELETE`-gated on the Connections page, unchanged) — the same "read the resource, don't manage it" boundary VIEWER already has everywhere else in this app. No new permission was introduced.
+
+## Personal vs. Business (EP-25.1) — no special-casing needed
+
+A Personal account's Playground requests already flow through its one hidden personal organization exactly like every other resource since EP-25.1; RBAC's structural OWNER-bypass (§29) already grants that account every permission on its own org, including `PROVIDER_READ`. The only actual UI difference: the frontend hides the Project selector entirely for a Personal workspace (`isPersonal` from `useOrgStore`), since project attribution is a Business-workspace concept.
+
+## Security
+
+- Never logs API keys, secrets, or raw exception text that could carry credential material — `PlaygroundService`'s structlog calls bind only `organization_id`/`connection_id`/`provider`/`model`/`latency_ms`/`error_type`, matching the discipline every other provider-adapter/service call site in this codebase already follows (EP-22, EP-23.3, EP-24.3).
+- The decrypted API key exists only as a Python local for the duration of one `complete()` call — never persisted, never returned in any API response.
+- `PlaygroundExecutionResponse` never carries a credential field.
+- Every Playground action is subject to the same RBAC boundary as reading a provider connection — no new authorization surface.
+
+## API
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/v1/organizations/{org_id}/playground/connections` | Connections usable in the Playground |
+| GET | `/v1/organizations/{org_id}/playground/connections/{connection_id}/models` | Live model catalog for one connection (reuses each adapter's own `list_models()` — same call the Connections page already makes, EP-26.0.1/26.0.2, never a second catalog) |
+| POST | `/v1/organizations/{org_id}/playground/execute` | Single-provider chat |
+| POST | `/v1/organizations/{org_id}/playground/compare` | Multi-provider Comparison Mode |
+| GET | `/v1/organizations/{org_id}/playground/history` | Search/filter history (`mine_only`, `provider`, `model`, `search`, `limit`, `offset`) |
+| GET | `/v1/organizations/{org_id}/playground/history/{execution_id}` | One execution |
+| DELETE | `/v1/organizations/{org_id}/playground/history/{execution_id}` | Delete one history row (soft-delete; never touches the already-recorded `UsageEvent`/`UsageCostRecord`) |
+| POST | `/v1/organizations/{org_id}/playground/history/{execution_id}/rerun` | Re-run a past prompt against the same connection/model |
+
+## Frontend
+
+`apps/dashboard/src/features/Playground.tsx` (new page, `/playground`, sidebar entry "AI Playground") — three tabs:
+
+- **Chat** — provider/model/project selectors (Project hidden for Personal accounts), temperature/top-P/max-tokens controls, system/user prompt inputs, a scrolling conversation view with per-turn copy-prompt/copy-response, a minimal hand-rolled markdown-lite renderer (fenced code blocks, inline code, bold/italic — no new npm dependency, since this app has none for markdown), download-conversation-as-Markdown, clear-conversation, retry-on-failure, and a "Stop" button that's visibly disabled with an explanatory tooltip rather than pretending to support mid-flight cancellation (see Known limitations). Provider/model logos reuse `ProviderLogo`/`getProviderBrand` (EP-26.0.4) — no new logo asset or lookup.
+- **Compare** — multi-select up to 8 connections, per-connection model pickers (reusing the same live-catalog query as Chat), a shared prompt, and a sortable results table (fastest / cheapest / lowest latency).
+- **History** — search/filter by provider and free text, per-row re-run and delete, CSV export.
+
+New API client functions/types in `apps/dashboard/src/services/api.ts`: `listPlaygroundConnections`, `listPlaygroundModels`, `executePlayground`, `comparePlayground`, `listPlaygroundHistory`, `getPlaygroundExecution`, `deletePlaygroundExecution`, `rerunPlaygroundExecution`, mirroring the backend schemas exactly.
+
+## Future extension points (not implemented, per the task's own "design for, don't build")
+
+The architecture is deliberately structured so each of these is additive, not a redesign:
+- **Prompt Library / Prompt Templates** — `PlaygroundExecution` already stores every prompt; a template is just a saved, reusable prompt string with no execution history attached — a natural new small table or a `is_template` flag, not a new pipeline.
+- **Saved Conversations / Prompt Versioning** — `comparison_group_id`'s "several rows share one identifier" pattern is directly reusable for "several rows form one saved conversation."
+- **AI Agents / Tool-Function Calling / MCP / RAG Testing** — `ProviderRequest.extra: dict[str, Any]` (already present, EP-06) is the existing, unused extension point for provider-specific request fields (tool definitions, function schemas) — every `complete()` implementation already does `payload.update(request.extra)`.
+- **Batch Execution / Workflow Builder** — `PlaygroundService.execute()` is already a single, composable unit; a batch runner is a loop over it, exactly like Comparison Mode already is.
+- **Cost Optimization Suggestions / AI Cost Intelligence** — out of scope per §31's own EP-26 roadmap (EP-26.6), unaffected by this EP.
+
+## Testing
+
+- **Backend** (52 new tests across 3 files, all hermetic — `httpx.MockTransport`, no live credential, no live database):
+  - `tests/test_ep25_4_playground_adapters.py` (7 tests) — one real-HTTP-shape test per provider's `complete()`, confirming the correct endpoint/payload and provider-specific shaping (Anthropic's top-level `system`, Google's `contents`/`systemInstruction`, Azure's deployment-scoped path).
+  - `tests/test_ep25_4_playground_service.py` (4 tests) — success writes both `UsageEvent` and `UsageCostRecord`; missing pricing leaves `estimated_cost=None` but the execution still succeeds; a provider/adapter error persists a `FAILED` execution with no usage written; a credential-decrypt failure is captured, never raised past `execute()`.
+  - `tests/test_ep25_4_playground_api.py` (11 tests) — unauthenticated 401; VIEWER can list connections and execute (the `PROVIDER_READ` boundary); a connection from a different org 404s (the org-scoping guard); Comparison Mode's missing-model-id-for-a-target 422; two comparison targets share one `comparison_group_id`; history list/get-404/delete/rerun.
+  - Two pre-existing test files updated for the new, correct `complete()` contract (they previously asserted `NotImplementedError`, which is no longer true now that the method is real): `tests/test_ep06.py` (7 tests renamed/rewritten — a missing credential now raises `AuthenticationError` before any network call, matching every other real method on these adapters; Ollama's variant raises `NetworkError` against an unreachable mocked transport, since Ollama needs no credential to attempt the call) and `tests/test_ep07.py` (2 tests, same treatment for OpenAI/Anthropic).
+  - Full backend suite: **2013 passed** (1991 + 22 net new, after accounting for the 9 pre-existing tests these 2 files rewrote in place), 30 skipped (unchanged, pre-existing `DATABASE_URL`-gated integration tests), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+- **Frontend** (`apps/dashboard/src/__tests__/Playground.test.tsx`, 9 new tests): Chat tab renders the connected provider and its live model catalog; a connection with no credential is shown disabled with an inline hint; sending a prompt calls `executePlayground` with the correct payload and displays the real response/tokens; an empty-state renders when no provider is configured; the Project selector is hidden for a Personal workspace; History lists persisted executions, re-runs one, and shows an empty state; Compare selects a connection and reveals the per-connection model picker. Full dashboard suite: **331 passed** (322 + 9), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), production build clean (`vite build`).
+
+## Validation results
+
+Backend: `pytest -q` → 2013 passed, 30 skipped. `ruff check app tests` → clean. `black --check app tests` → clean. `mypy app` → clean (209 source files). Frontend: `vitest run` → 331 passed. `eslint src --max-warnings 0` → clean. `tsc -b` → clean. `vite build` → clean (Playground appears as its own lazy-loaded chunk, `Playground-*.js`, 24.46 kB / 6.96 kB gzipped).
+
+## Known limitations
+
+- **No real token-by-token streaming.** Every request is synchronous request/response, not SSE-based incremental rendering — the "Stop Generation" button is present in the UI (per the task's explicit requirement) but visibly disabled with an inline explanation, rather than faking a cancel action that does nothing. Implementing real streaming would require a materially different frontend response-rendering model (incremental DOM updates) and a backend SSE/WebSocket response path — a larger, separately-scoped follow-up, not attempted here to avoid a half-working "Stop" button that silently does nothing.
+- **The markdown-lite renderer is intentionally minimal** — fenced code blocks, inline code, bold/italic, paragraph breaks. It does not handle tables, nested lists, or links. No markdown npm dependency was added for this EP, per the "don't duplicate/introduce unnecessary abstraction" discipline this codebase has followed since its earliest EPs — a fuller renderer is an easy, isolated follow-up if real usage shows the gap matters.
+- **`ProviderCapabilities`/model-metadata display in the Playground Insights area is sourced from each adapter's live catalog exactly as the Connections page already shows it** — no new capability-detection logic was written, and the same "unverified against a real provider account" caveat every EP-26.0.x provider EP has disclosed (§32, §33, EP-26.0.2, EP-26.0.2.1, EP-26.0.3) applies here identically, since this sandbox has no live provider credential.
+- **No live, continuous browser test of a real Playground session against a real provider** — same standing caveat as every prior EP in this document: verified in pieces (hermetic backend/frontend tests, both full builds), not against a live account or a live browser session.
+
+## Final report
+
+1. **Files changed** — Backend: `app/providers/adapters/{openai,anthropic,openrouter,grok,azure_openai,google,ollama}.py` (`complete()` implemented), `app/models/playground_execution.py` (new), `app/models/__init__.py`, `backend/migrations/versions/20260712_0900_d1e2f3a4b5c6_ep25_4_playground_executions.py` (new), `app/repositories/playground_execution_repository.py` (new), `app/services/playground_service.py` (new), `app/schemas/playground.py` (new), `app/api/v1/playground.py` (new), `app/api/router.py`, `tests/test_ep25_4_playground_{adapters,service,api}.py` (new), `tests/test_ep06.py`, `tests/test_ep07.py`. Frontend: `apps/dashboard/src/features/Playground.tsx` (new), `apps/dashboard/src/services/api.ts`, `apps/dashboard/src/lib/navigation.ts`, `apps/dashboard/src/App.tsx`, `apps/dashboard/src/__tests__/Playground.test.tsx` (new). Docs: `STARTUP.md` §15.5 (new), this CLAUDE.md section.
+2. **Architecture** — see the reuse-chain diagram above; zero duplicated provider/pricing/analytics logic, one new orchestration service (`PlaygroundService`) composing entirely pre-existing components.
+3. **Database changes** — one new table, `playground_executions` (migration `d1e2f3a4b5c6`), justified above; no change to `UsageEvent`/`UsageCostRecord`/any analytics table.
+4. **UI walkthrough** — see "Frontend" above; Chat/Compare/History tabs, all reachable from the new sidebar "AI Playground" entry.
+5. **Provider integration** — all 7 adapters gained a real `complete()`; verified against mocked HTTP transports per-provider.
+6. **Usage tracking integration** — every successful Playground request writes a real `UsageEvent`/`UsageCostRecord` via the same repositories every other real usage path uses; a failed request writes none, matching real provider billing.
+7. **Analytics integration** — zero new code; Playground usage appears in Overview/Analytics/Top Models/Top Providers automatically because they already read from `UsageCostRecord`.
+8. **Budget integration** — `BudgetEvaluationService.evaluate_and_alert()` is called after every `execute`/`compare`/`rerun`, identical to `ProviderSyncService`'s existing manual-sync hook.
+9. **Tests added** — 22 net-new backend tests (52 total across 5 files including 2 rewritten pre-existing files) + 9 frontend tests, all passing.
+10. **Validation results** — backend and frontend both fully green (2013 backend tests / 331 frontend tests, all lint/typecheck/build gates clean); see "Validation results" above for the exact commands and counts.
+11. **Remaining future enhancements** — real token-by-token streaming with a working Stop button; a fuller markdown renderer; Prompt Library/Templates/Saved Conversations/Prompt Versioning; AI Agents/Tool-Calling/MCP/RAG Testing (via the already-present `ProviderRequest.extra` extension point); Batch Execution/Workflow Builder; Cost Optimization Suggestions (EP-26.6). None of these require any redesign of what this EP shipped.

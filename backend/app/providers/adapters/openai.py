@@ -35,6 +35,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
     UsagePage,
 )
 
@@ -239,7 +240,42 @@ class OpenAIProvider(AIProvider):
         )
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        raise NotImplementedError("OpenAI completion is implemented in a later EP")
+        """Submit a chat completion request — EP-25.4 (AI Playground).
+
+        POST /v1/chat/completions. Reuses the same authenticated client
+        every other method on this adapter already builds — no second HTTP
+        path, no duplicated provider logic.
+        """
+        key = self._resolve_key()
+        payload: dict[str, Any] = {
+            "model": request.model_id,
+            "messages": [{"role": m.role.value, "content": m.content} for m in request.messages],
+            "stream": False,
+        }
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        payload.update(request.extra)
+
+        async with self._build_client(key) as client:
+            data = await client.post("/v1/chat/completions", json=payload)
+
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        usage = data.get("usage") or {}
+        return ProviderResponse(
+            model_id=data.get("model", request.model_id),
+            content=message.get("content") or "",
+            usage=UsageData(
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                total_tokens=usage.get("total_tokens", 0),
+                cached_tokens=(usage.get("prompt_tokens_details") or {}).get("cached_tokens"),
+            ),
+            finish_reason=choice.get("finish_reason"),
+            raw_response=data,
+        )
 
     async def get_usage(
         self,

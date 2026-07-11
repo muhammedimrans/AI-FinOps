@@ -52,6 +52,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
 )
 
 if TYPE_CHECKING:
@@ -356,7 +357,62 @@ class GoogleProvider(AIProvider):
         await self.aclose()
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        raise NotImplementedError("Google completion is implemented in EP-07")
+        """Submit a generateContent request — EP-25.4 (AI Playground).
+
+        POST /v1beta/models/{model}:generateContent?key=<key>. Gemini's
+        request shape genuinely differs from the OpenAI-Chat-Completions
+        family every other adapter's ``complete()`` reuses: messages become
+        ``contents`` (role ``user``/``model``, never ``assistant``), and the
+        system prompt is a separate top-level ``systemInstruction`` field,
+        not a message.
+        """
+        key = self._resolve_key()
+        contents = []
+        system_parts = []
+        for m in request.messages:
+            if m.role.value == "system":
+                system_parts.append(str(m.content))
+                continue
+            role = "model" if m.role.value == "assistant" else "user"
+            contents.append({"role": role, "parts": [{"text": str(m.content)}]})
+
+        payload: dict[str, Any] = {"contents": contents}
+        if system_parts:
+            payload["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
+        generation_config: dict[str, Any] = {}
+        if request.max_tokens is not None:
+            generation_config["maxOutputTokens"] = request.max_tokens
+        if request.temperature is not None:
+            generation_config["temperature"] = request.temperature
+        if generation_config:
+            payload["generationConfig"] = generation_config
+        payload.update(request.extra)
+
+        async with self._build_client() as client:
+            data = await client.post(
+                f"/v1beta/models/{request.model_id}:generateContent",
+                json=payload,
+                params={"key": key},
+            )
+
+        candidate = (data.get("candidates") or [{}])[0]
+        parts = (candidate.get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts)
+        usage = data.get("usageMetadata") or {}
+        prompt_tokens = usage.get("promptTokenCount", 0)
+        completion_tokens = usage.get("candidatesTokenCount", 0)
+        return ProviderResponse(
+            model_id=request.model_id,
+            content=text,
+            usage=UsageData(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=usage.get("totalTokenCount", prompt_tokens + completion_tokens),
+                cached_tokens=usage.get("cachedContentTokenCount"),
+            ),
+            finish_reason=candidate.get("finishReason"),
+            raw_response=data,
+        )
 
     async def get_usage(
         self,

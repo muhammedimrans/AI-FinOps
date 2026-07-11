@@ -58,6 +58,13 @@ from app.models.organization_api_key import OrganizationApiKey  # noqa: F401
 
 # EP-05 - Auth models (import after User; all have FK to users.id)
 from app.models.password_reset_token import PasswordResetToken  # noqa: F401
+
+# EP-25.4 - AI Playground execution history (import after Organization, User,
+# Project, ProviderConnection, UsageEvent; FK dependency)
+from app.models.playground_execution import (  # noqa: F401
+    PlaygroundExecution,
+    PlaygroundExecutionStatus,
+)
 from app.models.project import Project, ProjectEnvironment  # noqa: F401
 from app.models.provider_connection import ProviderConnection, ProviderType  # noqa: F401
 from app.models.provider_usage_summary import ProviderUsageSummary  # noqa: F401

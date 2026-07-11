@@ -13,6 +13,7 @@ const ForgotPassword = lazy(() => import("./features/ForgotPassword"));
 const ResetPassword  = lazy(() => import("./features/ResetPassword"));
 const VerifyEmail    = lazy(() => import("./features/VerifyEmail"));
 const AcceptInvite   = lazy(() => import("./features/AcceptInvite"));
+const Playground   = lazy(() => import("./features/Playground"));
 const Overview     = lazy(() => import("./features/Overview"));
 const Analytics    = lazy(() => import("./features/Analytics"));
 const Providers    = lazy(() => import("./features/Providers"));
@@ -171,6 +172,7 @@ export default function App() {
         <Route path="rbac" element={<BusinessOnlyRoute><Page><RBAC /></Page></BusinessOnlyRoute>} />
         <Route path="api-keys" element={<Page><ApiKeys /></Page>} />
         <Route path="connections" element={<Page><Connections /></Page>} />
+        <Route path="playground" element={<Page><Playground /></Page>} />
         <Route path="audit-logs" element={
           <Page><Placeholder
             title="Audit Logs"

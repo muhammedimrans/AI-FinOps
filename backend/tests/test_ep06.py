@@ -678,10 +678,12 @@ class TestOpenAIProvider:
             await p.list_models()
 
     @pytest.mark.asyncio
-    async def test_complete_raises_not_implemented(self) -> None:
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        # EP-25.4: complete() is now real; with no api_key_ref configured it
+        # raises AuthenticationError before attempting any network call.
         p = self._make()
         req = ProviderRequest(model_id="gpt-4o", messages=[])
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.complete(req)
 
     @pytest.mark.asyncio
@@ -736,9 +738,9 @@ class TestAnthropicProvider:
             await p.list_models()
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
         p = self._make()
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await p.complete(ProviderRequest(model_id="claude-3-5-sonnet-20241022", messages=[]))
 
     @pytest.mark.asyncio
@@ -768,8 +770,8 @@ class TestGrokProvider:
         assert any("grok" in mid for mid in ids)
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().complete(ProviderRequest(model_id="grok-2-1212", messages=[]))
 
     @pytest.mark.asyncio
@@ -801,8 +803,8 @@ class TestGoogleProvider:
         assert any("gemini" in mid for mid in ids)
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().complete(ProviderRequest(model_id="gemini-1.5-pro", messages=[]))
 
     @pytest.mark.asyncio
@@ -834,8 +836,8 @@ class TestAzureOpenAIProvider:
         assert len(models) >= 1
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().complete(ProviderRequest(model_id="gpt-4o", messages=[]))
 
     @pytest.mark.asyncio
@@ -864,8 +866,8 @@ class TestOpenRouterProvider:
         assert len(models) >= 1
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        with pytest.raises(AuthenticationError):
             await self._make().complete(ProviderRequest(model_id="openai/gpt-4o", messages=[]))
 
     @pytest.mark.asyncio
@@ -904,9 +906,14 @@ class TestOllamaProvider:
         assert any(mid in ("llama3.2", "llama3.1", "mistral") for mid in ids)
 
     @pytest.mark.asyncio
-    async def test_complete_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            await self._make().complete(ProviderRequest(model_id="llama3.2", messages=[]))
+    async def test_complete_unreachable_raises_network_error(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused", request=request)
+
+        with pytest.raises(NetworkError):
+            await self._make(http_transport=httpx.MockTransport(handler=handler)).complete(
+                ProviderRequest(model_id="llama3.2", messages=[])
+            )
 
     @pytest.mark.asyncio
     async def test_verify_auth_unreachable_raises_network_error(self) -> None:

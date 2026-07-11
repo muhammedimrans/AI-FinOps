@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -32,6 +32,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
 )
 
 if TYPE_CHECKING:
@@ -204,7 +205,39 @@ class GrokProvider(AIProvider):
         await self.aclose()
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        raise NotImplementedError("Grok completion is implemented in EP-07")
+        """Submit a chat completion request — EP-25.4 (AI Playground).
+
+        POST /chat/completions — Grok is OpenAI-compatible.
+        """
+        key = self._resolve_key()
+        payload: dict[str, Any] = {
+            "model": request.model_id,
+            "messages": [{"role": m.role.value, "content": m.content} for m in request.messages],
+            "stream": False,
+        }
+        if request.max_tokens is not None:
+            payload["max_tokens"] = request.max_tokens
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        payload.update(request.extra)
+
+        async with self._build_client(key) as client:
+            data = await client.post("/chat/completions", json=payload)
+
+        choice = (data.get("choices") or [{}])[0]
+        message = choice.get("message") or {}
+        usage = data.get("usage") or {}
+        return ProviderResponse(
+            model_id=data.get("model", request.model_id),
+            content=message.get("content") or "",
+            usage=UsageData(
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+                total_tokens=usage.get("total_tokens", 0),
+            ),
+            finish_reason=choice.get("finish_reason"),
+            raw_response=data,
+        )
 
     async def get_usage(
         self,

@@ -2,16 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- EP-25.3.2: ?v= cache-busts these unhashed public/ icon files — browsers
+    <!-- EP-25.3.3: ?v= cache-busts these unhashed public/ icon files — browsers
          cache /favicon.ico per-origin far more aggressively than normal HTTP
          cache-control allows, so a same-URL logo swap can keep serving the
-         old icon indefinitely. Bump this value whenever src/assets/Costorah.png
-         changes. -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=5368fa29" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=5368fa29" />
-    <link rel="shortcut icon" href="/favicon.ico?v=5368fa29" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=5368fa29" />
-    <link rel="manifest" href="/manifest.json?v=5368fa29" />
+         old icon indefinitely. Bump this value whenever
+         src/assets/BrowserFavicon.png changes (the favicon set is sourced
+         from BrowserFavicon.png; Costorah.png remains the in-app logo
+         source used by CostorahLogo.tsx). -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png?v=af963841" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png?v=af963841" />
+    <link rel="shortcut icon" href="/favicon.ico?v=af963841" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=af963841" />
+    <link rel="manifest" href="/manifest.json?v=af963841" />
     <meta name="theme-color" content="#0A0A0F" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Costorah — AI Cost Observability Platform</title>

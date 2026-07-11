@@ -3649,3 +3649,134 @@ Reuses every existing security primitive with zero new mechanism introduced:
 2. If verification confirms a genuinely separate "management key" credential is required, design a deliberate, least-privilege-scoped way to collect and store it (ideally a narrower "usage read" scope if OpenRouter offers one) — a real product/security decision, not a silent widening of what `ProviderConnection.encrypted_api_key` is allowed to hold.
 3. **EP-26.0.1's originally-recommended target, Google Gemini** (§32's "Final recommendation" — live model catalog + pricing refresh, `get_usage()` correctly remaining a no-op) is unaffected by this EP and remains the next unstarted item from the EP-26.0 research, now numbered EP-26.0.2 in practice if pursued next (see this section's own naming note above).
 4. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: a self-service "add a password" flow for Google-only accounts, the still-open transactional-email items, and a Rules management UI on top of the now-complete `AlertRule` CRUD.
+
+---
+
+# EP-26.0.2 — Google Gemini Integration (AI Studio)
+
+**Status: complete.** Extends `GoogleProvider` (AI Studio / Gemini Developer API only — Vertex AI explicitly excluded, see "Future Vertex AI roadmap" below) with a live, paginated model catalog reusing the identical `GET /v1beta/models` call `verify_auth()` already made, and a refreshed static fallback list. `get_usage()` is deliberately, explicitly unchanged — re-confirmed, not re-implemented, since no bulk usage-history API exists on this credential type. Zero Provider Framework changes, zero migrations, zero new endpoints — the same reuse discipline as EP-26.0.1 (OpenRouter, §33), applied to the provider §32's own research recommended going first.
+
+## Naming note
+
+§32's research ("EP-26.0 — Provider Research & Architecture") explicitly recommended Google go first, numbered EP-26.0.1, with OpenRouter second as EP-26.0.2. The actual implementation instructions reversed that order: OpenRouter shipped first under the label "EP-26.0.1" (§33), and this Google work was requested and delivered under the label "EP-26.0.2." This section documents what was actually built under that name — the numbering is a sequencing artifact, not a claim about dependency order (neither EP depends on the other; both are independent extensions of the same unmodified Provider Framework).
+
+## Part 1 — Live Google research findings
+
+Google's `models.list` response schema (`GET https://generativelanguage.googleapis.com/v1beta/models`) was researched against current (as of this EP) official Google AI documentation content. Confirmed fields: `name` (prefixed, e.g. `"models/gemini-2.5-pro"`), `displayName`, `inputTokenLimit`, `outputTokenLimit`, `supportedGenerationMethods` (an array — `generateContent`, `streamGenerateContent`, `embedContent`, etc.), plus pagination via `pageSize`/`pageToken` request params and a `nextPageToken` response field. This is the same endpoint `GoogleProvider.verify_auth()` has called since EP-22 for credential validation — EP-26.0.2's only change is calling it a second way (paginated, for cataloging) rather than adding a new endpoint.
+
+**AI Studio vs. Vertex AI, reconfirmed** (unchanged from §32's Part 1, restated here as the governing constraint on this EP's scope): AI Studio / the Gemini Developer API is a single API-key-authenticated surface with no GCP-project/OAuth dependency; Vertex AI Gemini is a separate product (OAuth/service-account auth, GCP-project-scoped, richer Cloud Billing-backed usage telemetry via Billing Export to BigQuery). This EP touches only the former. No OAuth, no service-account handling, no `project_id`/`location` wiring was added — `GoogleConfig`'s pre-existing (EP-06-era, always-unused) `project_id`/`location` fields remain untouched and unread, exactly as before this EP, reserved for a genuine future Vertex integration.
+
+**Capability findings, condensed** (full external-research detail already recorded in §32 Part 1 and not re-litigated here): streaming, function/tool calling, vision, and audio-input are all real, current capabilities of the Gemini API surface and are what this EP's capability-mapping helper (`_capabilities_from_generation_methods`) infers per model. Batch APIs, context caching, and a token-counting endpoint (`:countTokens`) are real but out of scope for this EP (no usage-collection or pricing-estimation feature currently calls them). Embeddings and image generation exist on related-but-distinct request shapes not modeled by `list_models()`'s generation-method-based capability inference.
+
+## Part 2 — Model discovery (the one genuinely new capability this EP adds)
+
+`GoogleProvider.list_models()` (`app/providers/adapters/google.py`) changed from a static 4-entry list to a live, paginated call:
+
+```
+list_models()
+    │
+    ├─► resolve credential (try/except — see "Credential-fallback discipline" below)
+    ├─► GET /v1beta/models?key=<key>[&pageToken=...]   (bounded to _MAX_MODEL_CATALOG_PAGES = 10 pages,
+    │                                                     a safety bound against a misbehaving/looping
+    │                                                     nextPageToken, not an expected-to-be-reached limit)
+    ├─► per model: _model_from_live_catalog(item)
+    │       — strips the "models/" prefix from `name`
+    │       — maps inputTokenLimit/outputTokenLimit → context_window/max_output_tokens
+    │       — infers capabilities from supportedGenerationMethods + a name-based
+    │         vision/audio heuristic (Google's list response has no separate
+    │         structured modality field to key off instead)
+    │       — flags is_deprecated from "deprecated" appearing in the display
+    │         name or model id
+    │       — returns None (filtered out) for entries with no name or no
+    │         supportedGenerationMethods (internal aliases/embedding-only
+    │         entries with nothing this catalog cares about)
+    │
+    └─► on any failure (network error, empty response) → falls back to the
+          static _MODELS list, never raises, never returns an empty catalog
+```
+
+**Static fallback list refreshed.** `_MODELS` was updated from the stale EP-06-era list (`gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-1.5-flash-8b`, `gemini-2.0-flash`) to the current generation as externally researched (`gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`) — deliberately kept small, since it is now only a fallback, with the live call as the primary path. Per §32's Part 1's own recommendation ("switch to a live `/models` call instead of hand-maintaining a list that goes stale"), this fallback should itself be expected to go stale over time; that's an accepted tradeoff of a fallback path, not a defect, since the live catalog is what's actually shown under normal operation.
+
+**Credential-fallback discipline — a proactive fix, not a reactive one.** EP-26.0.1's (§33) first implementation draft called `_resolve_key()` unconditionally inside `list_models()`, which broke two pre-existing tests that construct a provider with no credential configured (`OpenRouterProvider.list_models()`/`get_usage()`), only caught by a full-suite regression run. This EP applied that lesson proactively: `list_models()` wraps `_resolve_key()` in a `try/except`, logging and continuing with `key = None` on failure — the live call is still attempted (Google's `/v1beta/models` doesn't strictly require a key to return *a* response shape, though a production caller would normally supply one), and the pre-existing `test_ep06.py::TestGoogleProvider::test_list_models` (which constructs `GoogleProvider(GoogleConfig(display_name="Google Test"))` with no `api_key_ref`) passed on the very first run — no regression this time.
+
+## Part 3 — Usage collection: reconfirmed unavailable, deliberately unchanged
+
+`get_usage()`'s behavior is **byte-for-byte unchanged** by this EP — it still returns an honest, empty `UsagePage()`. Its docstring was extended (not its logic) with a paragraph explicitly stating that EP-26.0.2 re-verified the "no bulk usage API" finding against current Google documentation and that this remains true: no key-scoped, per-request usage-history endpoint exists on the AI Studio / Gemini Developer API surface. Google's actual usage/cost data lives behind Cloud Billing / Vertex Billing Export — a different Google product, a different credential type (OAuth/service-account, not an API key), out of this EP's explicit scope.
+
+**Why `GeminiUsageNormalizer` and `GeminiUsageCollector` were not built**, despite being named as expected deliverables in the task: there is no real data source for either to wrap. `UsageCollectionService` (EP-08) is already the provider-agnostic collector every adapter's `get_usage()` feeds into — a second, Google-specific "collector" class would duplicate it for no reason, violating this codebase's "reuse everything already implemented" instruction. A normalizer converts a provider's raw usage response into `NormalizedUsageEvent`s — with no raw response to convert (an always-empty page), a `GeminiUsageNormalizer` class would be pure dead code, violating the standing no-fake-functionality convention this document has enforced since EP-13 (§13's own "no fake functionality" section, reapplied identically here). This mirrors, and goes one step further than, EP-26.0.1's own decision not to build a separate `OpenRouterUsageCollector` (§33) — OpenRouter at least warranted a real normalizer since its `get_usage()` now returns real data; Google's doesn't, so neither warranted class exists.
+
+## Part 4 — Architecture reused (nothing redesigned)
+
+Identical conclusion to §33's own architecture-reuse table, re-verified for this EP's actual changes:
+
+| Component | Change |
+|---|---|
+| `ProviderInterface` | None — `GoogleProvider` already implemented the full `AIProvider` ABC since EP-22 |
+| `ProviderRegistry`/`ProviderFactory` | None — already registers `GoogleProvider` against `ProviderType.GOOGLE` |
+| `ProviderSyncService` | None — Google was deliberately **not** added to `_KNOWN_USAGE_API_PROVIDERS` (pinned by a dedicated test, see Part 8), since no real usage endpoint exists to justify the flag |
+| `UsageCollectionService` | None — never invoked with any different behavior for Google than before this EP |
+| `NormalizerRegistry` | None — no new normalizer, per Part 3's reasoning above |
+| `PricingEngine` | None — already free-text `(provider, model)`-keyed; unaffected |
+| Repositories | None |
+| Scheduler | None |
+| Dashboard/Analytics | Additive only — a new, purely-informational Platform/Service badge (Part 6), no new query shape, no aggregation change |
+| Encryption/Credential Service | None — Google connections continue to use the exact same `EncryptionService`/`ProviderCredentialService` as every other provider |
+| Retry Policy/Health Checks | None — `verify_auth()`/`check_connection()` unchanged |
+
+## Part 5 — Platform design: Provider/Platform/Service, display-layer only
+
+Per §32's own Part 4/Part 5 research finding (reconfirmed, not revisited, by this EP): no schema change or migration is warranted for a Platform/Service distinction while only one Google-connectable surface exists. Implemented as a pure frontend lookup, `apps/dashboard/src/lib/providerCatalog.ts`:
+
+```typescript
+export const PROVIDER_PLATFORM_INFO: Record<string, ProviderPlatformInfo> = {
+  google: { platform: "AI Studio", service: "Gemini API" },
+};
+export function providerPlatformInfo(providerType: string): ProviderPlatformInfo | null { ... }
+```
+
+**The explicit, documented trigger condition for promoting this into a real stored value** (unchanged from §32): if/when Vertex AI Gemini is ever built as a second connectable service under the same `ProviderType.GOOGLE` umbrella, `providerPlatformInfo()`'s static lookup should be replaced by a real `ProviderConnection.configuration.platform` JSONB key (the pre-existing, already-migrated, currently-unused `configuration` column every `ProviderConnection` row already has) — not before. Every other provider's `providerPlatformInfo()` call returns `null` today, by design; the function and its data structure are ready to hold a second entry the moment a second provider needs one, with zero shape change.
+
+## Part 6 — Dashboard
+
+`apps/dashboard/src/features/Connections.tsx`'s `ConnectionRow` badge row gained one new conditional badge, rendered only when `providerPlatformInfo(connection.provider_type)` is non-null (today: Google connections only):
+
+```
+AI Studio · Gemini API
+```
+
+Positioned alongside the pre-existing `HealthBadge`, Active/Inactive badge, and EP-24.3's "Usage API"/"No usage API" capability badge — reusing the identical `badge` CSS class and `text-[10px]` styling every other badge in that row already uses, per the task's explicit "no duplicated UI" instruction. No new component, no new dashboard architecture, no change to Overview/Analytics/Budgets/Alerts — every one of those already renders Google connections' `provider`/`model` values generically, exactly as it does for every other provider, and needed no change since the model catalog is still surfaced through the same `ModelMetadata` shape every other adapter returns.
+
+## Part 7 — Security
+
+Zero new security surface. Google connections continue to use the exact same `EncryptionService`/`ProviderCredentialService`/rotation/RBAC/audit-logging pipeline every provider uses (EP-22, §13) — this EP added no new credential type, no new storage path, no new permission. `list_models()`'s new logging calls (`log.warning("google_no_credential_for_model_catalog", ...)`, `log.warning("google_live_model_catalog_unavailable", ...)`) bind only `error_type=type(exc).__name__`, never a header, key, or response body — matching the discipline every prior EP in this document has established for provider-adapter logging.
+
+## Part 8 — Testing
+
+- **Backend** (`backend/tests/test_ep26_0_2_google.py`, 18 new tests, fully hermetic via `httpx.MockTransport`):
+  - `TestModelFromLiveCatalog` (6): full-field mapping, `models/` prefix stripping, `None` for a missing name, `None` for no generation methods, display-name fallback to the raw model id, deprecated-model flagging.
+  - `TestCapabilitiesFromGenerationMethods` (3): streaming flag from the stream method; confirms the methods-derived flags (streaming/tool/function-calling) are absent with an empty methods list, while explicitly *not* asserting the whole capability set is empty (the vision/audio name-based heuristic is intentionally independent of `supportedGenerationMethods` — a genuine test-authoring mistake in the first draft, caught and fixed in-session, not shipped); embedding models correctly excluded from the audio flag.
+  - `TestGoogleListModels` (7): live catalog maps real models; pagination follows `nextPageToken` correctly (asserts exactly 2 calls); the pagination loop is bounded even against a server that always returns a `nextPageToken` (asserts `call_count <= 10`); a network failure falls back to the static list; an empty catalog response also falls back; **a missing credential still returns models rather than raising** (the direct regression pin for the credential-fallback discipline in Part 2); deprecated/no-method entries are filtered out of live results.
+  - `TestGoogleGetUsageUnchanged` (1): confirms `get_usage()` still returns an honest empty page.
+  - `TestGoogleNotInKnownUsageApiProviders` (1): explicitly asserts `"google" not in _KNOWN_USAGE_API_PROVIDERS` — the direct differentiator from EP-26.0.1's OpenRouter, confirming this EP did not (and should not) widen that informational flag.
+- **Regression**: unlike EP-26.0.1, this EP's pre-existing Google-related tests (`test_ep06.py::TestGoogleProvider`, `test_ep22_provider_validator.py -k google`) passed on the *first* run with zero fix-up required, and the full backend suite (`pytest -q`, 1979 passed, 30 skipped) confirms no regression anywhere else in the codebase. `ruff check app tests`, `black --check app tests`, and `mypy app` are all clean.
+- **Frontend**: `apps/dashboard/src/__tests__/providerCatalog.test.ts` extended with a new `describe("providerPlatformInfo")` block (3 tests: Google returns `{platform: "AI Studio", service: "Gemini API"}`; every other known provider returns `null`; an unknown provider type returns `null`). Full dashboard suite: 298 tests passed (one pre-existing, order-dependent flaky test in `Overview.test.tsx` — unrelated to this EP, confirmed unaffected by `git status` showing no changes to that file or its test, and confirmed to pass reliably when the suite is re-run — see "Known limitations"). `tsc -b`, `eslint src --max-warnings 0`, and a production `vite build` are all clean.
+
+## Manual verification
+
+**Not performed against a live Google account or API key** — no Google AI Studio credential was available in this session's environment. Unlike EP-26.0.1's OpenRouter investigation, this EP did not attempt direct network access to Google's live API or documentation endpoints (external research via web search was judged sufficient given the consistency and specificity of the `models.list` schema details found), so there is no equivalent "network access was attempted and blocked" finding to report here — simply, no live credential existed to test against. This is disclosed, not hidden — see "Known limitations."
+
+## Known limitations
+
+- **Never exercised against a real Google AI Studio account.** The live-catalog mapping logic (`_model_from_live_catalog`, `_capabilities_from_generation_methods`) is grounded in externally-researched documentation, not a first-party response this session directly observed. A future session with a real `AIza...` key should capture one real `GET /v1beta/models` response and diff it against this EP's field-mapping assumptions, correcting anything that's wrong — the same category of follow-up §33 named for OpenRouter.
+- **The vision/audio capability heuristic is name-based, not derived from a structured field** — Google's `models.list` response has no dedicated modality field for `list_models()` to key off, so `_capabilities_from_generation_methods` infers vision/audio support from substrings in the model's own name/id (`"vision"`, `"flash"`, `"pro"`). A model that supports vision but whose name doesn't match this heuristic would be under-flagged; this is a disclosed approximation, not a confirmed-accurate mapping.
+- **Google's usage-collection gap is a real, external platform limitation, not a Costorah defect** — reconfirmed, not newly discovered, by this EP. Nothing changes about that until/unless Google ships a bulk usage API on the AI Studio surface, or a future EP builds the separate Vertex AI integration named below.
+- **`Overview.test.tsx` has one pre-existing, order-dependent flaky test** unrelated to this EP's changes (confirmed via `git status` showing zero diff to that file or its test, and confirmed to pass reliably in isolation and on suite re-run) — noted here for completeness since it appeared during this EP's validation run, not introduced by it.
+- **No live, continuous browser test of a real Google connection → live model catalog → dashboard display journey** — same standing caveat as every prior EP in this document.
+
+## Future Vertex AI roadmap (not started)
+
+A second, distinct connectable service — **Provider: Google · Platform: Vertex AI · Service: Gemini Enterprise** — is the natural next step for organizations that need real Gemini cost/usage data, since Vertex AI's Cloud Billing Export (to BigQuery) is the actual mechanism that would close Part 3's usage-collection gap. This would require, at minimum: a new `ProviderConfig` subclass or a real use of `GoogleConfig`'s currently-unused `project_id`/`location` fields, OAuth/service-account credential handling (a materially different credential type than the API key `ProviderConnection.encrypted_api_key` stores today — likely its own encrypted-JSON-blob storage shape, not a bare string), a BigQuery client dependency, and a new usage-collection code path genuinely distinct from `get_usage()`'s current always-empty implementation. Per §32's own explicit instruction and this EP's own scope boundary, **none of this was built or started** — `GoogleProvider` remains AI Studio-only, and the Platform/Service display (Part 5) is structured specifically so this future work is additive (a second dictionary entry, a second `ProviderType` variant or a `configuration.platform` discriminator) rather than a rework of anything shipped in this EP.
+
+## Next milestone recommendation
+
+Unaffected, standing items carried forward from §33/§30/§28: a self-service "add a password" flow for Google-only accounts, the still-open transactional-email items, a Rules management UI on top of the completed `AlertRule` CRUD, and — from this EP specifically — the mandatory manual verification of the live model-catalog mapping against a real Google AI Studio account, plus the (larger, separate) Vertex AI Gemini integration named above if/when real Gemini usage/cost data becomes a product priority.

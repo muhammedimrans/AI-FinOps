@@ -92,7 +92,7 @@ Costorah has a real, working adapter for 7 providers. Every one of them supports
 |---|---|---|---|---|
 | OpenAI | API key | ✅ Live (`GET /v1/models`) | ✅ Real (`GET /v1/organization/usage/completions`) | Full production support |
 | Anthropic | API key | ✅ Live (`GET /v1/models`) | ✅ Real (`GET /v1/usage`, admin scope) | Full production support |
-| Google Gemini | API key | ✅ Live (`GET /v1beta/models`) | ⬜ None — no bulk usage API on this credential | Validates and syncs; imports 0 usage records by design |
+| Google Gemini (AI Studio) | API key | ✅ Live (`GET /v1beta/models`, live model catalog) | ⬜ None — no bulk usage API on this credential | Validates and syncs; live model list (EP-26.0.2); imports 0 usage records by design |
 | Azure OpenAI | API key + endpoint | ✅ Live (deployments list) | ⬜ None — cost data lives in Azure Cost Management, a different credential | Validates and syncs; imports 0 usage records by design |
 | OpenRouter | API key | ✅ Live (`GET /models`) | 🟡 Attempted — see below | Real, live-catalog model list; usage import calls a real endpoint, but its data may be empty depending on your key's permission level (EP-26.0.1) |
 | Grok (xAI) | API key | ✅ Live (`GET /models`) | ⬜ None — no documented bulk usage API | Validates and syncs; imports 0 usage records by design |
@@ -103,6 +103,27 @@ Costorah has a real, working adapter for 7 providers. Every one of them supports
 **OpenRouter is a special case, as of the EP-26.0.1 update.** Unlike the four providers above, OpenRouter does have a real, documented usage-history endpoint (`GET /api/v1/activity`), and Costorah's sync now calls it on every sync, importing real per-model, per-day usage when it succeeds. However, that endpoint may require a more privileged credential type ("management key") than the standard API key you paste into the Connect Provider form — this was not fully confirmed against a live account before shipping (see the "Limitations" note in the OpenRouter section below). In practice this means: **if your key has sufficient permission, OpenRouter usage import works exactly like OpenAI/Anthropic's; if it doesn't, your connection will show "healthy" and sync successfully but import 0 records — the same honest "nothing to report" outcome the four zero-volume providers show, not an error.** Check your connection's sync status and "Last error" field on the Connections page to tell the two cases apart.
 
 For each provider, the sections below cover: supported authentication, where to find/create your API key, required permissions, current usage-collection capability, and limitations.
+
+### Google Gemini (AI Studio) — account setup and connection walkthrough
+
+**Platform vs. Vertex AI — read this first.** "Google Gemini" in Costorah means one specific product: **Google AI Studio / the Gemini Developer API** (`generativelanguage.googleapis.com`), authenticated by a simple API key. It is **not** Google Cloud's **Vertex AI** — a separate, much larger enterprise ML platform that uses OAuth/GCP-service-account credentials instead of an API key, and that exposes Gemini through a different endpoint with genuinely richer, GCP-Cloud-Billing-backed usage telemetry. Costorah's dashboard shows this distinction directly on each Google connection as **Provider: Google · Platform: AI Studio · Service: Gemini API** — a label that exists specifically to make clear this is the AI Studio integration, not a (not-yet-built) Vertex AI one. If your organization uses Vertex AI Gemini instead of a plain AI Studio key, Costorah cannot connect to it today — see "Future: Vertex AI" below.
+
+**How to create a Google AI Studio account.** Go to [aistudio.google.com](https://aistudio.google.com) and sign in with any Google account — no separate signup, no credit card required to start (AI Studio has a free tier for low-volume use).
+
+**How to generate an API key.** In AI Studio, click **Get API key** (left sidebar) → **Create API key**. You can create it under a new or existing Google Cloud project; if you want billed, higher-rate-limit usage rather than the free tier, link it to a GCP project with billing enabled. Copy the key immediately (it starts with `AIza...`).
+
+**How to connect it to Costorah.** Connections → Add connection → Google Gemini, paste the key, save. Costorah validates it live against `GET /v1beta/models` before storing it — the identical endpoint used for both validation and model discovery.
+
+**Supported models.** As of EP-26.0.2, Costorah pulls Google's **live model catalog** (`GET /v1beta/models`, paginated) rather than a fixed list — every model your key currently has access to is discovered automatically, including context-window and output-token limits Google reports per model. If the live call ever fails (network issue, or Google's API being briefly unreachable), Costorah falls back to a small static list of the most current, well-known Gemini models (currently Gemini 2.5 Pro / Flash / Flash-Lite) so the Connect Provider form is never empty — but the live catalog is always the primary source.
+
+**Usage collection.** ⬜ **Not available.** Google's AI Studio / Gemini Developer API has no bulk, key-scoped usage-history endpoint — there is nothing for Costorah to call. Your Google connection will validate successfully, show "healthy," and sync on schedule exactly like every other provider — it will just import 0 usage records, honestly, every time. This is not a bug, a missing feature, or a broken integration; it's a real gap on Google's own AI Studio API surface, re-confirmed as part of EP-26.0.2's research. The data that *would* answer "how much did I spend on Gemini" lives in a different Google product (Vertex AI's Cloud Billing / Billing Export to BigQuery), which requires a different credential type than the API key you connect here — see "Future: Vertex AI" below.
+
+**Limitations.**
+- No usage/cost data is imported for Google connections, ever, under the current AI Studio integration — by design, not a defect. Track your actual Gemini spend via [Google AI Studio's own usage page](https://aistudio.google.com) or your linked GCP project's Cloud Billing console in the meantime.
+- The live model catalog reflects whatever models your specific API key/project currently has access to — Google occasionally deprecates or renames models faster than most providers; a model that disappears from the live catalog will also disappear from Costorah's Connect Provider form automatically (no code change needed on Costorah's side).
+- Pricing (cost-per-token) for Gemini models must still be seeded into Costorah manually via the admin pricing API — Google's `models.list` response does not include per-token pricing the way OpenRouter's does.
+
+**Future: Vertex AI (not built yet).** A second, separate "Platform: Vertex AI · Service: Gemini Enterprise" integration is the natural next step for organizations that need real Gemini usage/cost data — Vertex AI's Cloud Billing Export gives GCP customers exactly the bulk, queryable usage history AI Studio lacks. This would be a distinct connectable service (OAuth/service-account auth, GCP-project-scoped) layered on top of the same `Provider: Google` umbrella, never merged with the AI Studio integration above. Not started — see CLAUDE.md's EP-26.0.2 section for the full architecture reasoning.
 
 ### OpenRouter — account setup and connection walkthrough
 
@@ -432,7 +453,7 @@ Only if Cursor is configured to use your own API key from a connected provider o
 Connections can be validated (server reachability), but there's no cost or usage-history data to import — Ollama is free and self-hosted. See §11.
 
 **Can Google Gemini be tracked?**
-Credential validation: yes. Usage volume: not yet — Google's cost data lives behind Cloud Billing/BigQuery, a separate credential Costorah doesn't currently integrate with. See §3.
+Credential validation: yes, live, against a live model catalog too (EP-26.0.2 — Costorah now discovers your actual available Gemini models via `GET /v1beta/models` instead of a fixed list). Usage volume: not yet — Google's AI Studio API key has no bulk usage-history endpoint at all; that data lives behind a separate Google product (Vertex AI's Cloud Billing/BigQuery export), a different credential Costorah doesn't currently integrate with. See §3.
 
 **Can Azure usage be tracked?**
 Same answer as Google — credentials validate live, but usage volume requires Azure Cost Management (a different, ARM-scoped credential), which isn't wired in yet. See §3.

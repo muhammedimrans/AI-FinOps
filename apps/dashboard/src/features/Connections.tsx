@@ -47,7 +47,13 @@ import {
   type ProviderConnectionRecord,
   type SyncStatusResponse,
 } from "../services/api";
-import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, connectableLabel, hasKnownUsageApi } from "../lib/providerCatalog";
+import {
+  PROVIDER_COLORS,
+  CONNECTABLE_PROVIDERS,
+  connectableLabel,
+  hasKnownUsageApi,
+  providerPlatformInfo,
+} from "../lib/providerCatalog";
 import { cn, formatNumber, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
 import { useOrgStore } from "../stores/org";
@@ -701,6 +707,20 @@ function ConnectionRow({
           <span className={cn("badge text-[10px]", connection.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
             {connection.is_active ? "Active" : "Inactive"}
           </span>
+          {/* EP-26.0.2 — Provider/Platform/Service identity. Purely
+              display-layer (providerCatalog.ts's providerPlatformInfo);
+              today this only renders for Google, whose ProviderType
+              exclusively targets AI Studio / the Gemini Developer API, not
+              the future, not-yet-built Vertex AI integration. */}
+          {providerPlatformInfo(connection.provider_type) && (
+            <span
+              className="badge text-[10px] bg-app-muted text-tx-secondary"
+              title="The specific Google platform and service this connection targets."
+            >
+              {providerPlatformInfo(connection.provider_type)!.platform} ·{" "}
+              {providerPlatformInfo(connection.provider_type)!.service}
+            </span>
+          )}
           {/* EP-24.3 — informational capability badge, mirrors the backend's
               _KNOWN_USAGE_API_PROVIDERS list; never gates any action. */}
           <span

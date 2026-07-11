@@ -122,3 +122,27 @@ export function parseOpenRouterModelId(modelId: string): ParsedOpenRouterModel |
     modelSlug,
   };
 }
+
+// EP-26.0.2 — "Platform" / "Service" identity for providers whose backend
+// ProviderType umbrella could one day cover more than one connectable
+// surface. Today this only matters for Google: `ProviderType.GOOGLE`
+// exclusively targets the AI Studio / Gemini Developer API (see
+// GoogleProvider's own module docstring and CLAUDE.md's EP-26.0 Part 1) —
+// Vertex AI Gemini is a distinct, not-yet-built future integration with a
+// different auth model. This is a purely a *display* lookup, never a
+// stored value (CLAUDE.md's EP-26.0 Part 4/Part 5 finding): if Vertex AI
+// Gemini is ever added as a second connectable service under the same
+// ProviderType.GOOGLE umbrella, that is the trigger to promote this into a
+// real `ProviderConnection.configuration.platform` JSONB key — not before.
+export interface ProviderPlatformInfo {
+  platform: string;
+  service: string;
+}
+
+export const PROVIDER_PLATFORM_INFO: Record<string, ProviderPlatformInfo> = {
+  google: { platform: "AI Studio", service: "Gemini API" },
+};
+
+export function providerPlatformInfo(providerType: string): ProviderPlatformInfo | null {
+  return PROVIDER_PLATFORM_INFO[providerType] ?? null;
+}

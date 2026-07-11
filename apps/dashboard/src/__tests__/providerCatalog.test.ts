@@ -3,6 +3,7 @@ import {
   hasKnownUsageApi,
   parseOpenRouterModelId,
   KNOWN_USAGE_API_PROVIDERS,
+  providerPlatformInfo,
 } from "../lib/providerCatalog";
 
 // EP-26.0.1
@@ -59,5 +60,28 @@ describe("parseOpenRouterModelId", () => {
   it("is case-insensitive when looking up the vendor label", () => {
     const parsed = parseOpenRouterModelId("OpenAI/gpt-4o");
     expect(parsed?.vendorLabel).toBe("OpenAI");
+  });
+});
+
+// EP-26.0.2
+describe("providerPlatformInfo", () => {
+  it("returns AI Studio / Gemini API for google", () => {
+    expect(providerPlatformInfo("google")).toEqual({
+      platform: "AI Studio",
+      service: "Gemini API",
+    });
+  });
+
+  it("returns null for providers with no platform/service distinction", () => {
+    expect(providerPlatformInfo("openai")).toBeNull();
+    expect(providerPlatformInfo("anthropic")).toBeNull();
+    expect(providerPlatformInfo("openrouter")).toBeNull();
+    expect(providerPlatformInfo("azure_openai")).toBeNull();
+    expect(providerPlatformInfo("grok")).toBeNull();
+    expect(providerPlatformInfo("ollama")).toBeNull();
+  });
+
+  it("returns null for an unknown provider type", () => {
+    expect(providerPlatformInfo("not-a-real-provider")).toBeNull();
   });
 });

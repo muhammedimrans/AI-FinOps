@@ -16,9 +16,21 @@ class ProviderConnectionResponse(BaseModel):
     credential-derived field, e.g. ``"sk-********************************AbC"``,
     and is None when no credential has been configured yet. See
     ``app.security.masking.mask_secret`` and CLAUDE.md §13's security section.
+
+    ``id`` is the raw UUID (EP-26.0.3.1 fix), not ``external_id`` — every
+    mutating endpoint on this resource (``PATCH``/``DELETE``/``test``/
+    ``rotate``/``sync-status``/``sync`` under ``.../{connection_id}``)
+    type-validates its path parameter as ``uuid.UUID``, and
+    ``uuid.UUID("conn_<hex>")`` always raises. The dashboard's Connections
+    page reuses this response's own ``id`` for every one of those actions
+    (rename, activate/deactivate, Test Connection, Rotate Key, Sync Now,
+    Delete) — with the previous ``external_id`` value, every one of them
+    would 422 in real use. Matches the same fix applied to
+    ``ProjectResponse.id`` in this EP, and the already-correct convention
+    ``BudgetResponse``/``AlertResponse``/``ApiKeyResponse`` already use.
     """
 
-    id: str  # external_id (conn_...)
+    id: uuid.UUID
     provider_type: str  # ProviderType value
     display_name: str
     project_id: str | None  # raw UUID string, None = org-scoped (not project-scoped)

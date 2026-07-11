@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 from decimal import Decimal
 
@@ -9,9 +10,20 @@ from pydantic import BaseModel, Field
 
 
 class ProjectResponse(BaseModel):
-    """One Project."""
+    """One Project.
 
-    id: str  # external_id (proj_...)
+    ``id`` is the raw UUID (EP-26.0.3.1 fix), not ``external_id`` — every
+    mutating endpoint on this resource (``PATCH``/``DELETE .../{project_id}``)
+    type-validates its path parameter as ``uuid.UUID``, and
+    ``uuid.UUID("proj_<hex>")`` always raises (the "proj_" prefix isn't valid
+    hex). Returning ``external_id`` here meant every client that reused this
+    response's own ``id`` to build a follow-up request — exactly what the
+    frontend does — would 422 on every rename/delete. Matches the existing,
+    already-correct convention `BudgetResponse`/`AlertResponse`/
+    `ApiKeyResponse`/`InvitationResponse` all use.
+    """
+
+    id: uuid.UUID
     name: str
     description: str | None
     environment: str  # ProjectEnvironment value

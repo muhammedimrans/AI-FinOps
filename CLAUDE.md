@@ -4117,3 +4117,91 @@ Every logo carries an accessible name (`alt` on the `<img>`, `aria-label`/`role=
 1. Replace the 4 disclosed original monograms (OpenAI, Azure OpenAI, Grok, Cohere) with genuinely licensed or official brand assets once direct vendor-asset access or a licensed icon bundle is available.
 2. If OpenRouter's live model catalog (EP-26.0.1) ever surfaces additional vendor slugs beyond the 12 in this registry, extend `PROVIDER_BRAND_REGISTRY`/`PROVIDER_BRAND_ALIASES` rather than letting `getProviderBrand()`'s generic fallback silently become the common case for real, frequently-routed vendors.
 3. Everything this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-26.0.3.1 — Provider Connection Validation & UX
+
+**Status: complete.** Fixes a real, production-impacting bug found during a repository-wide ID-consistency audit (Part 1), confirms Google Gemini and OpenRouter already have full UX parity with OpenAI/Anthropic on the Connections page (Part 2), and enriches the "Test Connection" action with a real, informative result panel (Part 5). Parts 3/4 (live-account validation) could not be performed against a real Gemini/OpenRouter account — no credential was available in this sandbox, the same disclosed limitation every provider-validation EP since §32 has carried — and are documented honestly below via the existing hermetic test suites instead.
+
+## Part 1 — Repository-wide UUID vs external_id consistency audit
+
+### The bug
+
+`ProjectResponse.id` and `ProviderConnectionResponse.id` both returned `<model>.external_id` — a type-prefixed hex string produced by `BaseModel`'s mixin (`app/db/mixins.py`): `f"{self._external_id_prefix}_{self.id.hex}"`, e.g. `"conn_0123456789abcdef0123456789abcdef"`. Every mutating endpoint on both resources — `PATCH`/`DELETE .../{project_id}` and `PATCH`/`DELETE`/`test`/`rotate`/`sync-status`/`sync` under `.../{connection_id}` — type-validates its path parameter as `uuid.UUID` via FastAPI. `uuid.UUID("conn_<hex>")` always raises `ValueError` — the `"conn_"`/`"proj_"` prefix is not valid hex.
+
+Confirmed via direct read of `apps/dashboard/src/features/Connections.tsx` and `Projects.tsx`: both pass the API's own response `id` field straight into every follow-up action — rename, activate/deactivate, Test Connection, Rotate Key, Sync Now, Delete. With the pre-fix `external_id` value, **every one of these actions would 422 in real use** on a real deployment. No existing test caught this because every prior test constructs its fixtures with a known raw UUID and calls endpoints with that UUID directly — none round-trip through a real create-response-`id` → reuse-in-a-later-request flow the way a real browser session does.
+
+### Scope of the audit
+
+Every resource carrying an `id`-shaped field was cross-checked: `BudgetResponse.id`, `AlertResponse.id`, `AlertRuleResponse.id`, `AlertSuppressionResponse.id`, `ApiKeyResponse.id`/`ApiKeyCreatedResponse.id`, `InvitationResponse.id`, and `WorkspacePublic.id` (fixed previously, EP-25.3) — all already correctly `uuid.UUID`. **Only `ProjectResponse.id` and `ProviderConnectionResponse.id` were outliers.** Three additional `connection_id: str  # external_id (conn_...)` fields inside sync-related response schemas (`SyncStatusResponse.connection_id`, `SyncRunResponse.connection_id`, and one more) were deliberately left unchanged — confirmed via grep that the frontend never reuses those specific fields to build a follow-up request URL, so changing them was unnecessary surface area, not a fix.
+
+### The fix
+
+`app/schemas/projects.py`'s `ProjectResponse.id` and `app/schemas/provider_connections.py`'s `ProviderConnectionResponse.id` both changed from `str` (populated with `.external_id`) to `uuid.UUID` (populated with the model's own `.id`), in the single `_to_response()` construction function each router already funnels every response through (`app/api/v1/projects.py`, `app/api/v1/provider_connections.py`) — one line changed per file, no new abstraction, no compatibility shim. Frontend: **zero code changes required** — every TypeScript type declares `id: string`, and a dashed-UUID string satisfies that type transparently; the fix is entirely in what value the backend puts in that field.
+
+### Testing
+
+`backend/tests/test_ep26_0_3_1_id_consistency.py` (8 new tests): for both `Project` and `ProviderConnection`, confirms the response `id` matches the model's raw `id` exactly, is never the `external_id`, and — the direct regression pin for the actual failure mode — round-trips cleanly through `uuid.UUID(str(response.id))`, exactly what FastAPI does when parsing a `{project_id}`/`{connection_id}: uuid.UUID` path parameter. Two further tests document the root-cause mechanism itself (`uuid.UUID("conn_...")`/`uuid.UUID("proj_...")` both raise), independent of any endpoint. Full backend suite: **1991 passed** (1983 + 8), 30 skipped (unchanged, pre-existing `DATABASE_URL`-gated integration tests), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+
+## Part 2 — Gemini & OpenRouter Connection UX parity
+
+Direct read of `Connections.tsx` (`ConnectionRow`, `AddConnectionForm`, `SyncStatusPanel`) confirmed every element this EP's Part 2 named already renders generically for every `provider_type`, Google/OpenRouter included, with no feature-gating:
+
+- **Provider logo** — `ProviderLogo`/`getProviderBrand()` (EP-26.0.4), rendered for every connection regardless of provider.
+- **Connection status** — `HealthBadge` + Active/Inactive badge, generic.
+- **Test Connection button** — present on every row unconditionally.
+- **Validate API Key / Health Check** — the same `POST .../{id}/test` endpoint and `VALIDATION_LABELS` display logic for every provider.
+- **Sync Now** — present on every row; only disabled with an explanatory tooltip for providers with no real bulk usage API (`hasKnownUsageApi()`, EP-24.3) — this is a real provider-capability difference, not a UX gap, and Google/OpenRouter are both correctly represented (Google: no bulk API, disabled with explanation; OpenRouter: real API, enabled).
+- **Last Sync** — `SyncStatusPanel`, generic, EP-23.3.
+- **Model Discovery** — both Google (EP-26.0.2) and OpenRouter (EP-26.0.1) pull a real, live model catalog, same as OpenAI/Anthropic.
+- **Scheduler Status** — `AutoSyncStatusSection`, org-wide and provider-agnostic, EP-23.4.
+- **Platform badge / Service badge** — `providerPlatformInfo()` (EP-26.0.2) renders for Google (`AI Studio` / `Gemini API`); returns `null` for every provider without a distinct platform/service concept, which is correct, not a gap.
+- **Helpful error messages** — `VALIDATION_LABELS`/`apiErrorMessage` cover every `ProviderValidationStatus` value generically.
+
+The only two provider-specific conditionals found in the entire file are functionally necessary, not UX degradation: Azure's `requiresBaseUrl` (Azure genuinely needs an endpoint URL no other provider does) and Ollama's optional-API-key placeholder copy (Ollama genuinely has no credential concept). **No code change was needed for Part 2** — the architecture already delivers identical UX across all 7 providers, differing only where the underlying provider platform itself genuinely differs.
+
+## Part 3/4 — Real Gemini / OpenRouter validation
+
+**No live Google AI Studio or OpenRouter API key was available in this sandbox** — confirmed via `env | grep -iE "gemini|google_api|GOOGLE_AI|OPENROUTER"` and a grep of every `.env*` file in the repository, both returning no match. This is the same disclosed sandbox limitation carried by every provider-validation EP since §32 (EP-26.0, EP-26.0.1, EP-26.0.2, EP-26.0.2.1, EP-26.0.3). Validation for both providers was therefore performed via:
+
+1. **Re-confirmation of existing hermetic test coverage** — `test_ep26_0_2_google.py` (18 tests, live model catalog, capability inference, fallback behavior), `test_ep26_0_1_openrouter.py` (16 tests, normalizer, `get_usage()`, live catalog), and `test_ep26_0_2_1_lifecycle.py` (4 tests, full connect→discover→sync→credential-revoked/expired/missing lifecycle narratives) — all re-run as part of this EP's full-suite pass, all still passing, unaffected by the Part 1 ID fix or Part 5 UX change.
+2. **Direct source-code re-read** of `GoogleProvider`/`OpenRouterProvider` to confirm no behavior described in prior EPs (§32, §33, EP-26.0.2) has silently regressed.
+
+**No new live-account validation was performed or claimed.** The concrete, standing recommendation from every prior provider EP remains unchanged and is restated here rather than duplicated: a future session with a real AI Studio key and/or OpenRouter key should walk through the 8-step "Testing Google Gemini" checklist now in STARTUP.md and correct anything that doesn't match what's documented.
+
+## Part 5 — Provider Test Experience
+
+`Connections.tsx`'s `ConnectionRow.test` mutation now captures the full `TestProviderConnectionResult` on success (not just a toast) into new `lastTestResult` state, and renders a result panel directly under the connection row:
+
+- **Connected successfully** / **Connection test failed** — a clear heading with a check/x icon, driven by `result.health_status`.
+- **Provider / Platform / Service** — sourced entirely client-side from `getProviderBrand(connection.provider_type)` (the Provider Brand Registry, EP-26.0.4) — zero new backend call, since this identity data is already known the instant a provider type is selected.
+- **API status** — "Reachable" / "Not testable", from `result.tested`.
+- **Capabilities** — the brand registry's cosmetic capability tag row (Chat, Vision, Tools, Streaming, etc.).
+- **The real detail message** — `result.detail`, the existing normalized, user-safe string the backend's `ProviderValidator` already produces (EP-22 §13's seven-canned-string table).
+
+**"Available models" was deliberately not added to this panel.** The only model-list endpoint reachable from the frontend, `getProviderModels(provider)` (`GET /v1/providers/{provider}/models`), is the older, env-var-keyed production-adapter probe (EP-07) — scoped to server-side credentials, not the customer's own stored connection. Wiring it into a per-connection result panel would silently misattribute whose credential the shown models belong to, violating this codebase's standing no-fake-functionality convention. `TestProviderConnectionResult` itself has no model-list field to draw from honestly. A live per-connection model list is already shown elsewhere — Connect Provider's own catalog preview and the connection's ongoing model-discovery state — so this is not a missing capability, only a deliberate boundary on what one specific result panel claims.
+
+On failure, the error toast was also sharpened from a generic message to one naming the specific provider (`"Couldn't reach {provider}. Check the connection's API key and try again."`), reusing the same brand registry.
+
+### Testing
+
+Frontend validation: `tsc -b` clean, `eslint src --max-warnings 0` clean, full `vitest run` — 312/313 passed with the one pre-existing, already-documented order-dependent `Overview.test.tsx` flake (unrelated to any file this EP touched — confirmed passing in isolation both before and after this EP's changes), and all 20 Connections/`ManageConnectionsSection` tests passing. Production `vite build` clean.
+
+## Files changed
+
+- `backend/app/schemas/projects.py` — `ProjectResponse.id: uuid.UUID`.
+- `backend/app/api/v1/projects.py` — `_to_response()` populates `id=project.id`.
+- `backend/app/schemas/provider_connections.py` — `ProviderConnectionResponse.id: uuid.UUID`.
+- `backend/app/api/v1/provider_connections.py` — `_to_response()` populates `id=conn.id`.
+- `backend/tests/test_ep26_0_3_1_id_consistency.py` — new, 8 tests.
+- `apps/dashboard/src/features/Connections.tsx` — `lastTestResult` state, enriched Test Connection result panel, sharper error toast.
+- `STARTUP.md` — new "Testing Google Gemini (EP-26.0.3.1)" subsection.
+- `CLAUDE.md` — this section.
+
+## Known limitations
+
+- **No live Gemini or OpenRouter account was used to validate anything in this EP** — every claim in Parts 3/4 above is grounded in existing hermetic test coverage and direct source review, not a first-party API response this session observed. This is the single most consequential open item, unchanged from every prior provider EP.
+- **The three sync-schema `connection_id: str  # external_id` fields left unchanged in Part 1** are a deliberate, scoped decision (the frontend never reuses them to build a request URL), not an oversight — but a future reader auditing this area again should re-confirm that remains true before assuming it's settled permanently.
+- **The Test Connection panel's "Capabilities" tags are cosmetic**, sourced from the static Provider Brand Registry, not a live per-request capability probe — unchanged, disclosed convention since EP-26.0.4.
+- Every other standing item this document has carried forward (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.

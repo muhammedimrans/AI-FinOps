@@ -11,6 +11,16 @@ import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 
+// EP-25.3.2 — cache-busting version tag for the favicon/icon set below.
+// Browsers cache /favicon.ico extremely aggressively (often ignoring normal
+// HTTP cache-control and persisting across hard refreshes), unlike Vite's
+// content-hashed imported assets — a bare `/favicon.ico` URL that never
+// changes can keep serving a stale icon indefinitely even after the file on
+// disk is replaced. Appending a query string tied to the source artwork's
+// own content hash forces every browser to treat a real logo change as a
+// new URL. Bump this whenever apps/website/src/assets/Costorah.png changes.
+const FAVICON_VERSION = "5368fa29";
+
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -85,13 +95,33 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content: "Unified AI FinOps: monitor, optimize, and forecast spend across every provider.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: `/og-image.png?v=${FAVICON_VERSION}` },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "Costorah — AI Cost Intelligence" },
       { name: "twitter:description", content: "Unified AI FinOps across every provider." },
+      { name: "twitter:image", content: `/og-image.png?v=${FAVICON_VERSION}` },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: `/favicon.ico?v=${FAVICON_VERSION}`, type: "image/x-icon" },
+      {
+        rel: "icon",
+        href: `/favicon-32x32.png?v=${FAVICON_VERSION}`,
+        type: "image/png",
+        sizes: "32x32",
+      },
+      {
+        rel: "icon",
+        href: `/favicon-16x16.png?v=${FAVICON_VERSION}`,
+        type: "image/png",
+        sizes: "16x16",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: `/apple-touch-icon.png?v=${FAVICON_VERSION}`,
+        sizes: "180x180",
+      },
+      { rel: "manifest", href: `/site.webmanifest?v=${FAVICON_VERSION}` },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {

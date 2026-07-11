@@ -173,7 +173,7 @@ describe("GettingStartedBanner (EP-22.3 checklist)", () => {
   // must not leave "Generate AI Usage"/"View Analytics" looking like a
   // stuck todo with no explanation — they should disclose why, and their
   // "Go" links (to pages that will never resolve the item) should be hidden.
-  it("shows an honest note instead of a 'Go' link when the only validated connection has no usage API", async () => {
+  it("shows an honest note with a Playground link instead of a dead-end 'Go' link when the only validated connection has no usage API", async () => {
     mockedApi.listProviderConnections.mockResolvedValue({
       connections: [connection({ provider_type: "google", last_validation_status: "healthy" })],
       total: 1,
@@ -187,8 +187,14 @@ describe("GettingStartedBanner (EP-22.3 checklist)", () => {
     expect(
       screen.getAllByText(/doesn't expose historical usage/i).length,
     ).toBeGreaterThanOrEqual(2);
+    // EP-26.0.3.3 — AI Playground now exists, so a permanently-blocked
+    // "Generate AI Usage" item offers a real next action (Playground),
+    // not a dead end.
     const usageRow = screen.getByText("Generate AI Usage").closest("li")!;
-    expect(usageRow.querySelector("a")).toBeNull();
+    const link = usageRow.querySelector("a");
+    expect(link).not.toBeNull();
+    expect(link).toHaveTextContent("Playground");
+    expect(link).toHaveAttribute("href", "/playground");
   });
 
   it("renders nothing once every step is complete", async () => {

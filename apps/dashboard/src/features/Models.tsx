@@ -11,18 +11,96 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Medal, Search, Info } from "lucide-react";
+import { Medal, Search, Info, Sparkles } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import ProviderBadge from "../components/ProviderBadge";
+import ProviderLogo from "../components/ProviderLogo";
 import { PROVIDER_COLORS, hasKnownUsageApi } from "../lib/providerCatalog";
 import { useModels } from "../hooks/useDashboard";
-import { listProviderConnections } from "../services/api";
+import { listProviderConnections, listPlaygroundModels, type PlaygroundConnectionOption } from "../services/api";
 import { formatCost, formatNumber, formatTokens, modelDisplayName, providerDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
+
+// EP-26.0.3.3 — the spend leaderboard (below) is deliberately usage-derived
+// only; this is the discovered-model-catalog counterpart, shown in place of
+// a bare empty table so a healthy, validated connection with no usage API
+// (Google/Azure/Grok/Ollama, EP-24.3) still shows something real: the
+// live model list Costorah already discovered on the connection (the exact
+// same GET .../playground/connections/{id}/models call the AI Playground's
+// model picker uses, EP-25.4 — never a second catalog, never fabricated
+// usage). Each model is labeled "No usage yet", not hidden or faked.
+function DiscoveredModelsForConnection({
+  organizationId,
+  connection,
+}: {
+  organizationId: string;
+  connection: PlaygroundConnectionOption;
+}) {
+  const modelsQuery = useQuery({
+    queryKey: ["playground-models", organizationId, connection.id],
+    queryFn: () => listPlaygroundModels(organizationId, connection.id),
+  });
+  const models = modelsQuery.data ?? [];
+
+  if (modelsQuery.isLoading) {
+    return (
+      <div className="flex items-center gap-2 px-1 py-2">
+        <div className="h-3 w-24 skeleton rounded" />
+      </div>
+    );
+  }
+  if (models.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 px-1">
+        <ProviderLogo providerId={connection.provider_type} size="sm" />
+        <span className="text-xs font-medium text-tx-primary">{connection.display_name}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+        {models.map((m) => (
+          <div
+            key={m.id}
+            className="flex items-center justify-between gap-2 rounded-lg border border-border-subtle bg-app-muted px-3 py-2"
+          >
+            <span className="text-xs text-tx-primary truncate">{m.display_name}</span>
+            <span className="badge bg-app-bg text-tx-muted text-[9px] flex-shrink-0">No usage yet</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DiscoveredModelsPanel({
+  organizationId,
+  connections,
+}: {
+  organizationId: string;
+  connections: PlaygroundConnectionOption[];
+}) {
+  const eligible = connections.filter((c) => c.has_credential || c.provider_type === "ollama");
+  if (eligible.length === 0) return null;
+  return (
+    <div className="mt-6 flex flex-col gap-4">
+      <div className="flex items-center gap-2 px-1">
+        <Sparkles size={14} className="text-brand" />
+        <p className="text-xs font-semibold text-tx-primary">Discovered models</p>
+        <p className="text-[11px] text-tx-muted">
+          — pulled live from each connection&apos;s own catalog. Send a prompt from AI Playground to
+          start tracking usage for any of these.
+        </p>
+      </div>
+      {eligible.map((c) => (
+        <DiscoveredModelsForConnection key={c.id} organizationId={organizationId} connection={c} />
+      ))}
+    </div>
+  );
+}
 
 function MedalIcon({ rank }: { rank: number }) {
   if (rank === 1) return <span className="text-[#FFD700] text-sm">🥇</span>;
@@ -191,8 +269,8 @@ export default function Models() {
                                 {connections.data!.connections.every(
                                   (c) => !hasKnownUsageApi(c.provider_type),
                                 )
-                                  ? "Your connected provider(s) don't expose a bulk usage-history API, so no per-model spend can be imported — this is expected, not an error."
-                                  : "Models will appear here once your connected providers report usage."}
+                                  ? "Your connected provider(s) don't expose a bulk usage-history API, so no per-model spend can be imported — this is expected, not an error. Send a prompt from AI Playground to start tracking real usage for the models discovered below."
+                                  : "Models will appear here once your connected providers report usage — or send a prompt from AI Playground to generate it now."}
                               </p>
                             </>
                           ) : (
@@ -234,6 +312,12 @@ export default function Models() {
             </tbody>
           </table>
         </div>
+        {filtered.length === 0 && !search && organizationId && (
+          <DiscoveredModelsPanel
+            organizationId={organizationId}
+            connections={connections.data?.connections ?? []}
+          />
+        )}
       </Section>
 
       {/* Performance Matrix */}

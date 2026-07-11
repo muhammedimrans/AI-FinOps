@@ -728,21 +728,26 @@ function ConnectionRow({
             </span>
           )}
           {/* EP-24.3 — informational capability badge, mirrors the backend's
-              _KNOWN_USAGE_API_PROVIDERS list; never gates any action. */}
+              _KNOWN_USAGE_API_PROVIDERS list; never gates any action.
+              EP-26.0.3.3 — explicit "Historical usage: Supported/
+              Unavailable" wording, so a customer never has to guess what
+              "Usage API" means for their own spend tracking. */}
           <span
             className={cn(
               "badge text-[10px]",
               hasKnownUsageApi(connection.provider_type)
-                ? "bg-app-muted text-tx-secondary"
+                ? "bg-success-dim text-success"
                 : "bg-app-muted text-tx-muted",
             )}
             title={
               hasKnownUsageApi(connection.provider_type)
-                ? "This provider has a bulk usage-history API — syncs import real usage records."
-                : "This provider has no bulk usage-history API — syncs run normally but import 0 records."
+                ? "This provider has a bulk usage-history API — background syncs import real usage records automatically."
+                : "This provider has no bulk usage-history API — background syncs run normally but import 0 records. Use AI Playground to generate tracked usage instead."
             }
           >
-            {hasKnownUsageApi(connection.provider_type) ? "Usage API" : "No usage API"}
+            {hasKnownUsageApi(connection.provider_type)
+              ? "Historical usage: Supported"
+              : "Historical usage: Unavailable"}
           </span>
 
           {editing ? (

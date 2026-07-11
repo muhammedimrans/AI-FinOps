@@ -4450,3 +4450,101 @@ Backend: `pytest -q` → 2013 passed, 30 skipped. `ruff check app tests` → cle
 9. **Tests added** — 22 net-new backend tests (52 total across 5 files including 2 rewritten pre-existing files) + 9 frontend tests, all passing.
 10. **Validation results** — backend and frontend both fully green (2013 backend tests / 331 frontend tests, all lint/typecheck/build gates clean); see "Validation results" above for the exact commands and counts.
 11. **Remaining future enhancements** — real token-by-token streaming with a working Stop button; a fuller markdown renderer; Prompt Library/Templates/Saved Conversations/Prompt Versioning; AI Agents/Tool-Calling/MCP/RAG Testing (via the already-present `ProviderRequest.extra` extension point); Batch Execution/Workflow Builder; Cost Optimization Suggestions (EP-26.6). None of these require any redesign of what this EP shipped.
+
+---
+
+# EP-26.0.3.3 — Provider-aware Dashboard UX
+
+**Status: complete.** A UX and product-readiness pass — no fabricated usage, no fake analytics, no placeholder cost data. Every change is either (1) a clearer empty state that discloses *why* a healthy, connected provider (Google Gemini/AI Studio, chiefly) shows no historical usage, or (2) a real next action — AI Playground (EP-25.4), now that it exists — offered in place of a dead-end note. No backend file was touched; every improvement composes data this dashboard already fetches.
+
+## Root cause
+
+Restated from EP-26.0.3.2's own investigation (§ "EP-26.0.3.2" above), which this EP extends rather than repeats: Overview's checklist, Providers, Models, and Analytics are all driven by `UsageCostRecord` presence, never `ProviderConnection` presence — architecturally correct for a spend/usage-analytics product, but before this EP several of those surfaces still either (a) offered no real next action once they'd correctly disclosed "historical usage unavailable," or (b) hadn't been extended to disclose it at all (Models' leaderboard, Analytics' Spend-by-Provider chart). This EP closes those two specific gaps — it is not a re-diagnosis of the same root cause EP-26.0.3.2 already found and partially fixed, it's finishing the job now that AI Playground gives every one of these dead ends a genuine destination.
+
+## Four distinct states, never collapsed into one
+
+Per this EP's own instruction, every page reviewed (Overview, Providers, Models, Analytics, Connections) now distinguishes:
+
+1. **Connected Provider** — `ProviderConnection` exists and is validated (`last_validation_status === "healthy"`).
+2. **Discovered Models** — the connection's own live model catalog (`GET .../playground/connections/{id}/models`, EP-25.4/26.0.1/26.0.2) has real entries.
+3. **Imported Usage** — `UsageCostRecord` rows exist for this org/provider (what every chart on these pages was already querying).
+4. **Analytics** — derived aggregates (trend, breakdown, heatmap) over state 3's data.
+
+No page conflates "no rows in state 3" with "state 1 or 2 never happened" — every empty state now names which of the four states is actually missing.
+
+## Overview (Part 2)
+
+`GettingStartedBanner`'s `ChecklistItem` gained a `noteAction` field (`{ to, label }`) — when a validated connection's provider has no bulk usage API (`usageWillNeverArrive`, unchanged detection logic from EP-26.0.3.2), the "Generate AI Usage"/"View Analytics" rows now show both the honest note *and* a real "Playground" button linking to `/playground`, instead of a note with no action at all. Both items' `to` also default to `/playground` now (previously `/api-keys`, a stale target from before Playground existed).
+
+`DashboardStateHero`'s state-3-usage-incapable branch was rewritten to match this EP's own spec example closely: a three-line checklist (Connected & healthy / Models discovered / Historical usage unavailable from this provider, each with the correct icon) plus two buttons — **"Generate usage with AI Playground"** (primary) and **"View Providers"** (secondary) — replacing the old single "View Providers" CTA that offered no way to actually produce usage.
+
+## Providers page (Part 3)
+
+Already correct as of EP-26.0.3.2's `ConnectedNoUsageState` component — re-verified, not rebuilt: a connected org never sees "No Providers Found"; instead it sees each connection's name, platform, validation status, and a "Waiting for usage" / "No usage API" badge with an inline reason. No change was needed here beyond what EP-26.0.3.2 already shipped.
+
+## Models page (Part 4) — the one genuinely new capability this EP adds
+
+Previously, a usage-incapable connection's model leaderboard was correctly-but-thinly explained ("no models with recorded usage yet") with no models actually shown. This EP adds a **Discovered Models** panel, rendered in place of the empty leaderboard: for every connection with a credential (or Ollama, which needs none), it calls the exact same live model-catalog endpoint AI Playground's model picker already uses (`listPlaygroundModels`, `GET .../playground/connections/{id}/models` — EP-25.4, itself built on EP-26.0.1/26.0.2's live-catalog work) and renders each real model (e.g. Gemini 2.5 Pro, Gemini 2.5 Flash, Gemini 2.5 Flash Lite) with a **"No usage yet"** badge — never a fabricated cost/token row, since none of those figures exist. This is not a second model catalog: it's the same one connection-management and Playground already share, reused a third time.
+
+## Analytics (Part 5)
+
+The "Spend by Provider" stacked chart (`ChartCard`'s existing `emptyContent` extension point, unchanged since EP-24.1) now renders a contextual empty state — connected provider name, "Historical usage cannot be imported from this provider," and an "Open AI Playground" button — whenever every connected provider lacks a bulk usage API, instead of the generic "no data for this period" message that could read as an error. The connections query reuses the same `["provider-connections", organizationId]` key every other page already shares (Providers.tsx, Models.tsx, `useDashboardState`), so this is never a second, out-of-sync fetch.
+
+## Connections page (Part 6)
+
+The per-connection capability badge's text and tooltip were sharpened from "Usage API"/"No usage API" to explicit **"Historical usage: Supported"** / **"Historical usage: Unavailable"** wording (still driven by the same `hasKnownUsageApi()` lookup, EP-24.3, unchanged), with the "Unavailable" tooltip now naming AI Playground as the real alternative. The "Platform diagnostics" section (renamed from "Adapters in development" in EP-26.0.3.2) was re-reviewed against this EP's own instruction to check whether that renaming was still accurate — it is: the section already clearly states it checks Costorah's own server-side ops credentials, unrelated to a customer's own connections above it. No further change was needed there; this EP's review confirmed EP-26.0.3.2's fix already resolved the misleading-wording concern.
+
+## Empty-state philosophy (Part 7)
+
+Every empty state this EP touched follows one rule: **name the specific missing state, then name the specific next action** — never a bare "no data" message, and never implying an error for something that's actually a disclosed, permanent provider limitation. Concretely, across the pages reviewed:
+
+| Situation | What the user sees |
+|---|---|
+| No provider connected | "Connect your first provider" → Connections |
+| Provider connected, not yet validated | "Validate your API credentials" → Connections |
+| Provider connected + validated, usage-capable, genuinely zero usage so far | "Waiting for AI usage" — a genuine "hasn't happened yet," not a permanent state |
+| Provider connected + validated, usage-*incapable* | "Historical usage unavailable" + models discovered + a real Playground CTA — never conflated with the row above |
+| Models leaderboard empty, usage-incapable connection | Discovered-models panel with "No usage yet" badges, not a blank table |
+| Analytics chart empty, usage-incapable connection | Named provider + "cannot be imported" + Playground CTA, not a generic empty-chart message |
+
+Projects/Budgets/Alerts/Reports were reviewed per this EP's Part 7 checklist and found to already carry correctly-scoped empty states from their own originating EPs (§17, §22, §27) that don't depend on provider usage-capability at all (a budget or a project's emptiness has nothing to do with which provider produced the org's usage) — no change was needed on those four pages for this EP's specific concern.
+
+## AI Playground readiness (Part 8)
+
+AI Playground (EP-25.4) already existed before this EP started, which changed Part 8's framing from "prepare for a future feature" to "confirm the preparation already works and wire the remaining UI pointers to it." Confirmed, not re-verified from scratch (EP-25.4's own CLAUDE.md section already established this): every Playground request writes a real `UsageEvent`/`UsageCostRecord` through the identical repositories Overview/Providers/Models/Analytics/Recent Activity/Top Models/Top Providers/Cost Breakdown already query — so the first prompt sent from Playground populates all of them with zero additional UI work, exactly as this Part asked to prepare for. This EP's own contribution is purely wiring the *pointers* to Playground (Overview's checklist and hero, Analytics' empty chart, Models' "Send a prompt..." copy) — not any new data-flow work, since that data-flow already existed.
+
+## Product polish (Part 9) — the first-time-customer walkthrough
+
+Walking through the exact scenario this EP's Part 9 describes (connect Google Gemini → Test Connection → return to Dashboard) against the post-fix UI:
+1. **Overview** — the checklist shows "Connect Provider"/"Validate Provider" checked, and "Generate AI Usage"/"View Analytics" show the honest note *plus* a "Playground" button — no dead end.
+2. **DashboardStateHero** — a three-line checklist confirms connected/healthy/models-discovered, then offers "Generate usage with AI Playground" as the obvious primary action.
+3. **Providers/Models pages** — show the connection by name with a clear "no usage API" badge and reason, and Models now shows the actual discovered Gemini models rather than an empty table.
+4. **Analytics** — the main spend chart names the provider and points at Playground instead of looking broken.
+5. **Connections** — the badge now reads "Historical usage: Unavailable" in plain English, with a tooltip naming Playground.
+
+A first-time customer following this path is told, at every single one of these five surfaces, what happened, why, and what to do next — satisfying this EP's closing requirement that a provider limitation is never mistaken for a Costorah bug.
+
+## Testing
+
+- **Backend**: none — no backend file changed, per this EP's own scope (a UX/frontend pass only). Full backend suite re-run as a regression check: **2013 passed**, 30 skipped (unchanged), `ruff`/`black`/`mypy` all clean.
+- **Frontend** (11 new/updated tests across 3 files):
+  - `src/__tests__/Models.test.tsx` (+2) — a usage-incapable connection's discovered models render with "No usage yet" badges and the connection's display name; a connection with no credential never triggers the live-catalog call at all (no wasted request, no error).
+  - `src/__tests__/Analytics.test.tsx` (+1, +1 mock wiring) — the "Spend by Provider" chart's empty state names the connected provider, discloses the import limitation, and links to `/playground`.
+  - `src/__tests__/GettingStartedBanner.test.tsx` (1 test rewritten) — the permanently-blocked "Generate AI Usage" item now asserts a real "Playground" link (`href="/playground"`) is present, superseding the pre-Playground assertion that no link should render at all.
+  - Full dashboard suite: **334 passed** (331 + net 3 new, accounting for the rewritten test), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), production build clean (`vite build`).
+
+## Files changed
+
+`apps/dashboard/src/features/Overview.tsx` (`ChecklistItem.noteAction`, `DashboardStateHero`'s state-3 branch, `SpendTrendEmpty`'s Playground CTA), `apps/dashboard/src/features/Models.tsx` (`DiscoveredModelsForConnection`/`DiscoveredModelsPanel`, empty-state copy), `apps/dashboard/src/features/Analytics.tsx` (connections query, "Spend by Provider" `emptyContent`), `apps/dashboard/src/features/Connections.tsx` (badge wording), `apps/dashboard/src/__tests__/{Models,Analytics,GettingStartedBanner}.test.tsx`.
+
+## Known limitations
+
+- **The Discovered Models panel only fetches per-connection catalogs for connections with a credential (or Ollama)** — a connection with no credential yet correctly shows nothing extra, since there's no catalog to fetch without one; the existing "connect first" guidance elsewhere on the page already covers that case.
+- **The Analytics "Spend by Provider" empty-state improvement covers only that one chart**, not every chart on the page (Provider Comparison, Weekly Trend, Token Trend, Usage Heatmap, Project Spend) — this is the chart named explicitly in this EP's Part 5 example and the one most likely to be a new customer's first impression of Analytics; the others still fall back to `ChartCard`'s generic empty state. Extending the same treatment to the rest is a natural, low-risk follow-up, not attempted here to keep this EP's diff focused on the pages/charts the task actually named.
+- **No live, continuous browser test of the full connect-Gemini → test-connection → return-to-dashboard journey** — same standing caveat as every prior EP in this document: verified in pieces (frontend component tests, full build), not against a live account or a live browser session, since this sandbox has no way to drive a real browser against a live deployment.
+
+## Future improvements
+
+1. Extend Analytics' contextual empty-state treatment to its remaining charts (Provider Comparison, Weekly Trend, Token Trend, Usage Heatmap, Project Spend), reusing the exact same `hasUsageIncapableConnection` flag this EP introduced.
+2. A "recently discovered, not yet used" indicator on the Discovered Models panel once a model has been used via Playground at least once, so the panel can self-heal from "No usage yet" to a real spend row without a page reload — likely achievable today via the existing query-key-sharing pattern (`["playground-models", ...]`/`["models", ...]`) rather than new plumbing.
+3. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.

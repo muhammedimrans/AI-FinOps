@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AreaChart,
@@ -27,14 +28,14 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles, Flame, FolderKanban, X } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles, Flame, FolderKanban, X, Info } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge from "../components/ProviderBadge";
 import ProviderLogo from "../components/ProviderLogo";
-import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, parseOpenRouterModelId } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, parseOpenRouterModelId, hasKnownUsageApi } from "../lib/providerCatalog";
 import { useTimeSeries, useModels, useProviders, useProjects, useHeatmap } from "../hooks/useDashboard";
 import { linearForecast, detectAnomalies } from "../lib/insights";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
@@ -42,7 +43,7 @@ import { useUIStore } from "../stores/ui";
 import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
-import { getSchedulerStatus } from "../services/api";
+import { getSchedulerStatus, listProviderConnections } from "../services/api";
 import type { Granularity, ModelSummary, ProjectCost } from "../types/api";
 
 const columnHelper = createColumnHelper<ModelSummary & { rank: number }>();
@@ -125,6 +126,20 @@ export default function Analytics() {
       void queryClient.invalidateQueries({ queryKey: [key, organizationId] });
     }
   }, [schedulerStatus.data, lastSeenJobId, organizationId, queryClient]);
+
+  // EP-26.0.3.3 — same shared query key Providers.tsx/Models.tsx/
+  // useDashboardState already use (never a second, out-of-sync fetch) so
+  // an empty "Spend by Provider" chart can distinguish "nothing connected"
+  // from "connected, but this provider has no bulk usage-history API" —
+  // the latter must never look like an error or an indefinite wait.
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
+  const connectionList = connections.data?.connections ?? [];
+  const hasUsageIncapableConnection =
+    connectionList.length > 0 && connectionList.every((c) => !hasKnownUsageApi(c.provider_type));
 
   // Providers present in the time series — derived from the data rather than a
   // hardcoded list so every provider the backend reports gets a chart series.
@@ -554,6 +569,25 @@ export default function Analytics() {
         subtitle="Stacked area chart showing daily cost breakdown"
         loading={timeSeries.isLoading}
         empty={chartData.length === 0}
+        emptyContent={
+          hasUsageIncapableConnection ? (
+            <div className="flex flex-col items-center text-center px-6 max-w-sm">
+              <div className="w-10 h-10 rounded-xl bg-info-dim flex items-center justify-center mb-3">
+                <Info size={18} className="text-info" />
+              </div>
+              <p className="text-sm font-medium text-tx-primary mb-0.5">
+                {connectionList[0]?.display_name ?? "Your provider"} is connected successfully.
+              </p>
+              <p className="text-xs text-tx-muted leading-relaxed mb-4">
+                Historical usage cannot be imported from this provider — that&apos;s expected, not an
+                error. Use AI Playground to generate tracked requests and populate this chart.
+              </p>
+              <Link to="/playground" className="btn-outline h-8 px-3.5 text-xs">
+                Open AI Playground
+              </Link>
+            </div>
+          ) : undefined
+        }
         minHeight={300}
         actions={
           <div className="flex gap-1 bg-app-bg rounded-lg p-0.5">

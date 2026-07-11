@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useOrgStore } from "../stores/org";
 import * as api from "../services/api";
@@ -44,6 +45,7 @@ vi.mock("../services/api", async (importOriginal) => {
     getProjects: vi.fn(),
     getHeatmap: vi.fn(),
     getSchedulerStatus: vi.fn(),
+    listProviderConnections: vi.fn(),
   };
 });
 
@@ -83,6 +85,7 @@ function mockAllEmpty() {
   mockedApi.getProjects.mockResolvedValue(EMPTY_PROJECTS);
   mockedApi.getHeatmap.mockResolvedValue(EMPTY_HEATMAP);
   mockedApi.getSchedulerStatus.mockResolvedValue(IDLE_SCHEDULER_STATUS);
+  mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
 }
 
 async function renderAnalytics() {
@@ -90,7 +93,9 @@ async function renderAnalytics() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Analytics />
+      <MemoryRouter>
+        <Analytics />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -236,5 +241,43 @@ describe("Analytics (EP-24.1)", () => {
     // invalidation, i.e. getTimeSeries is called more than the initial
     // mount call once the job-completion effect runs.
     await waitFor(() => expect(mockedApi.getSchedulerStatus).toHaveBeenCalled());
+  });
+
+  // EP-26.0.3.3 Part 5 — a connected provider with no usage API must
+  // never show a bare "no data" chart; it should disclose why and point
+  // at AI Playground as the real next action.
+  it("shows an honest empty state with an AI Playground link when the only connection has no usage API", async () => {
+    mockAllEmpty();
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [
+        {
+          id: "conn_1",
+          provider_type: "google",
+          display_name: "My Gemini",
+          project_id: null,
+          is_active: true,
+          has_credential: true,
+          masked_api_key: "AIza***xyz",
+          base_url: null,
+          health_status: "healthy",
+          last_validation_status: "healthy",
+          last_error: null,
+          last_failure_at: null,
+          last_recovery_at: null,
+          consecutive_failure_count: 0,
+          created_at: "2026-07-01T00:00:00Z",
+          updated_at: "2026-07-01T00:00:00Z",
+        },
+      ],
+      total: 1,
+    });
+    await renderAnalytics();
+
+    expect(await screen.findByText(/My Gemini is connected successfully/i)).toBeTruthy();
+    expect(screen.getByText(/Historical usage cannot be imported/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /open ai playground/i })).toHaveAttribute(
+      "href",
+      "/playground",
+    );
   });
 });

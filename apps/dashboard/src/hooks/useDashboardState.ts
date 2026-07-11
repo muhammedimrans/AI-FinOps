@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useOrgStore } from "../stores/org";
 import { listProviderConnections, listProjectsCrud, getOverview } from "../services/api";
 import { getToday } from "../utils";
+import { hasKnownUsageApi } from "../lib/providerCatalog";
 
 // EP-22.3 — Intelligent Dashboard Empty States.
 //
@@ -30,6 +31,18 @@ export interface DashboardProgress {
   hasValidatedConnection: boolean;
   hasProjects: boolean;
   hasUsage: boolean;
+  /**
+   * True when at least one *validated* connection is for a provider that
+   * actually exposes a bulk usage-history API (`hasKnownUsageApi`, mirrors
+   * the backend's `_KNOWN_USAGE_API_PROVIDERS` — EP-24.3/26.0.1). False for
+   * an org whose only validated connections are to usage-incapable
+   * providers (Google/Azure/Grok/Ollama today) — for those orgs, state 3
+   * ("waiting for usage") will never resolve to state 4 no matter how long
+   * you wait, since there's nothing for the sync pipeline to import. This
+   * signal is what lets the UI say so honestly instead of implying usage
+   * is merely delayed (EP-26.0.3.2).
+   */
+  hasUsageCapableConnection: boolean;
   /**
    * 1 — no provider connected yet
    * 2 — a provider exists, but none has a successful validation
@@ -74,6 +87,9 @@ export function useDashboardState(): DashboardProgress {
   );
   const hasProjects = (projects.data?.total ?? 0) > 0;
   const hasUsage = (allTimeUsage.data?.total_requests ?? 0) > 0;
+  const hasUsageCapableConnection = (connections.data?.connections ?? []).some(
+    (c) => c.last_validation_status === "healthy" && hasKnownUsageApi(c.provider_type),
+  );
 
   const state: DashboardSetupState = !hasConnections
     ? 1
@@ -83,5 +99,13 @@ export function useDashboardState(): DashboardProgress {
         ? 3
         : 4;
 
-  return { isLoading, hasConnections, hasValidatedConnection, hasProjects, hasUsage, state };
+  return {
+    isLoading,
+    hasConnections,
+    hasValidatedConnection,
+    hasProjects,
+    hasUsage,
+    hasUsageCapableConnection,
+    state,
+  };
 }

@@ -69,4 +69,26 @@ describe("DashboardStateHero", () => {
     const { container } = renderHero(4);
     expect(container.textContent).toBe("");
   });
+
+  // EP-26.0.3.2 — a validated connection to a provider with no bulk usage
+  // API (Google/Azure/Grok/Ollama) must show an honest "unavailable"
+  // message, not the generic "waiting" copy that implies usage is merely
+  // delayed.
+  it("state 3 + usageCapable=false — shows the honest 'usage unavailable' message, not 'waiting'", () => {
+    render(
+      <MemoryRouter>
+        <DashboardStateHero state={3} usageCapable={false} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Connected — historical usage unavailable")).toBeTruthy();
+    expect(screen.getByText(/doesn't expose a bulk usage-history API/i)).toBeTruthy();
+    expect(screen.queryByText("Everything is ready.")).toBeNull();
+    expect(screen.queryByText(/Waiting for your applications/i)).toBeNull();
+  });
+
+  it("state 3 + usageCapable=true (default) — still shows the original waiting copy", () => {
+    renderHero(3);
+    expect(screen.getByText("Everything is ready.")).toBeTruthy();
+    expect(screen.queryByText("Connected — historical usage unavailable")).toBeNull();
+  });
 });

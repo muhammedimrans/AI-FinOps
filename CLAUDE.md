@@ -4205,3 +4205,86 @@ Frontend validation: `tsc -b` clean, `eslint src --max-warnings 0` clean, full `
 - **The three sync-schema `connection_id: str  # external_id` fields left unchanged in Part 1** are a deliberate, scoped decision (the frontend never reuses them to build a request URL), not an oversight — but a future reader auditing this area again should re-confirm that remains true before assuming it's settled permanently.
 - **The Test Connection panel's "Capabilities" tags are cosmetic**, sourced from the static Provider Brand Registry, not a live per-request capability probe — unchanged, disclosed convention since EP-26.0.4.
 - Every other standing item this document has carried forward (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-26.0.3.2 — Google Gemini Dashboard Integration & Analytics Investigation
+
+**Status: complete.** A trace-first investigation (per this EP's own explicit instruction not to modify code before determining root cause) into why a fully connected, healthy, validated Google Gemini connection still left the dashboard looking broken — "Generate AI Usage"/"View Analytics" stuck incomplete, the Providers page showing "No providers found," the Models page empty, and Google appearing under "Adapters in development" on the Connections page. Every one of the five observed symptoms traced to the same root cause: **every zero-usage-volume surface in this dashboard is driven by `UsageCostRecord` presence, not `ProviderConnection` presence** — correct architecture for a spend/usage-analytics product, but previously undisclosed to the user when a provider (Google, Azure, Grok, Ollama — EP-24.3's own honestly-disclosed zero-usage-volume set) can never produce that data by design. No backend endpoint, query, aggregation, or provider adapter was found to be broken — this is a UX-disclosure gap, not a data-pipeline bug, and the fix is entirely frontend.
+
+## Investigation method
+
+Per this EP's own "do NOT immediately modify code" instruction, every page named in the report was traced to its actual data source before any file was edited:
+
+- **Overview.tsx** → `useDashboardState()` (`hooks/useDashboardState.ts`, EP-22.3) → `hasUsage = allTimeUsage.data?.total_requests > 0`, where `allTimeUsage` is `GET /v1/dashboard/overview` with a fixed `2020-01-01` start date. This single boolean drives `GettingStartedBanner`'s "Generate AI Usage"/"View Analytics" checkmarks and `DashboardStateHero`'s state-3 "Everything is ready... Costorah will automatically begin collecting" copy.
+- **Providers.tsx** → `useProviders()` (`hooks/useDashboard.ts`) → `GET /v1/dashboard/providers` → `DashboardService.get_provider_breakdown()` → `AnalyticsService`/`UsageCostRecordRepository.get_totals_by_provider()` (confirmed by reading `backend/app/dashboard/service.py` directly). **Zero code path here ever reads `ProviderConnection`.** "No providers found" is shown whenever there are no `UsageCostRecord` rows in the selected period — regardless of how many connections exist or how healthy they are.
+- **Models.tsx** → `useModels()` → `GET /v1/dashboard/models` → `DashboardService.get_model_breakdown()` → same `UsageCostRecordRepository`-backed aggregation, same "zero usage rows = empty page" behavior, same lack of any `ProviderConnection` awareness.
+- **Connections.tsx's "Adapters in development" section** → confirmed via direct read that `PRODUCTION_ADAPTERS`/`IN_DEVELOPMENT_ADAPTERS` (the frontend constants) mirror `_PRODUCTION_PROVIDERS` in `backend/app/api/v1/providers.py` — a **completely different, older mechanism (EP-07)**: a connectivity probe against Costorah's own server-side environment-variable-keyed credentials (`GET /v1/providers/{provider}/test|models|info`), never the customer's own encrypted `ProviderConnection` row managed in `ManageConnectionsSection` above it on the same page. `_PRODUCTION_PROVIDERS` has intentionally stayed `{OPENAI, ANTHROPIC}` since EP-07 — its own docstring says so — and was never meant to track which providers have a real *customer*-credential adapter (that's been true for all 7 since EP-24.3, unrelated to this set).
+- **Provider feature flags** (Part 5) — audited `ProviderCapabilities` (`app/providers/capabilities.py`) and `GoogleProvider`'s own declared flags: confirmed Google is **not** marked development/beta/hidden/disabled/experimental anywhere in the backend. `supports_usage_api=True` is set (a pre-existing, EP-22-era imprecision this investigation also flagged — see "Known limitations") but nothing gates Google's *validation* or *sync* path behind a feature flag. The only place Google is treated differently from OpenAI/Anthropic is the frontend's `IN_DEVELOPMENT_ADAPTERS` constant above, which — as established — governs an unrelated ops probe.
+
+## Part 1 — Overview page trace
+
+**What marks "Generate AI Usage"/"View Analytics" complete**: `hasUsage` in `useDashboardState()`, sourced from `total_requests` on the all-time `GET /v1/dashboard/overview` response — i.e., at least one row exists in `UsageCostRecord`/`UsageEvent` for this organization, ever. Google Gemini (AI Studio) has no bulk usage-history API (re-confirmed unchanged since EP-26.0.2, §34) — `total_requests` will be `0` forever for an org whose only connections are to usage-incapable providers, so these two checklist items — and the state-3 hero's "Waiting for your applications... Costorah will automatically begin collecting" copy — were **structurally guaranteed to never complete or resolve**, with nothing in the UI disclosing that this is expected rather than a bug or a delay.
+
+**Verdict: correct architecture, incorrect (misleading) copy.** `hasUsage` genuinely is the right signal for "has spend data arrived" — the bug is that the UI never distinguished "hasn't happened yet, keep waiting" from "will never happen, by design."
+
+## Part 2 — Providers page trace
+
+Confirmed by direct code read: this page renders `UsageCostRecord` aggregation exclusively, never `ProviderConnection` rows — this is intended architecture (a cost/usage breakdown page, not a connection manager; that's the Connections page's job) and was **not** changed by this EP. What was wrong: the empty state ("No providers found") gave no indication that connections *do* exist and are healthy, making a fully-working Google connection indistinguishable from a completely disconnected organization.
+
+## Part 3 — Models page trace
+
+**Answer: B — only models with imported usage, and this is intentional, not a bug.** This page is a spend leaderboard (`GET /v1/dashboard/models`, `UsageCostRecord`-derived), not a raw model-discovery catalog — that role is already filled elsewhere (each connection's own live model catalog on the Connections page, EP-26.0.1/EP-26.0.2). Showing "discovered models" here would mean fabricating cost/request columns Costorah has no data for, violating this codebase's standing no-fake-functionality rule (§9, §10, §12, §13, and every EP since). What needed fixing was the same disclosure gap as Providers.tsx: the generic "No models found / Try a different search term" empty state gave no indication of *why* the table is empty when a search wasn't even the cause.
+
+## Part 4/5 — Connections page trace ("Adapters in development")
+
+**Answer: no, a connected production adapter should not "move into" this section — it's not the same concept.** `PRODUCTION_ADAPTERS`/`IN_DEVELOPMENT_ADAPTERS` gate an entirely separate diagnostic surface (the env-var-keyed ops probe, EP-07) from the customer's own `ProviderConnection` management above it. Every one of the 7 providers' *customer-credential* paths (validation, model discovery, sync) has been fully production-ready since EP-22/EP-24.3 — this section never claimed otherwise about that; it was only ever answering "does Costorah's own internal ops probe have server-side credentials wired up for this provider," a materially different, lower-stakes question a customer has no reason to care about. Confirmed no provider-level feature flag (development/beta/hidden/disabled/experimental) exists anywhere in the backend gating Google's real path — the appearance of a "second-class" Google was a naming/placement collision between two unrelated systems on one page, not an actual capability gap.
+
+## Part 6 — Dashboard architecture: should Connected / Discovered / Imported / Analytics be distinguished?
+
+**Yes — this is the core fix**, implemented as the smallest set of UI changes that make the existing, already-correct architecture legible rather than restructuring it:
+
+- **`useDashboardState()`** (`hooks/useDashboardState.ts`) gained one new derived field, `hasUsageCapableConnection: boolean` — true when at least one *validated* connection is for a provider with a real bulk usage API (`hasKnownUsageApi()`, the same frontend constant EP-24.3/EP-26.0.1 already introduced and kept in sync with the backend's `_KNOWN_USAGE_API_PROVIDERS`). This is the one new piece of state this EP adds — everything else composes it.
+- **`DashboardStateHero`** (Overview.tsx) gained an `usageCapable` prop; state 3 now branches: usage-capable connections keep the original "Everything is ready... waiting for requests" copy (accurate — usage genuinely may arrive), while usage-incapable-only connections get new, honest copy ("Connected — historical usage unavailable... this is expected, not an error... won't change over time") with an info icon instead of the success checkmark.
+- **`SpendTrendEmpty`** (Overview.tsx) gained the same branch, so the chart directly beneath the hero never contradicts it with "Charts will automatically appear..." — the exact inconsistency Part 6's "review dashboard architecture" instruction was aimed at catching.
+- **`GettingStartedBanner`**'s `ChecklistItem` gained an optional `note` field — "Generate AI Usage"/"View Analytics" show an inline explanation ("Connected provider doesn't expose historical usage — this is expected, not an error") instead of a "Go" link to a page that can never resolve the item, once a validated connection is confirmed usage-incapable.
+- **Providers.tsx / Models.tsx** both gained a `listProviderConnections` query (the identical `["provider-connections", organizationId]` query key `useDashboardState`/`Connections.tsx` already use — never a second, out-of-sync fetch) so their empty states can distinguish "genuinely nothing connected" from "connected, validated, zero usage by design" — the latter now lists each connected provider with its logo, validation status, and a "No usage API" or "Waiting for usage" badge depending on `hasKnownUsageApi()`.
+- **Connections.tsx**'s ops-probe section gained a "Platform diagnostics" label and reworded descriptions making explicit that it checks Costorah's own server-side credentials, not the customer's connections managed above — resolving Part 4/5's apparent contradiction without touching `PRODUCTION_ADAPTERS`/`IN_DEVELOPMENT_ADAPTERS` (which remain correct for what they actually gate).
+
+No backend file was touched — every fix is a frontend disclosure/copy change layered on top of already-correct data.
+
+## Part 7 — No fabricated usage; honest disclosure
+
+Every new empty state explicitly follows the ✓ Connected / ✓ Models discovered (where applicable) / ✓ Historical usage unavailable pattern this EP's own instruction specified, in place of a bare "No providers found":
+
+- Providers page: `ConnectedNoUsageState` lists each connection (logo, name, validation status, platform) with a "No usage API" or "Waiting for usage" badge — never a blank "No providers found" once a real connection exists.
+- Models page: distinguishes "connect a provider" (nothing connected) from "your connected provider(s) don't expose a bulk usage-history API — this is expected, not an error" (connected, usage-incapable) from "will appear once usage is reported" (connected, usage-capable, just quiet so far).
+- Overview: the state-3 hero and Spend Trend chart both now say plainly that usage is unavailable rather than implying a delay.
+
+No component fabricates a usage number, a fake model row, or a fake spend figure anywhere in this EP's changes — every new string is either a real, already-fetched connection record or a static, honest disclosure of a known platform limitation (EP-24.3's own zero-usage-volume-provider set).
+
+## Files changed
+
+- `apps/dashboard/src/hooks/useDashboardState.ts` — new `hasUsageCapableConnection` field.
+- `apps/dashboard/src/features/Overview.tsx` — `DashboardStateHero`/`SpendTrendEmpty` gain `usageCapable` branching; `GettingStartedBanner`'s `ChecklistItem` gains `note`.
+- `apps/dashboard/src/features/Providers.tsx` — new `ConnectedNoUsageState` component + connections query; empty-state branching.
+- `apps/dashboard/src/features/Models.tsx` — connections query; empty-state branching (search vs. connected-no-usage vs. disconnected).
+- `apps/dashboard/src/features/Connections.tsx` — "Platform diagnostics" framing/copy for the ops-probe section (`PRODUCTION_ADAPTERS`/`IN_DEVELOPMENT_ADAPTERS` constants themselves unchanged).
+- `apps/dashboard/src/__tests__/DashboardStateHero.test.tsx` — 2 new tests for the `usageCapable=false` branch.
+- `apps/dashboard/src/__tests__/GettingStartedBanner.test.tsx` — 1 new test for the note/hidden-Go-link behavior.
+- `apps/dashboard/src/__tests__/Providers.test.tsx` — new file, 3 tests.
+- `apps/dashboard/src/__tests__/Models.test.tsx` — new file, 3 tests.
+- `CLAUDE.md` — this section.
+
+No backend file changed — every symptom traced to a frontend disclosure gap over already-correct backend data, confirmed by direct source review of `app/dashboard/service.py`, `app/api/v1/providers.py`, `app/services/provider_sync_service.py`, and `app/providers/capabilities.py`.
+
+## Validation results
+
+Frontend: `tsc -b` clean, `eslint src --max-warnings 0` clean, full `vitest run` — **322 passed** (313 + 9 new), production `vite build` clean. Backend: full suite re-run as a regression check since no backend file changed — unaffected (see the session's own final report for the exact count).
+
+## Known limitations
+
+- **`ProviderCapabilities.supports_usage_api` is still imprecise** — set `True` on adapters (including Google) that have *an* API surface loosely usage-adjacent (e.g. Cloud Billing exists as a Google product, just not reachable from the AI-Studio-key credential Costorah stores) rather than reflecting the more precise `hasKnownUsageApi()`/`_KNOWN_USAGE_API_PROVIDERS` distinction `ProviderSyncService` already introduced at a different layer (EP-24.3). This was flagged during Part 5's audit but left unchanged — reconciling the two vocabularies is a backend consistency cleanup, not something this frontend-scoped investigation needed to touch to close the reported symptoms.
+- **The "Platform diagnostics" ops-probe section (Connections.tsx) still shows Google under a "No ops probe" badge** — accurate (no env-var-keyed credential is wired for it), but a user who doesn't read the new explanatory copy could still misread it as a capability gap. A more thorough fix (e.g. removing this section from the customer-facing page entirely, moving it to an internal/admin-only view) was considered and not done — out of scope for a "smallest necessary" UI fix, and this section predates this EP by many revisions (EP-07).
+- **No live Google account was used to reproduce the originally reported symptoms** — this investigation traced every claim against the actual source code and existing hermetic test suites, consistent with every prior provider-validation EP's disclosed sandbox limitation (§32, §33, EP-26.0.2, EP-26.0.2.1, EP-26.0.3). The fixes are grounded in what the code demonstrably does, not a live reproduction.
+- Every other standing item this document has carried forward (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.

@@ -90,6 +90,12 @@ interface ChecklistItem {
    * "usage can never be imported for this provider," not just "not done
    * yet." EP-26.0.3.2. */
   note?: string | undefined;
+  /** Overrides `to`'s destination and the "Go" button's label — used
+   * alongside `note` so a permanently-blocked item (e.g. no historical
+   * usage API) still offers a real next action instead of a dead end.
+   * EP-26.0.3.3 — AI Playground now exists, so "generate usage yourself"
+   * is a real, working link, not aspirational copy. */
+  noteAction?: { to: string; label: string } | undefined;
 }
 
 export function GettingStartedBanner() {
@@ -110,17 +116,36 @@ export function GettingStartedBanner() {
   const usageNote = usageWillNeverArrive
     ? "Connected provider doesn't expose historical usage — this is expected, not an error."
     : undefined;
+  // EP-26.0.3.3 — AI Playground (EP-25.4) is the real, working way to
+  // generate tracked usage for a provider with no bulk usage-history API,
+  // so a permanently-blocked "Generate AI Usage" item now points there
+  // instead of leaving the user with a note and no action.
+  const playgroundAction = usageWillNeverArrive
+    ? { to: "/playground", label: "Playground" }
+    : undefined;
 
   const items: ChecklistItem[] = [
     { label: "Connect Provider", done: hasConnections, to: "/connections" },
     { label: "Validate Provider", done: hasValidatedConnection, to: "/connections" },
     { label: "Create Project", done: hasProjects, to: "/projects" },
-    { label: "Generate AI Usage", done: hasUsage, to: "/api-keys", note: usageNote },
+    {
+      label: "Generate AI Usage",
+      done: hasUsage,
+      to: "/playground",
+      note: usageNote,
+      noteAction: playgroundAction,
+    },
     // "View Analytics" tracks the same signal as "Generate AI Usage" —
     // this page *is* the analytics view, so once usage exists there is
     // nothing further to detect; no separate "has visited" flag is
     // introduced (would be duplicate state the spec explicitly forbids).
-    { label: "View Analytics", done: hasUsage, to: "/analytics", note: usageNote },
+    {
+      label: "View Analytics",
+      done: hasUsage,
+      to: "/analytics",
+      note: usageNote,
+      noteAction: playgroundAction,
+    },
   ];
   const doneCount = items.filter((i) => i.done).length;
 
@@ -172,12 +197,12 @@ export function GettingStartedBanner() {
                 )}
               </div>
             </div>
-            {!item.done && !item.note && (
+            {!item.done && (!item.note || item.noteAction) && (
               <Link
-                to={item.to}
+                to={item.noteAction?.to ?? item.to}
                 className="btn-outline h-7 px-3 text-[11px] flex-shrink-0 whitespace-nowrap"
               >
-                Go
+                {item.noteAction?.label ?? "Go"}
               </Link>
             )}
           </li>
@@ -280,14 +305,29 @@ export function DashboardStateHero({
           Connected — historical usage unavailable
         </h2>
         <p className="text-sm text-tx-muted max-w-md mx-auto leading-relaxed mb-4">
-          Your provider is connected and its credentials are valid. This provider doesn&apos;t
-          expose a bulk usage-history API, so Costorah has nothing to import from it — that&apos;s
-          expected, not an error, and won&apos;t change over time. Connect a provider that supports
-          usage sync (OpenAI, Anthropic, or OpenRouter) to see spend data here.
+          Your provider is connected, healthy, and its models have been discovered. This provider
+          doesn&apos;t expose a bulk usage-history API, so Costorah has nothing to import from it
+          automatically — that&apos;s expected, not an error, and won&apos;t change over time.
         </p>
-        <Link to="/connections" className="btn-primary h-10 px-5 text-sm inline-flex">
-          View Providers
-        </Link>
+        <ul className="text-sm text-tx-muted max-w-sm mx-auto text-left mb-6 space-y-1.5">
+          <li className="flex items-center gap-2">
+            <CheckCircle2 size={14} className="text-success flex-shrink-0" /> Connected &amp; healthy
+          </li>
+          <li className="flex items-center gap-2">
+            <CheckCircle2 size={14} className="text-success flex-shrink-0" /> Models discovered
+          </li>
+          <li className="flex items-center gap-2">
+            <Info size={14} className="text-info flex-shrink-0" /> Historical usage unavailable from this provider
+          </li>
+        </ul>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5">
+          <Link to="/playground" className="btn-primary h-10 px-5 text-sm inline-flex">
+            Generate usage with AI Playground
+          </Link>
+          <Link to="/connections" className="btn-outline h-10 px-5 text-sm inline-flex">
+            View Providers
+          </Link>
+        </div>
       </motion.div>
     );
   }
@@ -357,10 +397,13 @@ function SpendTrendEmpty({
           <Info size={18} className="text-info" />
         </div>
         <p className="text-sm font-medium text-tx-primary mb-0.5">Historical usage unavailable.</p>
-        <p className="text-xs text-tx-muted max-w-xs leading-relaxed">
+        <p className="text-xs text-tx-muted max-w-xs leading-relaxed mb-4">
           Your connected provider doesn&apos;t expose a bulk usage-history API — this chart won&apos;t
           populate from it. This is expected, not an error.
         </p>
+        <Link to="/playground" className="btn-outline h-8 px-3.5 text-xs">
+          Generate usage with AI Playground
+        </Link>
       </div>
     );
   }

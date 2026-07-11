@@ -33,6 +33,7 @@ vi.mock("../services/api", async (importOriginal) => {
     ...actual,
     listProviderConnections: vi.fn(),
     getModels: vi.fn(),
+    listPlaygroundModels: vi.fn(),
   };
 });
 
@@ -76,6 +77,7 @@ describe("Models page — honest empty states (EP-26.0.3.2)", () => {
     vi.clearAllMocks();
     useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
     mockedApi.getModels.mockResolvedValue(EMPTY_MODELS);
+    mockedApi.listPlaygroundModels.mockResolvedValue([]);
   });
 
   it("shows 'Connect a provider' for a truly disconnected org", async () => {
@@ -110,5 +112,55 @@ describe("Models page — honest empty states (EP-26.0.3.2)", () => {
 
     expect(await screen.findByText("No models with recorded usage yet")).toBeTruthy();
     expect(screen.getByText(/will appear here once your connected providers report usage/i)).toBeTruthy();
+  });
+
+  // EP-26.0.3.3 — Part 4: when technically possible, show discovered
+  // models even with zero usage, rather than an empty page.
+  it("shows discovered models with a 'No usage yet' badge for a usage-incapable connection", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [connection({ provider_type: "google", display_name: "My Gemini" })],
+      total: 1,
+    });
+    mockedApi.listPlaygroundModels.mockResolvedValue([
+      {
+        id: "gemini-2.5-pro",
+        display_name: "Gemini 2.5 Pro",
+        context_window: 1048576,
+        max_output_tokens: 8192,
+        capabilities: ["streaming"],
+        input_cost_per_1k: null,
+        output_cost_per_1k: null,
+        is_deprecated: false,
+      },
+      {
+        id: "gemini-2.5-flash",
+        display_name: "Gemini 2.5 Flash",
+        context_window: 1048576,
+        max_output_tokens: 8192,
+        capabilities: ["streaming"],
+        input_cost_per_1k: null,
+        output_cost_per_1k: null,
+        is_deprecated: false,
+      },
+    ]);
+
+    renderPage();
+
+    expect(await screen.findByText("Gemini 2.5 Pro")).toBeTruthy();
+    expect(screen.getByText("Gemini 2.5 Flash")).toBeTruthy();
+    expect(screen.getAllByText("No usage yet").length).toBe(2);
+    expect(screen.getByText("My Gemini")).toBeTruthy();
+  });
+
+  it("does not show the discovered-models panel when a connection has no credential", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [connection({ provider_type: "google", has_credential: false })],
+      total: 1,
+    });
+
+    renderPage();
+
+    await screen.findByText("No models with recorded usage yet");
+    expect(mockedApi.listPlaygroundModels).not.toHaveBeenCalled();
   });
 });

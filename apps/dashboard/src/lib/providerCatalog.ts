@@ -68,12 +68,57 @@ export function connectableLabel(providerType: string): string {
   return CONNECTABLE_PROVIDERS.find((p) => p.value === providerType)?.label ?? providerType;
 }
 
-// EP-24.3 — mirrors the backend's ProviderSyncService._KNOWN_USAGE_API_PROVIDERS
-// exactly: purely informational (which providers have a real bulk
-// usage-history API today), never a gate on whether sync can run — every
-// connectable provider syncs through the identical pipeline regardless.
-export const KNOWN_USAGE_API_PROVIDERS = new Set(["openai", "anthropic"]);
+// EP-24.3/EP-26.0.1 — mirrors the backend's
+// ProviderSyncService._KNOWN_USAGE_API_PROVIDERS exactly: purely
+// informational (which providers have a real bulk usage-history API
+// today), never a gate on whether sync can run — every connectable
+// provider syncs through the identical pipeline regardless. "openrouter"
+// added in EP-26.0.1 (GET /api/v1/activity) — see CLAUDE.md's EP-26.0.1
+// section for the disclosed uncertainty around that endpoint's exact
+// credential requirements.
+export const KNOWN_USAGE_API_PROVIDERS = new Set(["openai", "anthropic", "openrouter"]);
 
 export function hasKnownUsageApi(providerType: string): boolean {
   return KNOWN_USAGE_API_PROVIDERS.has(providerType);
+}
+
+// EP-26.0.1 — OpenRouter model identifiers are "vendor/model" slugs (e.g.
+// "anthropic/claude-sonnet-4"); this is a pure display-layer parse of an
+// already-correct, already-stored string (CLAUDE.md's EP-26.0 Part 2/
+// EP-26.0.1 "Data Mapping" finding: no schema change needed to store this,
+// only to display the vendor/model split).
+const OPENROUTER_VENDOR_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  google: "Google",
+  "meta-llama": "Meta",
+  meta: "Meta",
+  deepseek: "DeepSeek",
+  mistralai: "Mistral",
+  qwen: "Qwen",
+  "x-ai": "xAI",
+  xai: "xAI",
+  cohere: "Cohere",
+  microsoft: "Microsoft",
+  amazon: "Amazon",
+};
+
+export interface ParsedOpenRouterModel {
+  vendorSlug: string;
+  vendorLabel: string;
+  modelSlug: string;
+}
+
+export function parseOpenRouterModelId(modelId: string): ParsedOpenRouterModel | null {
+  const slashIndex = modelId.indexOf("/");
+  if (slashIndex <= 0 || slashIndex === modelId.length - 1) {
+    return null;
+  }
+  const vendorSlug = modelId.slice(0, slashIndex);
+  const modelSlug = modelId.slice(slashIndex + 1);
+  return {
+    vendorSlug,
+    vendorLabel: OPENROUTER_VENDOR_LABELS[vendorSlug.toLowerCase()] ?? vendorSlug,
+    modelSlug,
+  };
 }

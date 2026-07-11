@@ -33,7 +33,7 @@ import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import MetricCard from "../components/MetricCard";
 import ProviderBadge from "../components/ProviderBadge";
-import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, CONNECTABLE_PROVIDERS, parseOpenRouterModelId } from "../lib/providerCatalog";
 import { useTimeSeries, useModels, useProviders, useProjects, useHeatmap } from "../hooks/useDashboard";
 import { linearForecast, detectAnomalies } from "../lib/insights";
 import { formatCost, formatDate, formatNumber, formatTokens, modelDisplayName, providerDisplayName } from "../utils";
@@ -286,9 +286,29 @@ export default function Analytics() {
       }),
       columnHelper.accessor("model_id", {
         header: "Model",
-        cell: (info) => (
-          <span className="font-mono text-xs text-tx-primary">{modelDisplayName(info.getValue())}</span>
-        ),
+        cell: (info) => {
+          // EP-26.0.1: OpenRouter's model_id is a "vendor/model" slug
+          // (e.g. "anthropic/claude-sonnet-4") — a first-class provider in
+          // its own right, so this shows the underlying vendor + model
+          // rather than pretending the request belongs directly to that
+          // vendor (CLAUDE.md's EP-26.0.1 Part 5). Every other provider's
+          // model_id is unaffected — parseOpenRouterModelId only applies
+          // when provider === "openrouter".
+          if (info.row.original.provider === "openrouter") {
+            const parsed = parseOpenRouterModelId(info.getValue());
+            if (parsed) {
+              return (
+                <span className="font-mono text-xs text-tx-primary">
+                  <span className="text-tx-muted">{parsed.vendorLabel}</span>{" "}
+                  {modelDisplayName(parsed.modelSlug)}
+                </span>
+              );
+            }
+          }
+          return (
+            <span className="font-mono text-xs text-tx-primary">{modelDisplayName(info.getValue())}</span>
+          );
+        },
       }),
       columnHelper.accessor("request_count", {
         header: "Requests",

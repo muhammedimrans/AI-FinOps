@@ -3503,3 +3503,149 @@ This section itself constitutes deliverables 1–13 (complete research report, G
 ### Final recommendation
 
 Proceed with **EP-26.0.1 (Google Gemini)** as low-risk, well-understood, high-value cleanup-and-freshness work (live model catalog, current pricing) with an honest, unchanged, zero-usage-import outcome — no open questions remain. Treat **EP-26.0.2 (OpenRouter)** as contingent on the one specific, narrow verification step named in Part 8 (a real account testing `GET /api/v1/activity`) before finalizing its scope; if that verification succeeds, OpenRouter gains real usage import (the first of the 5 currently-zero-volume providers to do so, closing a piece of the standing gap §23/EP-24.3 first identified); if it doesn't, EP-26.0.2 still delivers the same live-model-catalog and pricing improvements Google gets, with `get_usage()` honestly remaining a no-op — either outcome is a net improvement over today's static, stale model lists, and neither requires any database migration or Provider Framework architecture change. **No code has been written for either phase. Await explicit approval before starting EP-26.0.1.**
+
+---
+
+# EP-26.0.1 — OpenRouter Integration
+
+**Status: complete.** Implements OpenRouter as a first-class provider — live model catalog, real usage import via `GET /api/v1/activity`, and vendor/model-aware analytics display — reusing the existing Provider Framework end-to-end with zero architecture changes, zero migrations, and zero new endpoints, exactly as §32's research predicted was possible. **Naming note**: this EP was requested and delivered as "EP-26.0.1 — OpenRouter Integration," even though §32's own research recommended Google go first and be numbered EP-26.0.1 with OpenRouter as EP-26.0.2 — the actual implementation instruction reversed that order and reused the "EP-26.0.1" label for OpenRouter instead. This section documents what was actually built under that name; §32's Google-first recommendation is unaffected and remains the next open item (still unstarted).
+
+## Why this required live API validation before writing code — and what that validation actually found
+
+The task's own instruction was explicit: "implementation must be based on verified API behaviour, not assumptions." Before writing any adapter code, this session attempted to validate `GET /api/v1/activity` against OpenRouter's live infrastructure and its first-party documentation:
+
+- **Direct `curl` to `openrouter.ai:443`**: rejected at the CONNECT-tunnel level — `gateway answered 403 to CONNECT (policy denial or upstream failure)`, confirmed via this sandbox's own agent-proxy status endpoint (`recentRelayFailures` logged three consecutive `connect_rejected` entries for `openrouter.ai:443`).
+- **`WebFetch` against `openrouter.ai/docs/...` and `openrouter.ai/openapi.json`**: both returned `HTTP 403 Forbidden`.
+- **No live OpenRouter API key or management key was available in this environment** (confirmed via `env | grep -i openrouter` and a search of every `.env*` file in the repo — none found).
+
+**This means direct, first-party API validation was not possible from this sandbox** — a hard environmental limitation, not a shortcut taken. Given that, the validation that *was* possible — and *was* performed — was a careful synthesis of multiple independent secondary/aggregated sources (search results referencing OpenRouter's own published documentation pages, third-party API trackers, and GitHub-hosted integration notes), cross-checked against each other for consistency, rather than a single unverified guess. The findings from that synthesis:
+
+- `GET /api/v1/activity` returns **daily activity data grouped by model endpoint**, for **the last 30 completed UTC days** — confirmed consistently across multiple independent sources, including OpenRouter's own documented recommendation to "wait ~30 minutes after the UTC boundary" before treating a day's data as complete (since events aggregate by request start time and some reasoning models take a few minutes to finish).
+- It accepts optional filters: `date` (single UTC day, `YYYY-MM-DD`), `api_key_hash`, `user_id` — **no date-range parameter**, confirming one request per day is the correct integration shape, not a bug to work around.
+- **It requires a "management key"** — described consistently across sources as more privileged than a standard per-request API key — whose *exact* relationship to the standard key `ProviderConnection.encrypted_api_key` already stores was **not** confirmed with the same level of certainty as the other findings above.
+- Exact response field names (`prompt_tokens`/`completion_tokens` vs. some other naming) were **not found with full confidence** in any single authoritative source — only inferred from OpenRouter's broader API vocabulary (its `/generation` endpoint's documented response shape uses `prompt_tokens`/`completion_tokens`/`cost`, and its wider ecosystem uses both that OpenAI-style naming and `provider_name`/`model_permaslug`-style generation-metadata naming).
+
+**Answering Part 1's specific questions directly, with confidence levels stated honestly:**
+
+| Question | Answer | Confidence |
+|---|---|---|
+| Does it return usage history / historical requests? | Yes — daily, grouped by model | High (multiple consistent sources) |
+| Timestamps | Yes — one UTC day per record | High |
+| Input / output / cached / reasoning tokens | Prompt/completion tokens likely present under some naming; cached/reasoning token fields not confirmed | Low-Medium — see normalizer's defensive field-mapping below |
+| Total tokens, cost | Likely present | Medium |
+| Latency | Not confirmed present | Low |
+| Provider, model | Model confirmed (it's the grouping key); underlying-provider field name not confirmed | Medium |
+| Endpoint, metadata | Not confirmed | Low |
+| Cursor pagination | Not found — no such parameter documented | Medium-High (absence, not presence, is harder to fully rule out, but consistent across sources) |
+| Offset pagination | Not found | Medium-High |
+| Time filters | Yes — single `date` param | High |
+| Project / provider / model / organization filters | Not found as query parameters on this endpoint specifically | Medium |
+| API key filters | Yes — `api_key_hash` | High |
+| Retention | 30 completed UTC days | High |
+| Rate limits, retry headers, backoff | Not found documented specifically for this endpoint (OpenRouter's general per-key rate limits, surfaced via `GET /api/v1/key`, apply account-wide, not endpoint-specifically) | Low |
+| Authentication — API key vs. Bearer vs. scopes | Bearer token (consistent with every other OpenRouter endpoint); requires elevated "management key" scope specifically for this endpoint | Medium-High on the requirement, Low on exactly what distinguishes a management key from a standard key |
+| Additional endpoints (Credits, Billing, Models, Keys, Analytics, Usage, Activity, Audit) | `/api/v1/credits` (lifetime aggregate, already known from EP-24.3), `/api/v1/key` (current spend + rate limits), `/models` (live catalog with pricing), `/api/v1/generation?id=...` (per-generation lookup, requires an ID captured at request time — not usable for retroactive bulk import) all confirmed to exist; no separate "Audit" endpoint found | High for existence, Medium for exact field shapes |
+
+**The engineering decision this uncertainty required**: rather than either (a) leaving `get_usage()` a permanent no-op — wasting the one real, promising lead §32's research surfaced — or (b) silently requiring an unverified, more-privileged "management key" credential without a deliberate security/product decision (which would violate this codebase's least-privilege posture), this EP **implements the real call using the connection's existing, standard stored API key, and degrades honestly**: an `AuthenticationError` (401/403 — exactly the "this key lacks activity-read permission" case) is caught, logged, and skipped for that day, never raised as a hard failure. A connection whose key turns out to be insufficiently privileged still completes a healthy, honest, zero-additional-events sync — the same "legitimate empty result" every genuinely-quiet OpenAI/Anthropic account can also produce, not a fabricated one and not a broken one. This is disclosed prominently, in the adapter's own docstring, in `STARTUP.md`, and in this section's "Known limitations" below — not buried.
+
+## Data Mapping (Part 2)
+
+| OpenRouter field (best-effort) | Costorah target | Maps cleanly? |
+|---|---|---|
+| `date` | `NormalizedUsageEvent.timestamp` | ✅ — parsed as a UTC day boundary |
+| `model` (vendor/model slug) | `NormalizedUsageEvent.model` → `UsageCostRecord.model` | ✅ — stored verbatim, free-text column, no parsing needed to store correctly (only to *display* the vendor/model split — see below) |
+| `provider_name` (or derived from the model slug's `vendor/` prefix) | `NormalizedUsageEvent.metadata["underlying_vendor"]` | ✅ — display-layer metadata, not a stored column (§32's Part 2/Part 4 finding, reconfirmed) |
+| `prompt_tokens` / `completion_tokens` (or plausible variants) | `NormalizedUsageEvent.prompt_tokens` / `completion_tokens` → `UsageCostRecord` | 🟡 — mapped defensively, field names not first-party-confirmed |
+| `requests` / `num_requests` (or plausible variants) | `NormalizedUsageEvent.request_count` | 🟡 — same caveat; `NormalizedUsageEvent.request_count` already exists specifically for aggregated-not-per-request providers (its own docstring, unchanged since EP-08, already anticipated exactly this case) |
+| No per-request ID (aggregated data) | `NormalizedUsageEvent.provider_request_id` | ✅ — deterministic SHA-1 hash of (provider, model, date), exactly the mechanism `provider_request_id`'s own docstring already documents for "providers that return aggregated records" |
+| Reasoning tokens, cached tokens, latency, endpoint | *(no confirmed source field)* | ⬜ — not mapped; `cached_tokens` defaults to `None` (Costorah's existing "unknown, not zero" convention), reasoning tokens have no dedicated `NormalizedUsageEvent` field at all today and are not synthesized |
+| `ProviderConnection` | *(unchanged)* | ✅ — no new column; the pre-existing `encrypted_api_key`/`base_url`/`configuration` JSONB already cover everything this integration needs |
+| `UsageCollectionRun` / `UsageCollectionCheckpoint` | *(unchanged)* | ✅ — `UsageCollectionService.collect()` already handles pagination/checkpointing generically; OpenRouter needed zero changes here |
+| `ModelPricing` | *(unchanged schema; new capability)* | ✅ — OpenRouter's live `/models` response includes real per-token pricing, now mapped directly into `ModelMetadata.input_cost_per_1k`/`output_cost_per_1k` at catalog-fetch time (does not auto-populate `ModelPricing` rows — that remains an administrative seeding step via the existing `POST /v1/pricing`, same as every other provider) |
+
+Fields that could not map cleanly (reasoning tokens, cached tokens, latency, endpoint) are disclosed above rather than fabricated — consistent with every prior EP's no-fake-functionality discipline.
+
+## Architecture Review (Part 3) — confirmed reused, not redesigned
+
+Every piece of the Provider Framework this EP touches was extended, never rewritten:
+
+| Component | Change |
+|---|---|
+| `ProviderInterface` | None — `OpenRouterProvider` already implemented the full `AIProvider` ABC since EP-06/EP-22 |
+| `ProviderRegistry` / `ProviderFactory` | None — already registered `OpenRouterProvider` against `ProviderType.OPENROUTER` |
+| `ProviderSyncService` | One line — `"openrouter"` added to `_KNOWN_USAGE_API_PROVIDERS` (an informational-only set that drives `SyncStatus.supports_usage_sync`'s UI messaging; never gates whether `collect()` runs, unchanged since EP-24.3) |
+| `UsageCollectionService` | None — already provider-agnostic; calls `get_usage()` generically regardless of what it returns |
+| `NormalizerRegistry` | One new class registered (`OpenRouterUsageNormalizer`) — the one piece of the pipeline with zero prior art for this provider, exactly as §32's research predicted |
+| `PricingEngine` | None — already free-text `(provider, model)`-keyed; OpenRouter's `vendor/model` slugs work as `model` values with zero code change |
+| Repositories | None | 
+| Scheduler | None — `UsageSyncScheduler` dispatches per-organization with no provider-type awareness |
+| Analytics | None to the aggregation layer — a display-layer vendor/model parse was added on top (see Dashboard below), not a new query shape |
+
+No repository redesign, no scheduler redesign, no analytics redesign — the task's own explicit expectation was met exactly.
+
+## Implementation (Part 4)
+
+- **`app/providers/adapters/openrouter.py`**:
+  - `get_usage()` — rewritten from EP-24.3's honest no-op into a real implementation: resolves the connection's stored key, iterates one `GET /api/v1/activity?date=YYYY-MM-DD` request per day across the requested range (clamped to OpenRouter's documented 30-day retention, so a stale checkpoint can never trigger an unbounded per-day loop), catches `AuthenticationError` per-day and skips (never raises), catches any other exception per-day and skips (matching the existing fail-open pattern every other adapter's `get_usage()` already uses for transient failures), and normalizes every returned item via the new `OpenRouterUsageNormalizer`.
+  - `list_models()` — rewritten from a static 4-model list into a live `GET /models` call, mapped into `ModelMetadata` via a new `_model_from_live_catalog()` helper (mirrors `OpenAIProvider`'s existing `_enrich_model()` pattern for "live call, static fallback only on error"). Unlike OpenAI's enrichment (which merges a live model ID against a separately-maintained static capability table), OpenRouter's own `/models` response already carries context length, pricing, and supported-parameters/modality metadata directly — so no second, separately-seeded enrichment table was needed; capabilities (`STREAMING`/`TOOL_CALLING`/`VISION`/`AUDIO`/`FUNCTION_CALLING`) are inferred directly from `architecture.modality` and `supported_parameters`, and pricing is converted from OpenRouter's per-token dollar strings into `ModelMetadata`'s per-1k-token fields.
+  - The old static `_MODELS` list is kept, but demoted to a fallback used only when the live call fails (network error) or the response is empty — never the primary path.
+- **`app/usage/normalizer.py`**: new `OpenRouterUsageNormalizer` class (registered in `get_normalizer_registry()` alongside the existing `OpenAIUsageNormalizer`/`AnthropicUsageNormalizer`), with the defensive multi-field-name-variant mapping described in "Data Mapping" above.
+- **`app/services/provider_sync_service.py`**: `_KNOWN_USAGE_API_PROVIDERS` extended to include `"openrouter"`.
+- **Not implemented as a separately-named component**: the task named `OpenRouterUsageCollector` as an expected deliverable — this was **not** built as a distinct class, because `UsageCollectionService` (EP-08) already *is* the provider-agnostic usage collector every adapter's `get_usage()` feeds into; adding a second, OpenRouter-specific collector class would have duplicated that existing, already-generic component, directly contradicting this EP's own "reuse everything already implemented" instruction. The per-day pagination/retention-clamping logic specific to `/api/v1/activity`'s shape lives inside `OpenRouterProvider.get_usage()` itself — the same place equivalent per-provider quirks (Anthropic's admin-scope requirement, Azure's deployment-list format) already live for every other adapter.
+- **Health checks, validation**: unchanged — `verify_auth()`/`check_connection()` already worked correctly since EP-22 and needed no changes for this EP.
+
+## Model Handling (Part 5)
+
+OpenRouter is treated as a first-class provider throughout — `UsageCostRecord.provider = "openrouter"`, never faked as `"anthropic"`/`"openai"`/etc. directly. The underlying vendor and model are derived from the `model` column's existing `vendor/model` slug at **display time**, not stored as new columns (§32's Part 2/Part 4 finding, implemented exactly as specified):
+
+- **Backend**: `_model_from_live_catalog()` (adapter) and `OpenRouterUsageNormalizer.normalize()` (usage import) both carry the vendor either from OpenRouter's own `provider_name` field (when present) or derived from the model slug's prefix — surfaced in `NormalizedUsageEvent.metadata["underlying_vendor"]`, not a new database column.
+- **Frontend**: new `parseOpenRouterModelId()` (`apps/dashboard/src/lib/providerCatalog.ts`) splits a `vendor/model` slug into `{vendorSlug, vendorLabel, modelSlug}`, with a small vendor-slug → display-name lookup table (`anthropic → Anthropic`, `google → Google`, `meta-llama`/`meta → Meta`, `deepseek → DeepSeek`, `mistralai → Mistral`, `qwen → Qwen`, `x-ai`/`xai → xAI`, `cohere → Cohere`, `microsoft → Microsoft`, `amazon → Amazon`, falling back to the raw slug for anything unrecognized).
+
+Analytics remains provider-agnostic exactly as required: every backend aggregate query (`get_totals_by_provider`, `get_totals_by_model`, `get_daily_trend`, `get_heatmap`, budget scope filters) continues to group by the literal `provider`/`model` strings with zero special-casing — `"openrouter"`/`"anthropic/claude-sonnet-4"` sorts and aggregates exactly like any other provider/model pair. The vendor/model *display* split is confined to one place: the Analytics page's Top Models table, where the "Model" column now renders **Anthropic Claude Sonnet 4** (vendor label + parsed model name) instead of the raw `anthropic/claude-sonnet-4` slug, for OpenRouter rows only — every other provider's rows render exactly as before.
+
+## Dashboard (Part 6)
+
+Verified every existing dashboard surface continues to work unmodified and extended only where useful, per the task's explicit "do not duplicate UI" instruction:
+
+- **Provider cards / Connections page**: unchanged rendering; `hasKnownUsageApi("openrouter")` now returns `true` (frontend `KNOWN_USAGE_API_PROVIDERS` set extended to mirror the backend's), so the existing EP-24.3 capability badge and "Sync now" button behave for OpenRouter exactly as they already do for OpenAI/Anthropic — no new component needed, the existing badge logic picks up the change automatically.
+- **Analytics — Top Models table**: extended (not duplicated) with the vendor/model parse described above, gated on `provider === "openrouter"` so every other provider's cell rendering is byte-for-byte unchanged.
+- **Projects, Budgets, Alerts, Cost reports, Trend charts, Heatmaps**: verified unaffected — none of these query or render anything provider-specific beyond the already-generic `provider`/`model` string fields; confirmed via the full dashboard test suite (295 tests, including every pre-existing Budgets/Alerts/Analytics/Overview test) passing unmodified except the one new vendor/model-parsing test file.
+
+## Security (Part 7)
+
+Reuses every existing security primitive with zero new mechanism introduced:
+
+- **Credential encryption**: OpenRouter connections continue to use the existing `EncryptionService`/`ProviderCredentialService` (Fernet, `APP_SECRET_KEY`-derived) — no provider-specific storage path.
+- **Secret rotation**: the existing `POST .../rotate` endpoint already works generically for any provider type, OpenRouter included — no change needed.
+- **RBAC**: unchanged — provider connection management remains gated by the existing `PROVIDER_WRITE`/`PROVIDER_READ` permissions (ADMIN+OWNER / every role respectively), untouched by this EP.
+- **Audit logging**: unchanged — connection create/rotate/sync events continue through the existing audit paths.
+- **Never log API keys, bearer tokens, or headers**: verified — every new log call in `OpenRouterProvider.get_usage()`/`list_models()` binds only `date`/`error_type`/`error` (a caught exception's string message, never a request header or the credential itself) — the same discipline `ProviderSyncService`/`ProviderValidator` already established since EP-22/EP-23.3.
+- **The one deliberate, disclosed risk this EP accepts**: attempting `GET /api/v1/activity` with the connection's *standard* stored key, rather than requiring and storing a separate, more-privileged "management key," is itself the least-privilege-preserving choice — it means the integration may simply return zero data for accounts whose key lacks sufficient scope, rather than Costorah asking customers to hand over a more powerful credential than necessary on the unverified assumption that it's required. If a future session confirms (via a live account) that a management key is genuinely required and that OpenRouter offers a narrower, read-only "usage" scope short of full account management, that narrower scope — not full management access — should be the one requested, consistent with §32's Part 7 recommendation.
+
+## Testing (Part 8)
+
+- **Backend** (`backend/tests/test_ep26_0_1_openrouter.py`, 16 new tests, all hermetic via `httpx.MockTransport` — no live credential used or required):
+  - `OpenRouterUsageNormalizer` (6 tests): full-field-set normalization, defensive alternate-field-name mapping, missing-fields-default-to-zero (never crashes), underlying-vendor derivation from the model slug when `provider_name` is absent, deterministic dedup-hash stability, registration in `get_normalizer_registry()`.
+  - `get_usage()` (7 tests): single-day normalization, one-request-per-day across a multi-day range, an `AuthenticationError` for one day is skipped honestly rather than raised (the disclosed "standard key may lack permission" scenario, directly exercised), a network error for one day doesn't abort other days, the 30-day retention window clamps a far-past `start_date` rather than looping unboundedly, an empty `data` array returns an empty page.
+  - `list_models()` (3 tests): live catalog correctly maps pricing/context-window/capabilities from a realistic mocked response, a network failure falls back to the static list, an empty catalog response also falls back.
+  - Parity (2 tests): `"openrouter"` is present in `_KNOWN_USAGE_API_PROVIDERS` alongside `openai`/`anthropic`, while Google/Azure remain correctly excluded.
+- **`tests/test_ep24_3_provider_parity.py`** updated (not just extended) for the two genuine behavioral changes this EP introduces: (1) the "every non-production adapter returns an empty, non-crashing page with no mocked transport" baseline test now excludes OpenRouter specifically (renamed helper list `_PROVIDERS_WITH_NO_USAGE_API`), since OpenRouter's `get_usage()` now makes a real HTTP call and testing it with no mocked transport would either attempt a genuine unmocked network call (violating this file's own hermetic-test invariant) or pass only by accident of this sandbox's network policy blocking it — a real, dedicated, properly-mocked test class covers OpenRouter's `get_usage()` behavior instead; (2) `TestSupportsUsageSyncIsInformationalOnly`'s parametrized expectation for `ProviderType.OPENROUTER` flipped from `False` to `True`, with an inline comment pointing at this EP.
+- **A real regression found and fixed by the full regression run, not by the new tests themselves**: running the complete pre-existing backend suite (not just the new/touched test files) surfaced two failing EP-06-era tests — `TestOpenRouterProvider::test_list_models` and `TestGetUsage::test_openrouter_get_usage_returns_empty_page` — both of which construct an `OpenRouterProvider` with **no credential configured at all** and expected the old, pre-EP-26.0.1 contract (`list_models()` returns the static list, `get_usage()` returns an empty page, neither touching credentials). The first draft of `list_models()`/`get_usage()` called `self._resolve_key()` unconditionally, raising `AuthenticationError` before ever reaching the network call — breaking both. Fixed by wrapping each `_resolve_key()` call in a try/except: `list_models()` falls back to the static list on a missing credential (consistent with `GET /models` being genuinely unauthenticated on OpenRouter's side — a key was never required to browse the catalog, so requiring one now would have been a regression, not a feature), and `get_usage()` returns an honest empty page (a missing credential is just another "nothing to fetch" case, exactly like every other degraded-input path this adapter already handles gracefully). This is the concrete value of running the *entire* suite, not just the files touched by an EP — a targeted `pytest tests/test_ep26_0_1_openrouter.py` run alone would never have caught this.
+- **Manual verification**: **not possible from this sandbox** — no live OpenRouter credential was available, and direct network access to `openrouter.ai` is blocked by this environment's egress policy (confirmed via both a rejected `curl` CONNECT tunnel and a `WebFetch` 403, logged in this EP's own investigation). This is the single most consequential open item — see "Known limitations."
+- **Regression**: full backend suite (`pytest -q`, all 1961 pre-existing + new tests) passed clean after every change, including the fix above; `ruff`/`black`/`mypy` all clean on every touched file. Full dashboard suite (295 tests, 9 new) passed clean; `tsc -b`/`eslint --max-warnings 0` clean; production build (`vite build`) clean.
+
+## Known limitations
+
+- **This integration has never been exercised against a real OpenRouter account.** Every finding in this section's "Live API Validation" table above is sourced from secondary/aggregated documentation, not a first-party response this session directly observed — this sandbox's network policy makes direct verification impossible today. **The single highest-priority follow-up for a future session with real OpenRouter access**: (1) confirm whether the connection's standard stored API key can call `GET /api/v1/activity` at all, or whether a genuinely separate "management key" credential type must be requested and stored (a materially larger, security-relevant change if so — see Part 7); (2) capture one real response body and diff it against `OpenRouterUsageNormalizer`'s defensive field-name guesses, correcting any that are wrong.
+- **If the standard key cannot call `/api/v1/activity` at all**, every OpenRouter connection will show `supports_usage_sync: true` (an accurate statement — a real endpoint is called) but consistently import 0 records — indistinguishable, from the dashboard alone, from "this account genuinely has no activity yet," except via the connection's `last_error` field showing the specific `openrouter_activity_insufficient_permission` condition (visible in structured logs; not yet surfaced as its own distinct user-facing badge state — a reasonable follow-up once the credential-privilege question above is actually resolved).
+- **Reasoning tokens, cached tokens, latency, and endpoint** are not captured — no confirmed source field exists for any of them in the secondary documentation this EP could access. `NormalizedUsageEvent` has no dedicated reasoning-token field at all (across every provider, not just OpenRouter) — extending it would be a separate, cross-provider schema decision, not something this EP scoped.
+- **The live model catalog (`list_models()`) was not verified against a real response either** — the mapping logic (pricing conversion, capability inference from `modality`/`supported_parameters`) is based on the same secondary-source research as the usage-import mapping, and carries the same "verify against a real response before fully trusting" caveat.
+- **`OPENROUTER_VENDOR_LABELS` (frontend) is a small, manually-maintained lookup table** — an unrecognized vendor slug falls back to displaying the raw slug rather than a friendly name, which is a correct, non-broken degradation (not a crash), but the label list should grow as new vendors appear in OpenRouter's live catalog.
+- **No live, continuous browser test of a real OpenRouter connection → sync → dashboard display journey** — same standing caveat as every prior EP in this document: verified in pieces (hermetic backend/frontend tests, both full builds), not against a live account or a live browser session.
+
+## Future improvements
+
+1. **The mandatory manual verification named above** — the concrete blocker before this integration can be trusted as anything more than "implemented defensively against best-available research." Should be the very first thing a session with real OpenRouter access does.
+2. If verification confirms a genuinely separate "management key" credential is required, design a deliberate, least-privilege-scoped way to collect and store it (ideally a narrower "usage read" scope if OpenRouter offers one) — a real product/security decision, not a silent widening of what `ProviderConnection.encrypted_api_key` is allowed to hold.
+3. **EP-26.0.1's originally-recommended target, Google Gemini** (§32's "Final recommendation" — live model catalog + pricing refresh, `get_usage()` correctly remaining a no-op) is unaffected by this EP and remains the next unstarted item from the EP-26.0 research, now numbered EP-26.0.2 in practice if pursued next (see this section's own naming note above).
+4. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: a self-service "add a password" flow for Google-only accounts, the still-open transactional-email items, and a Rules management UI on top of the now-complete `AlertRule` CRUD.

@@ -98,7 +98,19 @@ DEFAULT_LOOKBACK_DAYS = 30
 # exists for it to call (documented per-adapter in
 # app/providers/adapters/*.py). This is never used to gate whether
 # `UsageCollectionService.collect()` runs.
-_KNOWN_USAGE_API_PROVIDERS = frozenset({"openai", "anthropic"})
+#
+# EP-26.0.1: "openrouter" added — OpenRouterProvider.get_usage() now calls
+# a real endpoint (GET /api/v1/activity), unlike Google/Azure/Grok/Ollama,
+# which remain outside this set because no equivalent endpoint exists on
+# those platforms at all. OpenRouter's inclusion here means "a bulk usage
+# API exists and is called," not "usage volume is guaranteed" — the
+# endpoint's exact credential-privilege requirement was not first-party-
+# verified before shipping (see the adapter's own get_usage() docstring
+# and CLAUDE.md's EP-26.0.1 "Known limitations"), so an account whose key
+# lacks sufficient permission will still see 0 records, same as it would
+# for a genuinely quiet OpenAI/Anthropic account — a legitimate empty
+# result, not a fabricated one.
+_KNOWN_USAGE_API_PROVIDERS = frozenset({"openai", "anthropic", "openrouter"})
 
 
 @dataclass(frozen=True, slots=True)

@@ -68,6 +68,17 @@ _NON_PRODUCTION_PROVIDERS = [
     p for p in _ALL_PROVIDER_TYPES if p.value not in ("openai", "anthropic")
 ]
 
+# EP-26.0.1: OpenRouter's get_usage() now makes a real GET /api/v1/activity
+# call (unlike Google/Azure/Grok/Ollama, which still have no equivalent
+# endpoint at all) — testing it with no mocked transport, as the "always
+# empty, never even tries" baseline below does for every other
+# non-production provider, would either attempt a genuine unmocked network
+# call (violating this file's own "no network calls" hermetic-test
+# invariant) or pass only by accident of this sandbox's network policy
+# blocking it. OpenRouter is covered by its own dedicated,
+# properly-mocked test class (TestOpenRouterUsageImport) instead.
+_PROVIDERS_WITH_NO_USAGE_API = [p for p in _NON_PRODUCTION_PROVIDERS if p.value != "openrouter"]
+
 
 def _build_config_kwargs(provider_type: ProviderType) -> dict[str, str | None]:
     """Azure OpenAI's config builder requires a base_url (the resource
@@ -135,7 +146,7 @@ class TestProviderRegistryParity:
 
 class TestGetUsageParityBaseline:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("provider_type", _NON_PRODUCTION_PROVIDERS)
+    @pytest.mark.parametrize("provider_type", _PROVIDERS_WITH_NO_USAGE_API)
     async def test_non_production_adapters_return_empty_non_crashing_page(
         self, provider_type: ProviderType
     ) -> None:
@@ -260,7 +271,9 @@ class TestSupportsUsageSyncIsInformationalOnly:
             (ProviderType.ANTHROPIC, True),
             (ProviderType.GOOGLE, False),
             (ProviderType.AZURE_OPENAI, False),
-            (ProviderType.OPENROUTER, False),
+            # EP-26.0.1: OpenRouter gained a real GET /api/v1/activity call —
+            # see _KNOWN_USAGE_API_PROVIDERS' own updated comment.
+            (ProviderType.OPENROUTER, True),
             (ProviderType.GROK, False),
             (ProviderType.OLLAMA, False),
         ],

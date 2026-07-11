@@ -357,14 +357,37 @@ class GoogleProvider(AIProvider):
         await self.aclose()
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        """Submit a generateContent request — EP-25.4 (AI Playground).
+        """Submit a generateContent request — EP-25.4 (AI Playground),
+        instrumentation and a real ``generationConfig``/``top_p`` bug fixed
+        in EP-26.0.3.4 (see CLAUDE.md's own section for the full trace).
 
         POST /v1beta/models/{model}:generateContent?key=<key>. Gemini's
         request shape genuinely differs from the OpenAI-Chat-Completions
         family every other adapter's ``complete()`` reuses: messages become
         ``contents`` (role ``user``/``model``, never ``assistant``), and the
         system prompt is a separate top-level ``systemInstruction`` field,
-        not a message.
+        not a message. Sampling parameters (``temperature``/``top_p``/
+        ``top_k``) all live nested under ``generationConfig`` — never as
+        top-level payload fields — which is exactly what EP-26.0.3.4 found
+        every real Playground request was getting wrong: the AI Playground
+        UI always sends ``top_p`` (default ``1``, never omitted), and every
+        adapter's ``complete()`` does a generic ``payload.update(request.extra)``
+        at the top level — correct for the OpenAI-Chat-Completions family
+        (where ``top_p`` genuinely is a top-level field), but for Gemini
+        that produced a top-level ``{"top_p": 1}`` on *every single request*,
+        which Google's schema validator rejects with
+        ``INVALID_ARGUMENT`` / ``Unknown name "top_p": Cannot find field.``
+        (or the differently-worded but equally real ``Unknown name
+        "topP"``/``"top_k"`` variants, depending on what a caller's
+        ``extra`` happens to carry) — silently surfaced to users as just
+        "Unexpected HTTP 400" before ``map_http_error()`` was fixed to stop
+        discarding the response body. This method now translates the
+        OpenAI-style ``top_p``/``top_k`` extra keys (however they're cased)
+        into Gemini's own ``generationConfig.topP``/``topK`` instead of
+        letting them leak into the top-level payload; only whatever
+        genuinely-Gemini-native keys remain in ``extra`` afterward (e.g. a
+        caller-supplied ``safetySettings``/``tools``/``toolConfig``) are
+        merged at the top level.
         """
         key = self._resolve_key()
         contents = []
@@ -379,21 +402,56 @@ class GoogleProvider(AIProvider):
         payload: dict[str, Any] = {"contents": contents}
         if system_parts:
             payload["systemInstruction"] = {"parts": [{"text": "\n".join(system_parts)}]}
+
+        extra = dict(request.extra)
         generation_config: dict[str, Any] = {}
         if request.max_tokens is not None:
             generation_config["maxOutputTokens"] = request.max_tokens
         if request.temperature is not None:
             generation_config["temperature"] = request.temperature
+        top_p = extra.pop("top_p", None)
+        if top_p is None:
+            top_p = extra.pop("topP", None)
+        if top_p is not None:
+            generation_config["topP"] = top_p
+        top_k = extra.pop("top_k", None)
+        if top_k is None:
+            top_k = extra.pop("topK", None)
+        if top_k is not None:
+            generation_config["topK"] = top_k
         if generation_config:
             payload["generationConfig"] = generation_config
-        payload.update(request.extra)
+        # Anything left in `extra` at this point is assumed to already be a
+        # genuinely Gemini-native top-level field (safetySettings, tools,
+        # toolConfig, cachedContent, ...) — never an OpenAI-shaped sampling
+        # parameter, which are all translated above.
+        payload.update(extra)
 
-        async with self._build_client() as client:
-            data = await client.post(
-                f"/v1beta/models/{request.model_id}:generateContent",
-                json=payload,
-                params={"key": key},
+        logger = log.bind(model=request.model_id)
+        try:
+            async with self._build_client() as client:
+                data = await client.post(
+                    f"/v1beta/models/{request.model_id}:generateContent",
+                    json=payload,
+                    params={"key": key},
+                )
+        except Exception as exc:
+            # provider_http_error_response (app.http.client) already logged
+            # the full HTTP status/headers/body/error-code/error-message/
+            # error-status for a non-2xx response — this is a second,
+            # adapter-scoped log line binding the request payload *shape*
+            # (never a raw prompt/response, never the API key) alongside
+            # the resulting exception, so a "Google generateContent failed"
+            # search finds both the low-level HTTP detail and which
+            # adapter/model produced it in one place.
+            logger.warning(
+                "google_generate_content_failed",
+                error_type=type(exc).__name__,
+                error=str(exc),
+                sent_generation_config_keys=sorted(generation_config.keys()),
+                sent_extra_keys=sorted(extra.keys()),
             )
+            raise
 
         candidate = (data.get("candidates") or [{}])[0]
         parts = (candidate.get("content") or {}).get("parts") or []

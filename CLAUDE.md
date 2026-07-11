@@ -4548,3 +4548,97 @@ A first-time customer following this path is told, at every single one of these 
 1. Extend Analytics' contextual empty-state treatment to its remaining charts (Provider Comparison, Weekly Trend, Token Trend, Usage Heatmap, Project Spend), reusing the exact same `hasUsageIncapableConnection` flag this EP introduced.
 2. A "recently discovered, not yet used" indicator on the Discovered Models panel once a model has been used via Playground at least once, so the panel can self-heal from "No usage yet" to a real spend row without a page reload — likely achievable today via the existing query-key-sharing pattern (`["playground-models", ...]`/`["models", ...]`) rather than new plumbing.
 3. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-26.0.3.4 — Google Gemini Playground: Error Instrumentation & Sampling-Parameter Fix
+
+**Status: complete.** A targeted bug-fix EP triggered by a production report: AI Playground requests against a healthy, validated Google Gemini connection (provider connected ✓, health check passes ✓, API key valid ✓, request stored ✓, Costorah's own API returns 201 ✓) failed the instant `GoogleProvider.complete()` called Google's real `generateContent` endpoint, and the only error surfaced anywhere was the generic, useless **"Unexpected HTTP 400."** No architecture change, no migration, no new endpoint — this is a two-part fix (one generic, one Google-specific) plus new hermetic regression tests.
+
+## Root cause 1 — the HTTP layer discarded every error response body
+
+`map_http_error()` (`app/http/client.py`, unchanged since F-039) had explicit branches for 401/403/404/408/429/500/502/503/504 — but **no branch for 400**, so a 400 fell into the generic `case _:` fallback: `ProviderError(f"Unexpected HTTP {response.status_code}", ...)`. The response body was never read anywhere in the failure path — `ProviderHttpClient._request()`'s `if not response.is_success:` branch went straight to `map_http_error(response, ...)` without ever calling `response.json()`/`response.text`. This is a generic defect (any provider returning 400 for a validation error loses its real message, not just Google), which is why the fix lives in the shared HTTP layer, not in `GoogleProvider` alone.
+
+`PlaygroundService.execute()`'s existing `except Exception as exc: ... execution.error_message = str(exc)[:500]` was never the bug — it faithfully stores whatever message the exception actually carries. The defect was two layers upstream: the message it received was already generic by the time it got there.
+
+## Root cause 2 — Google's own sampling parameters were sent in the wrong shape, on every single Playground request
+
+Auditing `GoogleProvider.complete()` against `apps/dashboard/src/features/Playground.tsx` found a second, more consequential bug: the Playground UI's Top P slider defaults to `1` and is **unconditionally included** in every `execute_playground`/`compare_playground` request body (`top_p: topP`, never `undefined`). Every adapter's `complete()` does a generic `payload.update(request.extra)` at the top level of its outgoing request — correct for the OpenAI-Chat-Completions family (`top_p` genuinely is a top-level field there), but Gemini's `generateContent` schema has no top-level `top_p`/`topP` field at all; sampling parameters (`temperature`, `topP`, `topK`) only exist nested under `generationConfig`. The pre-fix code left `request.extra` (`{"top_p": 1}`) to leak straight into the top-level payload via `payload.update(request.extra)`, which Google's schema validator rejects outright with `INVALID_ARGUMENT` / `Unknown name "top_p": Cannot find field.` — **on every real Playground request against Google, unconditionally**, since the frontend never omits `top_p`. This is very likely the exact, reproducible cause of the reported failure, not merely a hypothetical gap.
+
+## Field-by-field verification against Google's Gemini REST API (Part c of the task)
+
+| Item | Verified against | Result |
+|---|---|---|
+| 1. Endpoint | `POST https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent` | Correct, unchanged |
+| 2. Auth | `?key=<api_key>` query parameter (not a header) | Correct, unchanged — Google's AI Studio convention, already established since EP-22 |
+| 3. Request payload | `contents: [{role: "user"\|"model", parts: [{text}]}]`, `systemInstruction: {parts: [{text}]}` (no `role`) | Correct, unchanged |
+| 4. `generationConfig` | `maxOutputTokens`, `temperature` correct; **`topP`/`topK` were missing this mapping entirely — fixed this EP** | Fixed |
+| 5. Model name | Bare model id in the URL path (`gemini-2.5-flash`, no `models/` prefix — already stripped by `list_models()` since EP-26.0.2) | Correct, unchanged |
+| 6. Response parsing | `candidates[0].content.parts[].text`, `usageMetadata.{promptTokenCount,candidatesTokenCount,totalTokenCount,cachedContentTokenCount}`, `candidates[0].finishReason` | Correct, unchanged — all real, documented Gemini response field names |
+
+Only item 4 required a code change; items 1/2/3/5/6 were verified correct as-is, not assumed.
+
+## The fix
+
+**`app/http/client.py`** — `map_http_error()` rewritten to never swallow a response body:
+- New `_parse_error_body(response)` — parses JSON if possible, always captures raw text (truncated to 4000 chars) as a fallback for non-JSON bodies (HTML error pages, plain-text proxy errors).
+- New `_extract_provider_error_detail(body)` — extracts `(message, code, status)` from either Google's `{"error": {"code", "message", "status"}}` shape or the OpenAI-compatible `{"error": {"message", "type"}}` shape (one extractor, both conventions nest under one `"error"` key).
+- Every status-code branch now folds the extracted detail into the raised exception's message (e.g. `401` → `"Invalid API key or unauthorized: <provider's real message>"`); the new `400` branch and the `409`/`422` branches (also previously unmapped, falling into the same generic fallback) build `"<message> (status=INVALID_ARGUMENT, code=400)"`; the default fallback (`case _:`) still says `"Unexpected HTTP <code>"` but now appends `: <real detail>` whenever one was extracted — no case was left able to silently discard a real message.
+- `ProviderHttpClient._request()` gained a `log.warning("provider_http_error_response", ...)` call immediately before `map_http_error()` runs, binding `status_code`, redacted response headers (`_redacted_response_headers()` — defensively masks `authorization`/`api-key`/`x-api-key`/`x-goog-api-key`/`set-cookie`/`cookie`, though provider response headers essentially never echo a credential back), the raw response body, and the extracted `provider_error_code`/`provider_error_message`/`provider_error_status` — the literal "do NOT swallow the response" instrumentation, applied once at the one place every adapter's error path already funnels through (covering all 7 providers, not just Google).
+
+**`app/providers/adapters/google.py`** — `GoogleProvider.complete()`:
+- `top_p`/`topP` and `top_k`/`topK` are now popped out of `request.extra` (accepting either casing) and mapped into `generationConfig["topP"]`/`generationConfig["topK"]` before the remaining `extra` dict (now containing only genuinely Gemini-native fields like `safetySettings`/`tools`/`toolConfig`, if a caller ever supplies them) is merged at the top level.
+- Wrapped the `client.post(...)` call in a `try/except` that logs an adapter-scoped `google_generate_content_failed` warning (error type, message, and — never a raw prompt/response or the API key — the *keys* sent in `generationConfig`/`extra`, useful for diagnosing "which sampling param broke this" without a second full HTTP-layer log lookup) before re-raising unchanged.
+
+## Why the frontend needed zero changes
+
+`PlaygroundExecutionResponse.error_message` (`app/schemas/playground.py`) was already wired straight from `PlaygroundService.execute()`'s `execution.error_message = str(exc)[:500]`, and `Playground.tsx` already renders `execution.error_message` verbatim in three places (the failure toast, the inline chat-turn error, and the History table). Once the exception's own `str()` carries Google's real message (e.g. `Unknown name "top_p": Cannot find field. (status=INVALID_ARGUMENT, code=400)`) instead of `"Unexpected HTTP 400"`, it reaches the UI automatically — this was confirmed by reading `Playground.tsx` directly (not assumed), not a new capability that needed building.
+
+## Testing
+
+**Backend** (`tests/test_ep25_4_playground_adapters.py`, 3 new tests in `TestGoogleComplete`):
+- `test_top_p_and_top_k_are_nested_in_generation_config_not_top_level` — the direct regression pin for root cause 2: asserts `top_p`/`top_k`/`topP` never appear at the payload's top level, and `generationConfig.topP`/`topK`/`maxOutputTokens`/`temperature` are all correctly populated.
+- `test_unrecognized_extra_keys_still_merge_at_top_level` — confirms a genuinely Gemini-native `extra` field (e.g. `safetySettings`) still reaches the top-level payload unchanged, so the fix doesn't over-correct into blocking legitimate Gemini-specific request fields.
+- `test_google_invalid_argument_400_surfaces_real_error_message` — the direct regression pin for root cause 1: a mocked 400 response with Google's real error shape (`{"error": {"code": 400, "message": "Unknown name \"top_p\": Cannot find field.", "status": "INVALID_ARGUMENT"}}`) results in an `InvalidRequestError` whose message contains the real Google message, `"INVALID_ARGUMENT"`, and `"400"` — never the old generic string.
+
+Full backend suite: **2016 passed** (2013 + 3), 30 skipped (unchanged, pre-existing `DATABASE_URL`-gated integration tests), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+
+**Frontend**: no code changed (see "Why the frontend needed zero changes" above), so no new frontend tests were required or added.
+
+## Demonstration (per this EP's own "show raw request/response/parsed result" requirement)
+
+**No live Google AI Studio credential was available in this sandbox** — the same standing, repeatedly-disclosed limitation every provider-validation EP since §32 has carried (EP-26.0, EP-26.0.1, EP-26.0.2, EP-26.0.2.1, EP-26.0.3, EP-26.0.3.1/.2/.3). The demonstration below is therefore the hermetic, mocked equivalent — `test_top_p_and_top_k_are_nested_in_generation_config_not_top_level`'s actual captured request/response, which is the same code path a real request takes:
+
+- **Raw request** (`POST /v1beta/models/gemini-2.5-flash:generateContent?key=...`):
+  ```json
+  {
+    "contents": [{"role": "user", "parts": [{"text": "hi"}]}],
+    "generationConfig": {"maxOutputTokens": 100, "temperature": 0.7, "topP": 1, "topK": 40}
+  }
+  ```
+  (Before the fix, this same request also carried a top-level `"top_p": 1, "top_k": 40` — exactly what Google's schema rejects.)
+- **Raw Google response** (mocked, matching the real documented shape): `{"candidates": [{"content": {"parts": [{"text": "ok"}]}}], "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1}}`
+- **Parsed response**: `ProviderResponse(model_id="gemini-2.5-flash", content="ok", usage=UsageData(prompt_tokens=1, completion_tokens=1, total_tokens=2), finish_reason=None)`
+- **Token counts**: prompt 1, completion 1, total 2 (from `usageMetadata`)
+- **Estimated cost**: `None` unless `ModelPricing` rows are seeded for `("google", "gemini-2.5-flash")` — `PlaygroundService._cost_for_event()`'s existing, unchanged `PricingNotFoundError` → `None` graceful-degradation path (§13/§23's standing no-fake-cost convention)
+- **Latency**: measured live per-request by `PlaygroundService.execute()`'s existing `time.monotonic()` timing, unaffected by this fix
+- **Final answer**: `"ok"` (the mocked example) / whatever `candidates[0].content.parts[].text` actually contains for a real prompt
+
+A live, continuous browser session driving a real Playground request against a real Google account was not performed — disclosed here rather than fabricated, consistent with every prior EP's standing convention.
+
+## Files changed
+
+`backend/app/http/client.py` (`map_http_error()` rewritten, `_parse_error_body`/`_extract_provider_error_detail`/`_redacted_response_headers` added, instrumentation logging added to `ProviderHttpClient._request()`), `backend/app/providers/adapters/google.py` (`GoogleProvider.complete()` — `top_p`/`top_k` routed into `generationConfig`, error logging added), `backend/tests/test_ep25_4_playground_adapters.py` (3 new tests).
+
+## Known limitations
+
+- **Never verified against a real Google AI Studio account** — same standing sandbox limitation as every prior provider EP in this document. The fix is grounded in Google's documented `generateContent` request/response schema and this codebase's own already-correct `list_models()`/`verify_auth()` conventions (which use the identical endpoint/auth pattern), not a first-party response this session directly observed.
+- **`map_http_error()`'s generic-body extraction only recognizes the one `{"error": {...}}` nesting convention** (Google's and the OpenAI-compatible family's) — a provider whose error body uses a materially different shape still falls back to the raw response text rather than a structured `message`/`code`/`status`, which is a strictly better outcome than before (the raw text is still shown, never silently dropped) but not as clean as a shape-specific extractor would be.
+- **The `top_p`/`top_k` fix only covers what `PlaygroundService`/the Playground UI actually sends today** — if a future caller starts passing other OpenAI-shaped sampling fields (e.g. `presence_penalty`, `frequency_penalty`, `stop`) through `ProviderRequest.extra` to Google, those would still leak into the top-level payload unmapped and produce the same class of 400 this EP just fixed for `top_p`/`top_k` specifically. Extending the translation table is a small, isolated follow-up if/when the Playground UI grows those controls.
+- **No live, continuous browser test of a real Playground execution against Google** — same caveat as every prior EP in this document: verified via a hermetic mocked-transport test exercising the exact same code path, not a live account or live browser session.
+
+## Future improvements
+
+1. If the Playground UI ever exposes additional OpenAI-shaped sampling controls beyond Top P (frequency/presence penalty, stop sequences), extend `GoogleProvider.complete()`'s extra-key translation table the same way this EP did for `top_p`/`top_k`.
+2. A live-account smoke test of a real Google Gemini Playground execution remains the single highest-priority verification gap for this specific provider, unchanged from every prior EP's own recommendation.
+3. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, delivery-event-driven alert channels) remains unaffected and unresolved by this EP.

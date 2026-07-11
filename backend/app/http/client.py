@@ -38,6 +38,7 @@ import uuid
 from typing import Any
 
 import httpx
+import structlog
 
 from app.http.auth import HttpAuth
 from app.http.telemetry import RequestTelemetry
@@ -52,7 +53,18 @@ from app.providers.errors import (
 )
 from app.providers.retry import RetryPolicy
 
+log = structlog.get_logger(__name__)
+
 _USER_AGENT = "aifinops/0.1.0 (provider-integration)"
+
+# EP-26.0.3.4 — never log an actual credential value even though provider
+# response headers essentially never echo one back; this is defense in
+# depth, not a signal that any provider is known to do so.
+_SENSITIVE_HEADER_NAMES = frozenset(
+    {"authorization", "api-key", "x-api-key", "x-goog-api-key", "set-cookie", "cookie"}
+)
+
+_ERROR_BODY_LOG_LIMIT = 4000
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:
@@ -65,40 +77,131 @@ def _parse_retry_after(response: httpx.Response) -> float | None:
         return None
 
 
+def _redacted_response_headers(response: httpx.Response) -> dict[str, str]:
+    return {
+        name: ("<redacted>" if name.lower() in _SENSITIVE_HEADER_NAMES else value)
+        for name, value in response.headers.items()
+    }
+
+
+def _parse_error_body(response: httpx.Response) -> tuple[dict[str, Any] | None, str]:
+    """Best-effort parse of an error response body.
+
+    Returns ``(parsed_json_or_None, raw_text_truncated)`` — the raw text is
+    always captured (truncated to a sane log size), even when the body
+    isn't valid JSON, so an HTML error page or a plain-text message from an
+    upstream proxy is never silently discarded either.
+    """
+    try:
+        raw_text = response.text
+    except Exception:
+        raw_text = ""
+    truncated = raw_text[:_ERROR_BODY_LOG_LIMIT]
+    try:
+        parsed = response.json()
+    except Exception:
+        return None, truncated
+    return (parsed if isinstance(parsed, dict) else None), truncated
+
+
+def _extract_provider_error_detail(
+    body: dict[str, Any] | None,
+) -> tuple[str | None, str | None, str | None]:
+    """Best-effort extraction of ``(message, code, status)`` from a
+    provider's own JSON error body — never assumed, always attempted from
+    whatever shape is actually present.
+
+    Handles two conventions in the wild:
+
+    * Google's Gemini API: ``{"error": {"code": <int>, "message": <str>,
+      "status": <str>}}`` — e.g. ``{"error": {"code": 400, "message":
+      "Unknown name \\"max_tokens\\": Cannot find field.", "status":
+      "INVALID_ARGUMENT"}}``.
+    * The OpenAI-compatible convention most other providers in this
+      catalog use: ``{"error": {"message": <str>, "type": <str>, "code":
+      <str|int|None>}}``.
+
+    Both shapes nest under one top-level ``"error"`` key, so one extractor
+    covers both — ``status`` falls back to OpenAI's ``type`` field when
+    Google's ``status`` key isn't present. Returns ``(None, None, None)``
+    when the body doesn't match either shape (e.g. no body, or a body
+    that isn't a JSON object at all) rather than raising.
+    """
+    if not body:
+        return None, None, None
+    err = body.get("error")
+    if not isinstance(err, dict):
+        return None, None, None
+    message = err.get("message")
+    code = err.get("code")
+    status = err.get("status") or err.get("type")
+    return (
+        str(message) if message is not None else None,
+        str(code) if code is not None else None,
+        str(status) if status is not None else None,
+    )
+
+
 def map_http_error(response: httpx.Response, *, provider_type: str) -> ProviderError:
-    """Convert an unsuccessful HTTP response to the appropriate ProviderError (F-039)."""
+    """Convert an unsuccessful HTTP response to the appropriate ProviderError (F-039).
+
+    EP-26.0.3.4: never swallows the response. Every branch below attempts to
+    parse the provider's own error body (Google's ``{"error": {"code",
+    "message", "status"}}`` shape, or the OpenAI-compatible ``{"error":
+    {"message", "type"}}`` shape) and folds the real ``message``/``code``/
+    ``status`` into the raised exception's own message — a caller-facing
+    "Unexpected HTTP 400" with the actual reason discarded is exactly the
+    defect this rewrite closes.
+    """
+    body, raw_text = _parse_error_body(response)
+    message, code, status = _extract_provider_error_detail(body)
+    detail = message or (raw_text if raw_text.strip() else None)
+
     match response.status_code:
+        case 400:
+            text = detail or "Invalid request"
+            if status or code:
+                text = f"{text} (status={status or 'unknown'}, code={code or response.status_code})"
+            return InvalidRequestError(text, provider_type=provider_type)
         case 401:
-            return AuthenticationError(
-                "Invalid API key or unauthorized", provider_type=provider_type
-            )
+            text = "Invalid API key or unauthorized"
+            if detail:
+                text = f"{text}: {detail}"
+            return AuthenticationError(text, provider_type=provider_type)
         case 403:
-            return AuthenticationError(
-                "Access forbidden — check API key permissions or org settings",
-                provider_type=provider_type,
-            )
+            text = "Access forbidden — check API key permissions or org settings"
+            if detail:
+                text = f"{text}: {detail}"
+            return AuthenticationError(text, provider_type=provider_type)
         case 404:
-            return InvalidRequestError(
-                f"Endpoint not found: {response.url}", provider_type=provider_type
-            )
+            text = detail or f"Endpoint not found: {response.url}"
+            return InvalidRequestError(text, provider_type=provider_type)
         case 408 | 504:
             return NetworkError("Request timed out", provider_type=provider_type)
+        case 409 | 422:
+            text = detail or "Invalid request"
+            if status or code:
+                text = f"{text} (status={status or 'unknown'}, code={code or response.status_code})"
+            return InvalidRequestError(text, provider_type=provider_type)
         case 429:
+            text = "Rate limit exceeded"
+            if detail:
+                text = f"{text}: {detail}"
             return RateLimitError(
-                "Rate limit exceeded",
+                text,
                 provider_type=provider_type,
                 retry_after_seconds=_parse_retry_after(response),
             )
         case 500 | 502 | 503:
-            return InternalProviderError(
-                f"Provider server error ({response.status_code})",
-                provider_type=provider_type,
-            )
+            text = f"Provider server error ({response.status_code})"
+            if detail:
+                text = f"{text}: {detail}"
+            return InternalProviderError(text, provider_type=provider_type)
         case _:
-            return ProviderError(
-                f"Unexpected HTTP {response.status_code}",
-                provider_type=provider_type,
-            )
+            text = f"Unexpected HTTP {response.status_code}"
+            if detail:
+                text = f"{text}: {detail}"
+            return ProviderError(text, provider_type=provider_type)
 
 
 class ProviderHttpClient:
@@ -274,6 +377,31 @@ class ProviderHttpClient:
                 tel.status_code = response.status_code
 
             if not response.is_success:
+                # EP-26.0.3.4 — instrument every non-2xx provider response
+                # before it's mapped/discarded: status, response headers
+                # (secret-bearing header names redacted defensively — see
+                # _SENSITIVE_HEADER_NAMES), the raw body, and whatever
+                # provider-reported error code/message/status
+                # map_http_error() was able to extract from it. This is the
+                # one place in the whole HTTP layer every adapter's error
+                # path funnels through, so instrumenting it here covers
+                # every provider (Google's INVALID_ARGUMENT 400s included),
+                # not just one adapter.
+                error_body, error_raw_text = _parse_error_body(response)
+                error_message, error_code, error_status = _extract_provider_error_detail(error_body)
+                log.warning(
+                    "provider_http_error_response",
+                    provider=self._provider_type,
+                    method=method,
+                    path=path,
+                    request_id=request_id,
+                    status_code=response.status_code,
+                    response_headers=_redacted_response_headers(response),
+                    response_body=error_raw_text,
+                    provider_error_code=error_code,
+                    provider_error_message=error_message,
+                    provider_error_status=error_status,
+                )
                 provider_err = map_http_error(response, provider_type=self._provider_type)
                 if self._retry_policy.should_retry(attempt, provider_err):
                     # Honour Retry-After from 429 responses when available.

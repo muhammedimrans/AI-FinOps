@@ -216,6 +216,99 @@ class TestGoogleComplete:
         assert result.usage.prompt_tokens == 7
         assert result.usage.completion_tokens == 3
 
+    @pytest.mark.asyncio
+    async def test_top_p_and_top_k_are_nested_in_generation_config_not_top_level(self) -> None:
+        """EP-26.0.3.4 regression pin — the AI Playground UI always sends
+        ``top_p`` (default 1, never omitted). Before this fix,
+        ``payload.update(request.extra)`` merged it as a top-level
+        ``{"top_p": 1}`` field, which Gemini's schema validator rejects
+        with ``INVALID_ARGUMENT`` / ``Unknown name "top_p"`` on every
+        single real Playground request against Google.
+        """
+        capture: dict[str, object] = {}
+        body = {
+            "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+            "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
+        }
+        transport = _mock_transport(capture, body)
+        config = GoogleConfig(
+            provider_type="google", display_name="Google Gemini", api_key_ref=_key_ref("AIza-test")
+        )
+        provider = GoogleProvider(config, http_transport=transport)
+        request = ProviderRequest(
+            model_id="gemini-2.5-flash",
+            messages=[Message(role=MessageRole.USER, content="hi")],
+            max_tokens=100,
+            temperature=0.7,
+            extra={"top_p": 1, "top_k": 40},
+        )
+        await provider.complete(request)
+        await provider.aclose()
+
+        payload = capture["body"]
+        assert "top_p" not in payload  # type: ignore[operator]
+        assert "top_k" not in payload  # type: ignore[operator]
+        assert "topP" not in payload  # type: ignore[operator]
+        assert payload["generationConfig"]["topP"] == 1  # type: ignore[index]
+        assert payload["generationConfig"]["topK"] == 40  # type: ignore[index]
+        assert payload["generationConfig"]["maxOutputTokens"] == 100  # type: ignore[index]
+        assert payload["generationConfig"]["temperature"] == 0.7  # type: ignore[index]
+
+    @pytest.mark.asyncio
+    async def test_unrecognized_extra_keys_still_merge_at_top_level(self) -> None:
+        """A genuinely Gemini-native extra field (e.g. safetySettings) is
+        not an OpenAI-style sampling parameter and should still reach the
+        top-level payload unchanged."""
+        capture: dict[str, object] = {}
+        body = {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+        transport = _mock_transport(capture, body)
+        config = GoogleConfig(
+            provider_type="google", display_name="Google Gemini", api_key_ref=_key_ref("AIza-test")
+        )
+        provider = GoogleProvider(config, http_transport=transport)
+        request = ProviderRequest(
+            model_id="gemini-2.5-flash",
+            messages=[Message(role=MessageRole.USER, content="hi")],
+            extra={"safetySettings": [{"category": "HARM_CATEGORY_HARASSMENT"}]},
+        )
+        await provider.complete(request)
+        await provider.aclose()
+
+        assert capture["body"]["safetySettings"] == [  # type: ignore[index]
+            {"category": "HARM_CATEGORY_HARASSMENT"}
+        ]
+
+    @pytest.mark.asyncio
+    async def test_google_invalid_argument_400_surfaces_real_error_message(self) -> None:
+        """EP-26.0.3.4 — the actual Google error (message/status/code) must
+        reach the raised exception, never a generic 'Unexpected HTTP 400'
+        with the response body discarded.
+        """
+        capture: dict[str, object] = {}
+        body = {
+            "error": {
+                "code": 400,
+                "message": 'Unknown name "top_p": Cannot find field.',
+                "status": "INVALID_ARGUMENT",
+            }
+        }
+        transport = _mock_transport(capture, body, status=400)
+        config = GoogleConfig(
+            provider_type="google", display_name="Google Gemini", api_key_ref=_key_ref("AIza-test")
+        )
+        provider = GoogleProvider(config, http_transport=transport)
+
+        from app.providers.errors import InvalidRequestError
+
+        with pytest.raises(InvalidRequestError) as exc_info:
+            await provider.complete(_request())
+        await provider.aclose()
+
+        message = str(exc_info.value)
+        assert 'Unknown name "top_p": Cannot find field.' in message
+        assert "INVALID_ARGUMENT" in message
+        assert "400" in message
+
 
 class TestOllamaComplete:
     @pytest.mark.asyncio

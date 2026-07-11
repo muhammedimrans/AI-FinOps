@@ -3214,3 +3214,292 @@ EP-26.6  (AI Cost Intelligence — flagship)
 This ordering is deliberate, not arbitrary: billing (EP-26.1) is the monetization gate that makes every downstream feature commercially meaningful to build; multi-workspace (EP-26.2) and SSO (EP-26.3) are the enterprise-account-shape prerequisites that Business/Enterprise-tier billing plans (EP-26.1) would otherwise be selling before they exist; audit/compliance (EP-26.4) is typically a hard requirement for the same Enterprise buyers SSO (EP-26.3) targets, so it follows directly; a public API/SDK (EP-26.5) is most valuable once there's a stable multi-workspace, audited platform underneath it worth integrating against; and AI Cost Intelligence (EP-26.6) — the flagship differentiator — is sequenced last deliberately, so it's built on top of a commercially and structurally mature platform (billing, workspaces, SSO, audit, a public API) rather than racing ahead of the foundation it will need to sit on.
 
 **No implementation work for any EP-26 milestone has started.** This section is a planning record only, per this session's explicit instruction — do not begin EP-26.1 (or any other EP-26 milestone) without a separate, explicit go-ahead.
+
+---
+
+# EP-26.0 — Provider Research & Architecture (Google Gemini & OpenRouter)
+
+**Status: research complete. No implementation. No migration. No new endpoint. No modification to any existing provider adapter.** This section is a planning document only, produced by (1) reading every relevant file in Costorah's existing Provider Framework end-to-end (`app/providers/*`, `app/models/provider_connection.py`, `app/models/model_pricing.py`, `app/models/usage_cost_record.py`, `app/services/provider_sync_service.py`, `app/usage/normalizer.py`) and (2) external research into Google's and OpenRouter's current public APIs as of July 2026. Every claim about *this codebase* below was verified against the actual source in this session; every claim about *Google's or OpenRouter's own platforms* is sourced externally and marked as such — provider APIs change on their own schedule, independent of this repository, so treat the external facts as "true as researched, re-verify before implementing," not as permanently fixed.
+
+Costorah already has real, working `GoogleProvider` and `OpenRouterProvider` adapters (both shipped in EP-06/EP-22/EP-24.3) — this is not a "should we support these providers at all" research pass, it is a "the credential-validation half already works; here is exactly what it would take to close the usage-import half, and whether that's even possible today" investigation, requested before committing to EP-26.0.1/EP-26.0.2 implementation work.
+
+## Part 1 — Google Gemini Research
+
+### The Google AI ecosystem, disambiguated
+
+Google's generative-AI surface is frequently conflated in casual usage; the distinctions matter enormously for what is and isn't monitorable:
+
+| Surface | What it is | Auth | Billing model | Relevant to Costorah today |
+|---|---|---|---|---|
+| **Google AI Studio** | A no-code web console (aistudio.google.com) for prototyping with Gemini models and generating API keys. Not an API itself — the *place you get a key* for the Gemini API below. | Google account login (web only) | N/A — it's a UI, not a billed product surface | Indirect — this is where a customer gets the API key Costorah's `GoogleProvider` connects with |
+| **Gemini API** (also called "Gemini Developer API") | The REST API at `generativelanguage.googleapis.com`, authenticated by a simple API key (`?key=...` query param). This is what `GoogleProvider` in this codebase connects to. | API key (from AI Studio) | Pay-as-you-go, billed to whatever Google Cloud billing account the API key's project is linked to, OR a generous free tier for low-volume/experimental use | **Yes — this is exactly what Costorah's `GoogleProvider` adapter targets today** |
+| **Google Vertex AI** | Google Cloud's full enterprise ML platform — training, deployment, MLOps, model garden (hosts non-Google models too), all scoped to a GCP project/region. A completely different product from AI Studio, aimed at enterprise GCP customers rather than API-key prototypers. | OAuth 2.0 / GCP IAM (service accounts, `Authorization: Bearer <OAuth token>`), never a bare API key | GCP project billing, itemized like any other GCP service, visible in Cloud Billing | **No — Costorah has no Vertex AI integration; this is a distinct product from what's connected today** |
+| **Vertex AI Gemini** | Gemini models specifically, served *through* Vertex AI (as opposed to through the standalone Gemini API above). Same underlying models, different endpoint (`{region}-aiplatform.googleapis.com`), different auth (OAuth/service account, not API key), different SDK, different pricing display (GCP SKUs, not the Gemini API's per-token price sheet), and — critically — **different (and richer) usage/cost telemetry**, because it's a first-class GCP service. | OAuth 2.0 / service account | GCP project billing | **No — not connected; see "The real gap" below for why this matters** |
+| **Google Cloud Billing** | GCP's account-wide cost-management system (the thing that shows you your total GCP bill, itemized by service/SKU/project). | GCP IAM | N/A — this *is* the billing system | Relevant only if Costorah ever integrates with Vertex AI Gemini, not with the standalone Gemini API |
+| **Vertex Billing Export** | A Cloud Billing feature: your GCP billing data exported continuously into a BigQuery dataset you own, queryable with SQL. This is the closest thing GCP has to a "bulk usage-history API" for Vertex AI Gemini spend. | GCP service-account credentials, scoped to your own BigQuery dataset (not a Google-hosted API endpoint at all) | N/A — this *is* the mechanism by which Vertex spend becomes queryable | **No — would be the actual integration point for Vertex AI Gemini usage, but requires an entirely different credential (a GCP service account with BigQuery read access + the customer's own dataset reference), not the Gemini API key `GoogleProvider` stores today** |
+
+**The real gap, stated plainly**: Costorah's existing `GoogleProvider` connects to the **Gemini API / AI Studio surface**, authenticated by a bare API key. That surface has **no bulk, key-scoped usage-history endpoint** — `GoogleProvider.get_usage()` already documents this exact fact in its own docstring (confirmed by reading the adapter in this session) and returns an honest empty page for exactly this reason. The data that *would* answer "how much did I spend on Gemini" lives one product over, in **Vertex AI Gemini's Cloud Billing / Vertex Billing Export** — which requires a materially different credential (a GCP service account, not an API key) scoped to a GCP project and a BigQuery dataset the customer must have already set up. These are not two ways of authenticating the same thing; they are two different products with two different credential shapes, and a customer using the simple AI Studio API key (the overwhelmingly more common integration path for anyone not already deep in GCP) has no billing-export data to give Costorah at all.
+
+### APIs, authentication, and capabilities — what exists on the Gemini API surface specifically
+
+(All items below are the standalone Gemini API/AI Studio surface — the one `GoogleProvider` already targets — unless marked "Vertex only.")
+
+| Capability | Exists? | Notes |
+|---|---|---|
+| API Keys | ✅ | The only auth method for the Gemini API/AI Studio surface. Generated in AI Studio, passed as `?key=` query param (confirmed: `GoogleProvider._resolve_key()`/`verify_auth()` in this codebase already does this correctly). |
+| OAuth | 🟡 Vertex only | The Gemini API itself is API-key-only; OAuth 2.0 (user or service-account) is the Vertex AI auth model, a different surface. `GoogleConfig` (this codebase) has no OAuth fields today — consistent with it targeting the API-key surface only. |
+| Service Accounts | 🟡 Vertex/Billing-Export only | Not used or needed for the Gemini API surface; would be required if Costorah ever integrates Vertex AI Gemini or Vertex Billing Export. |
+| Project IDs | 🟡 Partially modeled already | **`GoogleConfig` in this codebase already has an (unused) `project_id: str \| None` field** — added defensively for a future Vertex path, but `GoogleProvider` never reads it today, since the AI Studio API-key surface doesn't require a GCP project reference for authentication (a key is self-sufficient). |
+| Billing APIs | ⬜ Not on this surface | Billing lives in Cloud Billing (a separate GCP product), not the Gemini API. |
+| Usage APIs (bulk, key-scoped) | ⬜ **Does not exist on this surface** | This is the core finding — see "The real gap" above. |
+| Rate limits | ✅ | Gemini API enforces per-key RPM/TPM/RPD limits, tiered by whether billing is enabled on the linked project (free tier vs. paid tier have different limits). Surfaced via response headers on 429s, not a queryable API. |
+| Pricing APIs | ⬜ | No programmatic pricing-lookup endpoint; pricing is published as a static price sheet (`ai.google.dev/gemini-api/docs/pricing`), same pattern as every other provider Costorah already integrates (all of Costorah's `ModelPricing` rows are manually/administratively seeded, never pulled live from any provider — this is unchanged for Gemini). |
+| Model discovery | ✅ | `GET /v1beta/models` — the exact endpoint `GoogleProvider.verify_auth()` already calls, doubling as both the credential-validation probe and a live model catalog. |
+| Model metadata | ✅ | The same `/v1beta/models` response includes per-model context window, supported generation methods, and token limits — richer than what `GoogleProvider._MODELS` (a hardcoded static list, confirmed in this session) currently exposes. This is a concrete, low-risk future improvement: swap the static `_MODELS` list for a live call to the already-implemented `/v1beta/models` endpoint. |
+| Token counting API | ✅ | `POST /v1beta/{model}:countTokens` — lets a caller count tokens for a given input *before* sending it, useful for client-side cost estimation. Not usage-history data; a pre-flight calculator, not a bulk export. |
+| Streaming | ✅ | `POST /v1beta/{model}:streamGenerateContent` (SSE). Already reflected in `GoogleProvider`'s capability flags (`supports_streaming=True`, confirmed in this session). |
+| Embeddings | ✅ | Separate model family (`text-embedding-004` / `gemini-embedding-001` and successors) via `POST /v1beta/{model}:embedContent`. Not currently in `GoogleProvider._MODELS`. |
+| Image generation | 🟡 | Imagen models are a separate Google product line, accessible via a related but distinct API surface (and, for the newest generations, sometimes Vertex-only) — not the same request shape as Gemini text generation. |
+| Audio models | 🟡 | Gemini's multimodal models accept audio *input* (already reflected as `supports_audio=True` on `GoogleProvider`); native audio *output* (e.g. Gemini's live/voice APIs) is a newer, separate capability not modeled in this codebase's static list. |
+| Vision models | ✅ | Multimodal image input is a core, mainstream Gemini capability across the current model line (already reflected in `GoogleProvider`'s `supports_vision=True`). |
+| Context caching | 🟡 | Gemini API supports explicit context caching (pinning a large shared prefix — e.g. a long document — to reduce repeated-token cost across many requests). Real, billed differently (a cache-storage fee plus a discounted token rate on cache hits) from ordinary token pricing — a future pricing-model wrinkle if Costorah ever wants to reflect it accurately, not a blocker for basic integration. |
+| Batch APIs | ✅ | The Gemini API has a batch-mode endpoint (asynchronous, higher-latency, discounted-price processing for large non-interactive workloads) — priced differently (lower per-token rate) from synchronous calls. Relevant to pricing-catalog accuracy, not to usage-import feasibility. |
+
+### Model research — current Gemini model line (external research, as of July 2026)
+
+Google's Gemini model line has moved faster than most providers' — this codebase's static `_MODELS` list (`gemini-1.5-pro`, `gemini-1.5-flash`, `gemini-1.5-flash-8b`, `gemini-2.0-flash`) is now **stale relative to Google's actual current-generation lineup** and would need a refresh as part of any real EP-26.0.1 implementation, independent of the usage-API gap. As externally researched:
+
+| Model ID (approx.) | Family | Context window | Notes |
+|---|---|---|---|
+| `gemini-2.5-pro` | 2.5 (workhorse) | ~1,048,576 tokens | Native "thinking"/reasoning mode, tool use, released mid-2025; pricing ≈ $1.00/M input, $10.00/M output tokens (external source, verify at implementation time) |
+| `gemini-2.5-flash` | 2.5 (workhorse) | ~1,048,576 tokens, up to 65,535 output | Built-in thinking capability; pricing ≈ $0.30/M input, $2.50/M output (external source) |
+| `gemini-2.5-flash-lite` | 2.5 (cost-optimized) | ~1M tokens | Cheapest current tier; pricing ≈ $0.10/M input, $0.40/M output (external source) |
+| `gemini-3-flash-preview` / `gemini-3-flash` | 3.x (current-generation, newer) | Not fully confirmed at research time | Combines Gemini 3 Pro-class reasoning with Flash-line latency/cost; supports "Computer Use" natively (no separate model needed, unlike the 2.5 line) |
+| `gemini-3.5-flash` | 3.x (current-generation, newer) | Not fully confirmed at research time | Described externally as "sustained frontier-level intelligence... at higher speed and lower cost" than the 3.0 line |
+| `gemini-1.5-pro` / `gemini-1.5-flash` / `gemini-1.5-flash-8b` (this codebase's current static list) | 1.5 (legacy) | 2M / 1M / 1M tokens | **Likely deprecated or deprecation-scheduled by Google** relative to the 2.5/3.x lines above — this codebase has not been updated since these were current, and the static list should be re-verified (and very likely replaced) against Google's live `/v1beta/models` response, not re-typed from memory, at actual implementation time |
+| `gemini-2.0-flash` (this codebase's current static list) | 2.0 | 1M tokens | Superseded by the 2.5 line above; still likely available but no longer current-generation |
+
+Per-model detail requested (input/output types, supports streaming/embeddings/function calling/JSON mode/thinking/multimodal, deprecation schedule, availability) genuinely changes often enough on Google's side, and this codebase's own static `_MODELS` list is demonstrably already out of date, that hand-authoring a fixed table here would itself become stale before EP-26.0.1 starts. **The correct engineering answer, not just a research footnote**: `GoogleProvider.list_models()` should be re-implemented (in EP-26.0.1, not this EP) as a live call to the already-integrated `GET /v1beta/models` endpoint instead of returning a hardcoded list — Google's own response already carries `displayName`, `inputTokenLimit`, `outputTokenLimit`, and `supportedGenerationMethods` per model, which is the authoritative, always-current source Part 6 below scopes as in-bounds for the actual implementation phase.
+
+### Usage collection — what Google provides, and what Costorah can/can't monitor today
+
+| Mechanism | Exists on the Gemini API/AI Studio surface? | Costorah-usable with today's stored credential (a bare API key)? |
+|---|---|---|
+| Usage API (bulk, per-request, key-scoped) | ⬜ No | N/A |
+| Billing API | 🟡 Exists (Cloud Billing), but scoped to GCP project-level IAM, not the Gemini API key | ⬜ No — different credential type entirely |
+| Usage Export (Vertex Billing Export to BigQuery) | ✅ Exists, but only for **Vertex AI Gemini** usage, not standalone Gemini API/AI Studio usage | ⬜ No — even if a customer had this set up, it wouldn't include their AI-Studio-key usage, since that's a different billing surface |
+| Audit Logs (Cloud Audit Logs) | ✅ Exists at the GCP project level, but records *administrative/API-call* events for compliance, not per-request token/cost detail in a form suited to cost analytics | ⬜ No — wrong shape of data, wrong credential |
+| Cloud Monitoring (metrics) | ✅ Exists — request-count and latency-style operational metrics, again GCP-IAM-scoped | ⬜ No — no cost/token dimension, wrong credential |
+| Cloud Logging | ✅ Exists, same GCP-IAM-scoping caveat | ⬜ No |
+
+**What Costorah can monitor today**: connection reachability and credential validity (`GoogleProvider.verify_auth()`, live, real, already shipped) — i.e., "is this Gemini API key valid," not "how much has it spent."
+**What cannot be monitored today**: any usage volume or dollar cost, under the AI Studio API-key integration path this codebase (and the overwhelming majority of Gemini API customers) uses. This is not a Costorah implementation gap; it is the absence of a corresponding endpoint on Google's side for this specific credential type — confirmed by external research, matching what `GoogleProvider.get_usage()`'s own docstring already concluded in EP-24.3.
+
+## Part 2 — OpenRouter Research
+
+### What OpenRouter is
+
+OpenRouter is a **unified API gateway/router** in front of dozens of underlying model vendors (Anthropic, OpenAI, Google, DeepSeek, Mistral, Qwen, Meta/Llama, xAI/Grok, and many smaller/open-source hosts) — one API key, one request format (OpenAI-Chat-Completions-compatible), one bill, routed to whichever underlying vendor/model you specify. This is architecturally different from every other provider in Costorah's catalog: OpenRouter is not itself a model vendor, it's a broker.
+
+### Authentication, API surface, capabilities (external research)
+
+| Capability | Exists? | Notes |
+|---|---|---|
+| API Keys | ✅ | `Authorization: Bearer <key>` — exactly what `OpenRouterProvider` already implements (confirmed in this session: `BearerTokenAuth`). |
+| Usage API | 🟡 Two different, narrower things exist, neither a full per-request history | See "Usage collection" below. |
+| Credits | ✅ | `GET /api/v1/credits` — an account-wide `{total_credits, total_usage}` pair; balance = `total_credits - total_usage`. This is the endpoint `OpenRouterProvider.get_usage()`'s own docstring already names and explains why it can't be used for per-record import (confirmed in this session). |
+| Billing | ✅ | Prepaid-credit model — you buy credits, usage is deducted; no post-paid invoicing concept the way OpenAI/Anthropic's organization billing works. |
+| Model discovery | ✅ | `GET /models` — the exact endpoint `OpenRouterProvider.verify_auth()` already calls; unauthenticated on OpenRouter's side (any key, valid or not, gets the same public catalog — already disclosed accurately in this codebase's own docstring, confirmed in this session). |
+| Model metadata | ✅ | The `/models` response includes per-model context length, pricing (per-token, per-vendor, since different underlying vendors charge different rates through the same OpenRouter model slug), and supported parameters. |
+| Pricing | ✅ | Published per-model in the `/models` response itself — notably, **OpenRouter's own API tells you the price**, which no other provider in Costorah's catalog does (everyone else requires Costorah's own manually-seeded `ModelPricing` rows). This is a genuine future opportunity: live-pricing ingestion instead of manual seeding, scoped as future work in Part 6. |
+| Rate limits | ✅ | Per-key, surfaced via `GET /api/v1/key` (current daily/weekly/monthly spend + limit-remaining) and response headers. |
+| Streaming | ✅ | SSE, OpenAI-compatible format, already reflected in `OpenRouterProvider`'s capability flags. |
+| Reasoning models | ✅ | OpenRouter passes through vendor-specific "reasoning"/"thinking" modes (e.g. DeepSeek-R1-style, Claude extended thinking, o-series-style) via a normalized `reasoning` request parameter — the underlying vendor still does the actual reasoning; OpenRouter is a pass-through, not a second implementation. |
+| Responses API | 🟡 | OpenRouter's primary surface is Chat Completions-compatible; an OpenAI-Responses-API-shaped surface is not OpenRouter's core interface (that's an OpenAI-specific newer API shape) — treat as not a native OpenRouter concept. |
+| Completions API | ✅ | Chat Completions (`POST /chat/completions`) is OpenRouter's primary and best-supported surface — this is what `_CAPABILITIES`/model list in this codebase already assumes implicitly. |
+| Embeddings | 🟡 | Limited — a small subset of routed models expose embeddings through OpenRouter; not OpenRouter's primary use case (most customers go to OpenAI/Cohere/Google directly for embeddings). |
+| Images | 🟡 | Some routed vendors' image-generation models are reachable through OpenRouter, but this is not a primary, uniformly-supported capability the way chat completion is. |
+| Audio | ⬜ | Not a primary OpenRouter capability today — consistent with `OpenRouterProvider._CAPABILITIES.supports_audio=False` already set correctly in this codebase. |
+| Moderation | 🟡 | Some underlying vendors' moderation endpoints are reachable, not a unified first-class OpenRouter feature. |
+| Tool Calling | ✅ | Normalized, OpenAI-function-calling-compatible request/response shape across supporting underlying models — already reflected as `supports_tool_calling=True` in this codebase. |
+| JSON mode | ✅ | Supported for underlying models that support structured/JSON output, passed through in normalized form. |
+
+### Model research — how OpenRouter exposes underlying vendors
+
+OpenRouter's model identifiers are **namespaced by vendor**: `vendor-slug/model-slug` — e.g. `anthropic/claude-sonnet-4`, `openai/gpt-4o`, `google/gemini-2.5-pro`, `deepseek/deepseek-r1`, `mistralai/mistral-large`, `qwen/qwen-2.5-72b-instruct`, `meta-llama/llama-3.1-405b-instruct`, `x-ai/grok-4`. This is already the exact convention `OpenRouterProvider._MODELS` in this codebase follows (confirmed in this session: `openai/gpt-4o`, `anthropic/claude-3-5-sonnet`, `google/gemini-pro-1.5`, `meta-llama/llama-3.1-405b-instruct`) — though, like the Google model list, this static list is now stale relative to OpenRouter's live, constantly-refreshed `/models` catalog (dozens of models across a dozen-plus vendors, added and retired routinely) and should become a live call rather than a hardcoded list at implementation time, exactly the same recommendation as Gemini's model list above.
+
+**What Costorah should store — direct answer to the question posed**: **all four fields the task names, using columns/patterns that already exist or are trivially derivable, not new ones**:
+
+| Field | Where it already lives (or would live) in this schema | New column needed? |
+|---|---|---|
+| **Provider** | `UsageCostRecord.provider` (existing `String(64)` column, confirmed free-text in this session) = `"openrouter"` — i.e., the Costorah-catalog provider that actually authenticated and billed the request. | No |
+| **OpenRouter Model Identifier** | `UsageCostRecord.model` (existing `String(255)` column, confirmed free-text in this session) = the full `vendor/model` slug (e.g. `"anthropic/claude-sonnet-4"`) exactly as OpenRouter reports it — this is the natural, already-correct value for this column; no parsing needed to make basic cost/analytics correct. | No |
+| **Underlying Vendor** | **Derivable from the `model` string's slug prefix** (`"anthropic/claude-sonnet-4".split("/")[0] == "anthropic"`) rather than a new stored column — computing it at query/display time (or, if a real perf reason emerges, as a cheap generated/indexed column later) avoids storing a value that's 100% redundant with data already present in `model`. | No, if derived; optional convenience denormalization otherwise |
+| **Underlying Model** | Same derivation, the suffix half of the slug (`"claude-sonnet-4"`). | No, if derived |
+
+This means **Part 3's "capability comparison" and Part 5's dashboard design below both resolve to "no schema change is required for OpenRouter's vendor/model attribution"** — the existing free-text `provider`/`model` columns already hold exactly the right values with zero modification; the "underlying vendor" and "underlying model" breakdown the dashboard mockup in the task shows is a **display-layer parsing concern** (frontend or a thin backend serializer splitting `model` on `/`), not a data-model gap. This is the single most important architectural finding in this research pass — a much smaller change than "add new columns" would suggest at first read.
+
+### Usage collection — what OpenRouter provides, and what Costorah can/can't collect automatically
+
+| Mechanism | Exists? | Costorah-usable for per-record, per-model, dated cost import? |
+|---|---|---|
+| Usage history (paginated, per-request) | ⬜ **Does not exist** | N/A — this is the actual gap, identical in shape to Google's |
+| Billing history | 🟡 Only as aggregate credits (see below) | ⬜ Not per-record |
+| Credits (`GET /api/v1/credits`) | ✅ | **No — one account-wide lifetime total, not a paginated list.** This is precisely what `OpenRouterProvider.get_usage()`'s own docstring already explains (confirmed in this session): normalizing a single aggregate number into dated, per-model `NormalizedUsageEvent` rows would mean fabricating a breakdown that doesn't exist in the source data — exactly the kind of synthesis this codebase's standing no-fake-functionality rule forbids. |
+| Daily usage | 🟡 `GET /api/v1/activity` — externally researched to exist, returning **activity grouped by endpoint for the last 30 UTC days**, filterable by date/API-key-hash/user_id, but requires a **management key** (a different, more-privileged credential than the standard per-connection API key `OpenRouterProvider`/`ProviderConnection` stores today) | 🟡 **Potentially — this is a genuinely new finding this research surfaced that EP-24.3's investigation did not have**, and is the single most promising lead for closing OpenRouter's usage-import gap in a future EP; see "Known limitations" and Part 6 below for exactly why it's not a slam-dunk. |
+| Per-model usage | 🟡 Possibly present in the `/api/v1/activity` response's per-endpoint grouping (needs direct verification against a real key before scoping implementation — see Part 8) | 🟡 Same caveat as above |
+| Per-project usage | ⬜ No native "project" concept on OpenRouter's side | N/A |
+| Rate limits / current spend (`GET /api/v1/key`) | ✅ | Gives current daily/weekly/monthly spend for the calling key — an aggregate, not per-request, but a *closer-to-real-time* aggregate than the lifetime `/credits` total; potentially useful for a coarse "spend so far this period" figure even without per-model breakdown, though still not what `UsageCostRecord`'s per-event shape needs. |
+
+**What this changes about EP-24.3's original conclusion, stated honestly**: EP-24.3 (§23 of this document) concluded OpenRouter has "no bulk usage-history endpoint" based on the `/credits` endpoint being the only one that adapter's own author found at the time. This EP-26.0 research pass found a **second, more promising endpoint (`/api/v1/activity`)** that EP-24.3 did not evaluate. This is disclosed as a genuine update to prior research, not a correction of a mistake — `/credits`'s limitation (one lifetime aggregate) is still completely accurate and remains why `get_usage()` can't use it; `/activity` is a different, newer-to-this-investigation lead that deserves direct verification (a real OpenRouter management key, tested against the live endpoint) before EP-26.0.2 scoping treats it as confirmed usable. See Part 6 and "Known limitations."
+
+## Part 3 — Architecture Review
+
+Every piece of the existing Provider Framework named in the task was read in full this session. Findings:
+
+| Component | Already supports Google/OpenRouter? | Reusable as-is | Requires extension | Should remain unchanged |
+|---|---|---|---|---|
+| `ProviderInterface` (`app/providers/interface.py`) | ✅ Yes — `GoogleProvider`/`OpenRouterProvider` already implement the full `AIProvider` ABC (`verify_auth`, `check_connection`, `check_capability`, `list_models`, `get_usage`, `get_provider_info`) | ✅ | Only `list_models()`'s *implementation* (live call vs. static list) per Part 1/2's model-research findings — the interface method signature itself needs nothing new | ✅ The interface contract itself |
+| `ProviderFactory` / `ProviderRegistry` (`app/providers/factory.py`, `app/providers/registry.py`) | ✅ Yes — both already register `GoogleProvider`/`OpenRouterProvider` against `ProviderType.GOOGLE`/`ProviderType.OPENROUTER` (EP-06) | ✅ | None | ✅ Untouched |
+| `ProviderConfig` subclasses (`app/providers/config.py`) | 🟡 Partially — `GoogleConfig` already carries `project_id`/`location` fields **that `GoogleProvider` never reads** (confirmed in this session: dead-but-harmless fields, presumably added defensively for a future Vertex path); `OpenRouterConfig` already carries `http_referer`/`x_title` (OpenRouter's optional attribution headers) that `OpenRouterProvider` also never sets on outgoing requests today | ✅ For the AI-Studio/Gemini-API and Chat-Completions paths already implemented | If a future EP pursues Vertex AI Gemini (a different product, per Part 1), `GoogleConfig` would need real OAuth/service-account fields — a materially bigger change than anything scoped here | ✅ The base `ProviderConfig`/SSRF-guard machinery |
+| `ProviderSyncService` (`app/services/provider_sync_service.py`) | ✅ Yes — since EP-24.3, this service treats every provider identically (decrypt → `build_provider_config()` → `UsageCollectionService.collect()`), with zero provider-type branching in the execution path (confirmed in this session and in §23's own architecture description) | ✅ Completely | None for adding real usage import to Google/OpenRouter — if either adapter's `get_usage()` is ever upgraded from "always empty" to "real data via a newly-discovered endpoint" (e.g. OpenRouter's `/api/v1/activity`, Part 2), **this service requires zero code changes** — it already calls `get_usage()` generically | ✅ Entirely |
+| `UsageCollectionService` (`app/usage/service.py`, EP-08) | ✅ Yes — pagination/checkpoint/retry/normalize/persist is provider-agnostic by construction, already exercised by every one of the 7 registered providers | ✅ Completely | Only requires a real `NormalizerRegistry` entry (see below) once/if either adapter starts returning real `UsageEvent` items instead of an always-empty page | ✅ Entirely |
+| `NormalizerRegistry` / per-provider normalizers (`app/usage/normalizer.py`) | ⬜ No — **only `OpenAIUsageNormalizer` and `AnthropicUsageNormalizer` exist** (confirmed by direct grep in this session: no `GoogleUsageNormalizer` or `OpenRouterUsageNormalizer` class exists anywhere in this codebase) | N/A — nothing to reuse yet for these two providers specifically | **Yes — this is the one piece of the pipeline that has zero existing code for Google/OpenRouter and would need a real, new normalizer class per provider**, the moment either adapter's `get_usage()` starts returning real events instead of an empty page. This is genuinely new work, not an extension of something partial. | The `NormalizerRegistry` dispatch mechanism itself (unchanged, generic) |
+| `PricingEngine` (`app/pricing/engine.py`) | ✅ Yes — already fully provider-agnostic, keyed by free-text `(provider, model)` string pairs, with `PricingNotFoundError` as an already-correct, already-tested graceful-degradation path for any unpriced pair (confirmed in EP-24.3's own audit, re-confirmed by reading `ModelPricing`'s schema in this session) | ✅ Completely | Only requires real `ModelPricing` rows to be seeded for whichever Gemini/OpenRouter models matter — a data task, never a code change (identical conclusion EP-24.3 already reached and this research reconfirms) | ✅ Entirely |
+| Repositories (`ProviderConnectionRepository`, `UsageCostRecordRepository`, `UsageEventRepository`, etc.) | ✅ Yes — every query is `organization_id`/`provider`/`model`-filtered generically, never provider-type-specific | ✅ Completely | None | ✅ Entirely |
+| Scheduler (`UsageSyncScheduler`, EP-23.4) | ✅ Yes — dispatches `sync_all_connections()` per organization with zero awareness of which provider types are present | ✅ Completely | None | ✅ Entirely |
+| Analytics (`DashboardService`/`AnalyticsService`, EP-24.1) | ✅ Yes — every aggregate query (`get_totals_by_provider`, `get_daily_trend`, `get_heatmap`, etc.) groups by the free-text `provider`/`model` columns generically | ✅ Completely | None for basic provider/model breakdown; Part 5 below proposes a **display-layer** vendor/model split for OpenRouter specifically, which is additive UI logic, not a new aggregate query shape | ✅ Entirely |
+| Dashboard (frontend `Connections.tsx`, `Overview.tsx`, `Analytics.tsx`) | ✅ Both providers already have real, working connection/validation/sync UI (EP-22/EP-23.3/EP-24.3's capability badges) | ✅ Completely, for everything that exists today | See Part 5 for the proposed OpenRouter vendor/model display treatment — new UI, not a rework of existing UI | ✅ Everything currently shipped |
+
+**Bottom-line architectural finding**: the Provider Framework does not need to be extended in its *shape* to support real usage import for Google or OpenRouter — every layer from `ProviderSyncService` down to the dashboard is already fully generic and already exercises both providers correctly for the parts that *are* implemented (validation, connection health, scheduling). The only genuinely missing pieces are (1) a real data source on each provider's own platform capable of returning per-request usage (Part 1/2's core finding — a product/API-availability question, not an architecture question), and (2) if/when such a source exists, a normalizer class per provider (the one piece of code in the whole pipeline with zero prior art for these two providers).
+
+## Part 4 — Database Review
+
+**Direct answer: no new columns are required, for either provider, for anything scoped in this research pass.** Specifically evaluating each item the task names:
+
+| Proposed field | Necessary? | Reasoning |
+|---|---|---|
+| Provider | No — already exists | `ProviderConnection.provider_type` (enum) + `UsageCostRecord.provider` (free-text) already fully capture this. |
+| Platform (e.g. "AI Studio" vs. "Vertex AI") | **Not necessary today, and here's exactly where it would go if it ever became necessary**: `ProviderConnection.configuration: JSONB` (confirmed in this session — an existing, already-migrated `JSONB NOT NULL DEFAULT '{}'` column, currently unused by every provider, including Google/OpenRouter) is precisely the "minimal JSON bag, no new migration" pattern this codebase has used repeatedly (`organizations.sync_settings`, EP-23.4; `users.preferences`, EP-22.2) for exactly this shape of optional, provider-specific metadata. A future distinction like `{"platform": "ai_studio"}` vs. `{"platform": "vertex"}` would be a **key inside this existing JSONB column**, not a new table column — relevant only if/when Costorah ever actually integrates the Vertex AI Gemini surface (Part 1), which is out of this EP's and EP-26.0.1's scope. |
+| Service (e.g. "Gemini API" vs. "Vertex AI Gemini") | Not necessary today | Same reasoning and same `configuration` JSONB home if it ever becomes necessary. |
+| Underlying Vendor (OpenRouter) | **Not necessary — derivable at read time from `model`'s slug prefix** (Part 2's finding) | No storage needed. |
+| Underlying Model (OpenRouter) | **Not necessary — derivable at read time from `model`'s slug suffix** (Part 2's finding) | No storage needed. |
+| Model Family | Not necessary — already effectively expressed by the `model` string itself (e.g. `"gemini-2.5-pro"` already encodes the family in its own name) | No new column. |
+| Region | Not necessary today | Only meaningful for Vertex AI (region-scoped endpoints) or Azure OpenAI (already has a real `base_url` field serving this exact purpose for the one provider that actually needs it) — not applicable to the Gemini API/AI Studio or OpenRouter surfaces this EP scopes. |
+| API Version | Not necessary — `ProviderConfig.config_version: int` (a generic version field already on the base config class) plus each adapter's own hardcoded `_BASE_URL`/API-path constants already serve this | No new column. |
+| Capabilities | **Already exists and already correctly populated** — `ProviderCapabilities` (`app/providers/capabilities.py`) is a real, working, per-adapter-declared dataclass (`supports_streaming`, `supports_tool_calling`, `supports_vision`, `supports_audio`, `supports_usage_api`, etc.), already correctly set for both `GoogleProvider` and `OpenRouterProvider` (confirmed by reading both adapters in this session) | No schema change — this is a code-level capability declaration, not a database column, and it already does exactly what the task's "Capabilities" bullet is asking for. |
+| Supports Usage API | **Already exists** | `ProviderCapabilities.supports_usage_api` is already a real field, already set `True` on both `GoogleProvider` and `OpenRouterProvider` today — which is itself worth flagging as a **latent documentation/accuracy gap** (not a bug — the flag means "this provider *has an API surface named 'usage-adjacent'*," which is technically true for both `/credits` and Cloud Billing, just not usable for per-record import) worth reconciling with the more precise `supports_usage_sync`/`_KNOWN_USAGE_API_PROVIDERS` distinction EP-24.3 already introduced at the `ProviderSyncService` layer — a documentation/consistency cleanup, not a schema change, and out of this EP's scope to fix. |
+| Supports Billing API | Not necessary as a new column | Would be the same `supports_usage_api`-style capability flag pattern if it were ever needed — no schema gap. |
+
+**Conclusion**: the existing schema — `ProviderConnection`'s `provider_type` enum plus its already-present, already-migrated, currently-empty `configuration: JSONB` column, and `UsageCostRecord`/`ModelPricing`'s already-free-text `provider`/`model` columns — is sufficient for everything both Part 1 and Part 2 identified as realistically implementable in the near term. **No migration is proposed or required by this research.**
+
+## Part 5 — Dashboard Design
+
+Analytics must remain provider-agnostic (unchanged instruction from every prior EP, e.g. EP-24.1's "one aggregation system, not two" principle) — the proposal below is purely a **display-layer** treatment of data that's already structured correctly underneath, not a new aggregation model.
+
+### Proposed connection-card / detail treatment
+
+```
+┌─────────────────────────────────────────┐
+│ Provider:        Google                  │
+│ Platform:         AI Studio               │  ← derived label, from ProviderType.GOOGLE
+│ Service:          Gemini API              │  ← static, since only one service is integrated
+│ Model:            Gemini 2.5 Pro          │  ← from live /v1beta/models once Part 1's
+│                                             recommendation lands, not the static list
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ Provider:        OpenRouter               │
+│ Underlying Vendor: Anthropic              │  ← parsed client-side (or in a thin serializer)
+│ Underlying Model:  Claude Sonnet          │     from the `model` string's "anthropic/..." slug
+│ OpenRouter Model:  anthropic/claude-      │  ← the raw, stored value, always shown alongside
+│                     sonnet-4                  the parsed vendor/model for transparency
+└─────────────────────────────────────────┘
+```
+
+**Where "Platform"/"Service" labels for Google would come from**: a small, static lookup table in the frontend (`ProviderType.GOOGLE → {platform: "AI Studio", service: "Gemini API"}`) — not a database value, since (per Part 4) there is currently only one Google integration path, making a stored value premature. If Vertex AI Gemini is ever added as a second, distinct connectable service under the same `ProviderType.GOOGLE` umbrella, *that* is the trigger to promote this from a static frontend lookup into a real `configuration.platform` JSONB key (Part 4) — not before.
+
+**Where "Underlying Vendor"/"Underlying Model" for OpenRouter would come from**: a pure string-split of the existing `model` field (`"anthropic/claude-sonnet-4".split("/", 1)`) plus a small vendor-slug → display-name lookup (`"anthropic" → "Anthropic"`, `"google" → "Google"`, `"meta-llama" → "Meta"`, etc.) — computed either client-side in the dashboard or, if reused across multiple surfaces, as a small pure-function utility (e.g. `parseOpenRouterModelId()`), never a stored column, per Part 2's finding. Every existing analytics chart (provider breakdown, model breakdown, heatmap) continues to group by the raw `provider`/`model` strings exactly as it does today — this parsing is additive display sugar layered on top of an unchanged aggregation model, not a replacement for it. A future "group OpenRouter spend by underlying vendor" chart would use this same parsing function client-side over already-fetched `ProviderSummary`/`ModelSummary` rows, not a new backend endpoint.
+
+### Analytics remaining provider-agnostic
+
+Every existing aggregate query (`get_totals_by_provider`, `get_totals_by_model`, `get_daily_trend`, `get_heatmap`, budget scope filters) continues to operate on the literal `provider`/`model` string values exactly as it does for every other provider today — `"openrouter"`/`"anthropic/claude-sonnet-4"` sorts and groups correctly with zero special-casing, the same way `"openai"`/`"gpt-4o"` does. The vendor/model *display* split proposed above is deliberately confined to the connection-management surface (where a user is looking at one specific connection and wants to know what's actually behind it) and to any future opt-in "underlying vendor" grouping view — never a change to how the core cost/analytics pipeline stores or aggregates data.
+
+## Part 6 — Implementation Strategy
+
+**Recommendation: yes, two phases, exactly as the task's own naming suggests — EP-26.0.1 (Google Gemini) followed by EP-26.0.2 (OpenRouter) — with Google going first because it has zero remaining ambiguity (the "no usage API on this credential" finding is fully confirmed and stable), while OpenRouter's `/api/v1/activity` lead (Part 2) needs direct verification against a real key before its scope can be finalized, making it the better second phase, not the better first one.**
+
+### EP-26.0.1 — Google Gemini Integration (proposed scope, not started)
+
+| Area | Proposed work |
+|---|---|
+| Backend — model catalog | Replace `GoogleProvider._MODELS`'s static list with a live call to the already-implemented `/v1beta/models` endpoint (the exact endpoint `verify_auth()` already calls) — `list_models()` becomes a real API call instead of a hardcoded list. Low risk: the endpoint is already integrated for validation; this is widening its use, not adding a new call path. |
+| Backend — usage collection | **No change** — `get_usage()` correctly and honestly stays an empty page, per Part 1's confirmed finding that no bulk usage API exists for this credential type. Any future Vertex AI Gemini / Vertex Billing Export integration (a *second*, separate connectable surface under the same provider umbrella, requiring a GCP service-account credential rather than an API key) would be its own, later EP — explicitly out of EP-26.0.1's scope. |
+| Backend — pricing | Seed real `ModelPricing` rows for the current Gemini model line (2.5 Pro/Flash/Flash-Lite, 3.x line per Part 1's external research, re-verified at implementation time) via the existing `POST /v1/pricing` admin API — a data task, no code change, identical to how every other provider's pricing already works. |
+| Database | **None** — per Part 4, no migration needed. |
+| Dashboard | Add the static "Platform: AI Studio / Service: Gemini API" label pair (Part 5) to the Google connection card. |
+| Analytics | No change needed — already provider-agnostic. |
+| Scheduler | No change — already provider-agnostic. |
+| Testing | Update the existing `test_ep24_3_provider_parity.py`-style live-model-catalog test to mock the new live `/v1beta/models` call instead of asserting against the static list; no new test *category*, an update to an existing one. |
+| Documentation | Update `STARTUP.md`'s §3/§4 Google Gemini section (created this session) to reflect the live model catalog, once implemented. |
+
+### EP-26.0.2 — OpenRouter Integration (proposed scope, not started, contingent on Part 8's verification step)
+
+| Area | Proposed work |
+|---|---|
+| Backend — model catalog | Same treatment as Google: `OpenRouterProvider._MODELS`'s static 4-model list becomes a live call to the already-integrated `GET /models` endpoint, which already returns the full, current, dozens-of-models catalog with pricing. |
+| Backend — usage collection | **Contingent**: if Part 8's direct verification of `GET /api/v1/activity` (using a real OpenRouter management key) confirms it returns per-model, dated activity data usable as `NormalizedUsageEvent`s, implement a real `get_usage()` — this is genuinely new work (a new endpoint call, a new `OpenRouterUsageNormalizer` class, since none exists today per Part 3). If verification finds the endpoint's data shape unsuitable (e.g. still too aggregate, or the management-key requirement is incompatible with how Costorah's per-connection credential model works — see "Known limitations"), `get_usage()` correctly stays an honest empty page, exactly as it is today. **This branch point should be resolved before implementation starts, not discovered mid-EP.** |
+| Backend — pricing | If OpenRouter's own `/models` response reliably includes accurate per-token pricing (Part 2's finding), consider seeding `ModelPricing` rows *from* that live response rather than manual entry — the one provider in Costorah's catalog where live pricing ingestion might be practical. Treat as a stretch goal within EP-26.0.2, not a blocker for the rest of the phase. |
+| Database | **None** — per Part 4, no migration needed; vendor/underlying-model parsing is display-layer only. |
+| Dashboard | Add the "Underlying Vendor / Underlying Model / OpenRouter Model" display treatment (Part 5) to the OpenRouter connection card and any per-connection detail view. |
+| Analytics | No change needed for core aggregation (Part 5); optionally add an opt-in "group by underlying vendor" toggle on the Analytics page as a stretch goal, reusing existing `ProviderSummary`/`ModelSummary` data with client-side parsing — not a new backend query. |
+| Scheduler | No change — already provider-agnostic. |
+| Testing | New `OpenRouterUsageNormalizer` unit tests (if usage import is implemented) mirroring the existing `OpenAIUsageNormalizer`/`AnthropicUsageNormalizer` test pattern; live-model-catalog test update, same shape as Google's. |
+| Documentation | Update `STARTUP.md`'s OpenRouter section once implemented, including an accurate (not "always zero") usage-capability statement if `get_usage()` becomes real. |
+
+## Part 7 — Security Review
+
+Both providers reuse Costorah's existing, already-shipped credential-security architecture (EP-22, §13) without any new mechanism required:
+
+- **API Key storage**: both would continue to use `ProviderConnection.encrypted_api_key`, encrypted at rest via the existing `EncryptionService` (Fernet, `APP_SECRET_KEY`-derived) — no provider-specific storage path exists or is proposed.
+- **Encryption**: unchanged — the same `ProviderCredentialService.encrypt()`/`decrypt()` boundary already governs every provider's credential, Google/OpenRouter included.
+- **Rotation**: the existing `POST .../rotate` endpoint (EP-22 Part 5) already works generically for any provider type, including these two — no new rotation logic needed.
+- **Scopes / least privilege**:
+  - **Google**: a standard Gemini API key from AI Studio is not scope-limited beyond "can call the Gemini API for whatever GCP project it's linked to" — there is no finer-grained scope to request for the AI-Studio surface. If Vertex AI Gemini is ever integrated (a service-account-based credential), that credential *should* be scoped to the minimum IAM role needed (e.g. `roles/aiplatform.user` plus, for Billing Export specifically, read-only BigQuery access to the customer's billing-export dataset — never broader project-owner-level access) — a real, concrete recommendation to carry into any future Vertex work, not applicable to the AI-Studio-key path this EP scopes.
+  - **OpenRouter**: the standard per-request API key is what `OpenRouterProvider` already stores. **The `/api/v1/activity` endpoint's management-key requirement (Part 2) is a genuine security consideration for EP-26.0.2**: a "management key" is, by OpenRouter's own description, more privileged than an ordinary API key (it can likely manage the account's other keys, not just make inference calls) — storing a more-privileged credential than strictly necessary for usage import would violate least-privilege. This should be explicitly re-verified against OpenRouter's own documentation (does a narrower-scoped read-only "usage" permission exist, separate from full account management?) before EP-26.0.2 commits to requiring it — see Part 8/"Known limitations."
+- **Secrets**: never logged, never returned in any API response beyond the existing masked-display convention (`sk-***...***AbC`) — unchanged, already-shipped behavior for every provider.
+- **Google Service Accounts**: not applicable to anything proposed in EP-26.0.1 (AI-Studio-key path only); if ever pursued for Vertex, standard GCP service-account best practice applies — key rotation, minimum IAM role, no broadly-scoped `roles/editor`/`roles/owner` grants, and (ideally) workload identity federation over long-lived JSON key files where Costorah's deployment environment supports it — a forward-looking recommendation, not a decision this EP makes.
+- **OpenRouter API Keys**: standard bearer-token handling, identical security posture to every other bearer-token provider (Grok, etc.) already in this catalog.
+
+**No new security primitive is required for either provider** — both fit entirely within the existing `EncryptionService`/`ProviderCredentialService`/`ProviderValidator` architecture. The one open question (OpenRouter's management-key scope) is a *data-gathering* task for Part 8, not a security *design* gap.
+
+## Part 8 — Testing Strategy
+
+| Test category | Google Gemini | OpenRouter |
+|---|---|---|
+| Unit tests | `list_models()` live-catalog parsing (mocked `/v1beta/models` response), `ModelMetadata` field mapping | Same pattern for `/models`; if `get_usage()` becomes real, unit tests for the new `OpenRouterUsageNormalizer` mirroring `OpenAIUsageNormalizer`'s existing test shape |
+| Integration tests | `httpx.MockTransport`-based tests of `verify_auth()`/`list_models()` against realistic mocked Gemini API response shapes (extending the existing `test_ep22_provider_validator.py` pattern already used for every adapter) | Same pattern for `/models`, `/api/v1/credits`; if `/api/v1/activity` is adopted, a mocked-transport test of the full `get_usage()` pagination path, mirroring `test_ep22_provider_validator.py`'s existing per-adapter real-HTTP-shape test convention |
+| Mock APIs | `httpx.MockTransport` (already this codebase's standard, zero new tooling) for both | Same |
+| **Manual verification (required before EP-26.0.2 scoping, not just before merging code)** | Not required — Part 1's findings are already fully confirmed by reading Google's own documented API surface; no ambiguity remains | **Required**: a real OpenRouter account with a management key must be used to call `GET /api/v1/activity` directly (e.g. via `curl`) and inspect the actual response shape — confirming (a) it truly returns per-model, dated granularity suitable for `NormalizedUsageEvent` construction, and (b) exactly what permission level a management key actually grants, for Part 7's least-privilege question. **This manual step is the single gating item for finalizing EP-26.0.2's scope** — it was not possible to perform in this research session (no live OpenRouter credential available in this sandbox), consistent with this codebase's own long-standing "cannot drive a real browser/hold a real provider credential" limitation disclosed in every prior EP. |
+| Regression testing | Full existing `test_ep24_3_provider_parity.py` suite (7-provider parametrized tests) must continue to pass unmodified for every provider *other* than the one being changed, in both phases — the existing parity-guard pattern already catches accidental cross-provider regressions. | Same |
+
+## Part 9 — Deliverables
+
+This section itself constitutes deliverables 1–13 (complete research report, Google architecture, OpenRouter architecture, capability/authentication/pricing/usage-collection comparisons, dashboard proposal, database recommendations, security recommendations, recommended implementation order, risks, known limitations) via Parts 1–8 above. Item 14 (final recommendation) follows immediately below.
+
+### Risks
+
+- **Google**: near-zero implementation risk for what's actually proposed (EP-26.0.1 is a model-catalog-freshness improvement plus pricing seeding — `get_usage()` correctly stays a documented no-op). The only real risk is *scope creep* — a future request to "just add Vertex AI Gemini too" would be a materially larger effort (OAuth/service-account config, a second connectable surface per provider, BigQuery-scoped credentials) that should be its own EP, not folded into EP-26.0.1.
+- **OpenRouter**: moderate risk, entirely concentrated in the unverified `/api/v1/activity` endpoint (Part 2/8) — if manual verification finds it unsuitable (wrong granularity, requires an unacceptably over-privileged management key, or is rate-limited in a way incompatible with per-organization polling), EP-26.0.2 should degrade gracefully to "same as EP-26.0.1: model catalog + pricing improvements only, `get_usage()` stays honest empty" rather than forcing a fabricated usage import.
+- **Both**: model lineups (Gemini's 2.5/3.x generations, OpenRouter's dozens of routed models) move fast enough that any *static* model list hardcoded into either adapter will drift out of date again — the "switch to a live `/models` call" recommendation in Part 6 is as much a risk-mitigation as a research finding, since it's the only approach that doesn't require a future EP just to keep the model list current.
+
+### Known limitations (of this research itself)
+
+- **No live API credentials were available in this sandbox** for either Google or OpenRouter — every external claim above is sourced from public documentation and third-party pricing/model-tracking sites researched via web search in this session (URLs available in this session's tool-call history), not from a first-party API response this session directly observed. This matches this codebase's own standing disclosure pattern ("this sandbox has no way to hold a real provider credential") applied to *research* rather than *implementation* for the first time.
+- **The `/api/v1/activity` endpoint's exact response shape and management-key scope were not directly verified** (Part 8) — this is the one open item blocking a fully confident EP-26.0.2 scope, not a gap in this research's thoroughness so much as a hard limit of what's verifiable without a live account.
+- **Google's exact current model lineup (naming, context windows, pricing, deprecation dates for the 1.5/2.0 line) should be re-confirmed against `GET /v1beta/models` directly at EP-26.0.1 implementation time**, not re-typed from this research document — Part 1's own recommendation (switch to a live model-catalog call) is precisely because a hand-maintained list, including the one in this research document, goes stale.
+- **OpenRouter's roster of routed vendors/models changes routinely** (new vendors and models are added, older ones retired, more often than most single-vendor providers) — the same "verify live, don't hardcode" caveat applies even more strongly here than for Google.
+
+### Final recommendation
+
+Proceed with **EP-26.0.1 (Google Gemini)** as low-risk, well-understood, high-value cleanup-and-freshness work (live model catalog, current pricing) with an honest, unchanged, zero-usage-import outcome — no open questions remain. Treat **EP-26.0.2 (OpenRouter)** as contingent on the one specific, narrow verification step named in Part 8 (a real account testing `GET /api/v1/activity`) before finalizing its scope; if that verification succeeds, OpenRouter gains real usage import (the first of the 5 currently-zero-volume providers to do so, closing a piece of the standing gap §23/EP-24.3 first identified); if it doesn't, EP-26.0.2 still delivers the same live-model-catalog and pricing improvements Google gets, with `get_usage()` honestly remaining a no-op — either outcome is a net improvement over today's static, stale model lists, and neither requires any database migration or Provider Framework architecture change. **No code has been written for either phase. Await explicit approval before starting EP-26.0.1.**

@@ -7,6 +7,7 @@ import CommandPalette from "../components/CommandPalette";
 import ToastContainer from "../components/ToastContainer";
 import OnboardingModal from "../components/OnboardingModal";
 import { routeLabel } from "../lib/navigation";
+import { useOrgStore } from "../stores/org";
 import { useRealtimeConnection } from "../realtime/hooks";
 import { useRealtimeQueryBridge } from "../realtime/queryBridge";
 
@@ -26,6 +27,7 @@ function PageSkeleton() {
 
 export default function AppLayout() {
   const location = useLocation();
+  const isPersonal = useOrgStore((s) => s.isPersonal);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
 
@@ -39,9 +41,9 @@ export default function AppLayout() {
   useEffect(() => {
     setMobileNavOpen(false);
     mainRef.current?.scrollTo(0, 0);
-    const label = routeLabel(location.pathname);
+    const label = routeLabel(location.pathname, isPersonal);
     document.title = label ? `${label} · Costorah` : "Costorah — AI Cost Intelligence";
-  }, [location.pathname]);
+  }, [location.pathname, isPersonal]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-app-bg">

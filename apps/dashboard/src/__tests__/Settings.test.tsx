@@ -47,6 +47,12 @@ vi.mock("../services/api", async (importOriginal) => {
     unlinkGoogle: vi.fn(),
     getMe: vi.fn(),
     upgradeToBusiness: vi.fn(),
+    listProjectsCrud: vi.fn(),
+    listBudgets: vi.fn(),
+    listMembers: vi.fn(),
+    listAlerts: vi.fn(),
+    listInvitations: vi.fn(),
+    listProviderConnections: vi.fn(),
   };
 });
 
@@ -104,6 +110,14 @@ describe("Settings — EP-22.2 backend integration", () => {
     });
     mockedApi.listApiKeys.mockResolvedValue({ keys: [], total: 0 });
     mockedApi.listPermissions.mockResolvedValue({ permissions: [] });
+    // EP-25.3 — WorkspaceImpactSummary's own fetches, only exercised while
+    // the delete-workspace dialog is open.
+    mockedApi.listProjectsCrud.mockResolvedValue({ projects: [], total: 0 });
+    mockedApi.listBudgets.mockResolvedValue({ budgets: [], total: 0 });
+    mockedApi.listMembers.mockResolvedValue({ members: [], total: 0 });
+    mockedApi.listAlerts.mockResolvedValue({ alerts: [], total: 0 });
+    mockedApi.listInvitations.mockResolvedValue({ invitations: [], total: 0 });
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
     mockedApi.getSchedulerStatus.mockResolvedValue({
       organization_id: "org_1",
       auto_sync_enabled: false,
@@ -287,11 +301,34 @@ describe("Settings — EP-22.2 backend integration", () => {
     await user.click(await screen.findByRole("button", { name: /delete workspace/i }));
 
     const confirm = await screen.findByRole("alertdialog", { name: /delete "acme"/i });
+    await user.type(within(confirm).getByLabelText(/type acme to confirm/i), "Acme");
     await user.click(within(confirm).getByRole("button", { name: /delete workspace/i }));
 
     await waitFor(() => {
       expect(mockedApi.deleteOrganization).toHaveBeenCalledWith("org_1");
     });
+  });
+
+  it("keeps the delete-workspace button disabled until the name is typed exactly", async () => {
+    const user = userEvent.setup();
+    renderSettings();
+
+    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(await screen.findByRole("button", { name: /delete workspace/i }));
+
+    const confirm = await screen.findByRole("alertdialog", { name: /delete "acme"/i });
+    const deleteButton = within(confirm).getByRole("button", { name: /delete workspace/i });
+    expect(deleteButton).toBeDisabled();
+
+    const field = within(confirm).getByLabelText(/type acme to confirm/i);
+    await user.type(field, "acme"); // wrong case
+    expect(deleteButton).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, "Acme");
+    expect(deleteButton).not.toBeDisabled();
+
+    expect(mockedApi.deleteOrganization).not.toHaveBeenCalled();
   });
 
   it("requires a password before confirming account deletion", async () => {

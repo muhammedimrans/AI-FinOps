@@ -265,6 +265,18 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DASHBOARD_URL", "VITE_DASHBOARD_URL", "dashboard_url"),
     )
 
+    # ─── Email delivery-event webhooks (EP-25.3) ───────────────────────────────
+    # Resend signs every webhook request using Svix (HMAC-SHA256, base64-encoded
+    # secret prefixed "whsec_") — this is the shared secret used to verify that
+    # signature (app/email/webhook.py). Optional, mirroring resend_api_key: an
+    # environment without it configured simply can't receive delivery events
+    # (POST /v1/webhooks/resend returns 503), it never blocks anything email
+    # ever needed to work before this EP.
+    resend_webhook_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("RESEND_WEBHOOK_SECRET", "resend_webhook_secret"),
+    )
+
     @model_validator(mode="after")
     def _enforce_email_config_in_production(self) -> Settings:
         if self.app_env == "production" and (not self.resend_api_key or not self.email_from):

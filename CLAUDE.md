@@ -2977,3 +2977,146 @@ Every resource this EP's spec named was read end-to-end (backend router, RBAC gr
 1. Relabel the two remaining cosmetic surfaces (header breadcrumb, `/api-keys` page title) if Personal-account terminology consistency becomes a higher product priority.
 2. Build a Rules management UI on top of the now-complete `AlertRule` CRUD, if/when non-budget alert types (usage spikes, provider health, etc.) get real evaluation logic — the rule engine already supports them (§19's `app/alerts/rule_engine.py`), only the data to evaluate against and a UI are missing.
 3. Everything else this session's earlier EPs already flagged as the next real product blockers is unaffected by this EP and remains true: a self-service "add a password" flow for Google-only accounts, wiring `ProviderConnection.encrypted_api_key` into real usage collection for the remaining 5 providers, and delivery-event webhooks.
+
+---
+
+## 31. EP-25.3 — Product Polish, UX Hardening, Remaining Work Closure & Brand Consistency
+
+**Status: complete.** A closure pass, not a feature EP — every item was either a genuine production bug (Budget/Alert creation, both traced to the same root cause), a documented "known limitation" carried forward from EP-24.4/EP-24.5/EP-25.1/EP-25.2 finally closed (delivery-event webhooks, Personal terminology), a UX hardening requirement (destructive-action confirmation), or a visual consistency audit (Lovable-branding removal, logo unification, auth-page redesign). No repository, service, RBAC rule, or authentication mechanism was duplicated — every fix and addition reuses the exact architecture named in every prior CLAUDE.md section.
+
+### Architecture
+
+No new architectural layer was introduced anywhere in this EP. Every addition composes an existing one:
+
+```
+Budget/Alert 422 fix          → app/api/v1/auth.py only (WorkspacePublic.id format)
+Delivery-event webhooks       → app/email/{webhook,service,provider}.py (EP-24.4's EmailService
+                                  untouched) + one new table + one new router
+Deletion confirmation         → apps/dashboard/src/components/{ConfirmDialog,TypeToConfirmField}.tsx
+                                  (existing modal extended, not replaced)
+Brand consistency             → asset swap + dead-code removal, zero new components beyond
+                                  one shared website AuthCard shell
+```
+
+### Part 1 — Complete product audit: the Budget/Alert creation root cause
+
+**"Budget creation fails" and "Alert creation fails" were the same bug**, traced end-to-end against a real local PostgreSQL 16 + Redis instance (not mocked) using `httpx.ASGITransport` + `app.router.lifespan_context(app)` to boot the actual `AppContainer` — the same rigor every prior EP's live-infrastructure verification has used.
+
+**Root cause**: `WorkspacePublic.id` (`app/schemas/auth.py`) was set to `workspace.external_id` — the `org_<hex>` prefixed display string every `BaseModel` mixin exposes (`app/db/mixins.py`) — in three places: `POST /v1/auth/register`'s response, `POST /v1/auth/upgrade-to-business`'s response, and `_build_dashboard_handoff_url()`'s embedded session payload (the Google OAuth login/registration callback's cross-origin handoff to the dashboard, EP-24.5/§25). Every organization-scoped endpoint (`GET/POST /v1/budgets`, `GET/POST /v1/alerts/rules`, and by extension every other `organization_id: uuid.UUID` query/path parameter across the API) expects the **raw hyphenated UUID** — the exact convention `OrgMembershipItem.id` (`app/schemas/organizations.py`, `GET /v1/organizations`) already documented correctly. A client using `workspace.id` verbatim as `organization_id` (which is the obvious, intended usage — it's literally named `WorkspacePublic.id`) sent `org_a1b2c3...` where FastAPI's `uuid.UUID` query-param parser expected `a1b2c3-...`, producing a `422 Unprocessable Entity` — `"Input should be a valid UUID, invalid character: found 'o' at 1"` — before any business logic (budget/alert validation, RBAC, the repository) ever ran.
+
+**Why this specifically affected Google OAuth users, not password-login users**: `apps/website`'s password-login flow (`login.tsx`/`api.ts`'s `LoginResponse`) has no `workspace` field in its handoff payload at all — the dashboard re-fetches the org list itself via `OrgSelector` (`GET /v1/organizations`, which was always correct). Only the Google OAuth callback's server-side `_build_dashboard_handoff_url()` embeds a `workspace` object directly in the handoff fragment. Compounding this, `apps/dashboard/src/App.tsx`'s `AuthGuard` (`if (!organizationId) return <OrgSelector />;`) only triggers `OrgSelector`'s self-correcting `GET /v1/organizations` fetch when `organizationId` is **falsy** — the Google OAuth handoff set a truthy but *wrong-format* id, so the guard never fired, and the bad id persisted in `useOrgStore` for the entire session, silently 422ing every budget/alert creation attempt with no indication of why.
+
+**Fix**: all three occurrences changed to `id=str(workspace.id)` (the raw UUID). No schema change, no migration, no RBAC change — a three-line fix in `app/api/v1/auth.py`, confirmed against the live repro (`POST /v1/budgets` and `POST /v1/alerts/rules` both returned `201` after the fix, `422` before it).
+
+**Regression tests** (`backend/tests/test_ep25_3_polish.py`, `TestWorkspaceIdIsRawUuidNotExternalId`, 4 tests): `register()`'s response `workspace.id` round-trips as `uuid.UUID(...) == org.id` and never starts with `"org_"`; same for `upgrade_to_business()`'s response; the dashboard-handoff payload's embedded `workspace.id` (decoded from the base64 URL fragment, mirroring the website's own `buildDashboardHandoffUrl` decode) is pinned the same way; a fourth test documents the *old*, broken shape for contrast (`uuid.UUID(org.external_id)` raises `ValueError`, proving the bug was real and not a false alarm).
+
+### Part 2 — Remaining EP-25.2 items closed
+
+- **Google-only account password creation flow**: audited, found already fully correct and complete from EP-24.6.1 (§28) — `AuthService.set_password()`, `POST /v1/auth/set-password`, `ProtectedRoute`'s mandatory redirect gate, `SetPassword.tsx`'s self-updating UI (`password_configured: true` written back to the auth store on success) and self-disappearing behavior (the gate never re-fires once configured). No code changes were needed; this item is verified, not re-implemented.
+- **`ProviderConnection.encrypted_api_key` wired into usage collection for all remaining providers**: audited against the current `app/services/provider_sync_service.py` and all 7 adapters' `get_usage()` implementations (re-confirmed live, not from memory) — this has been **fully true since EP-24.3** (§23): every provider, without exception, goes through `decrypt → build_provider_config → UsageCollectionService.collect()` with zero special-casing. The 5 providers with zero usage volume (Google, Azure OpenAI, OpenRouter, Grok, Ollama) return an honest empty `UsagePage` because their platforms genuinely expose no bulk usage-history API to third-party integrations — a disclosed, unavoidable external constraint (each adapter's own docstring explains the specific reason), not an internal wiring gap. Fabricating volume for these providers would violate this codebase's standing no-fake-functionality rule. No code changes were needed.
+- **Delivery-event webhooks**: genuinely new this EP — see Part 5 below.
+- **Personal terminology sweep**: three real, previously-unfixed leaks found and closed — see Part 8 below.
+
+### Part 3/4 — Deletion confirmation hardening
+
+**Project deletion** (`apps/dashboard/src/features/Projects.tsx`, `ProjectCrudRow`) — the pre-existing `ConfirmDialog` now requires typing the exact project name before the delete button (relabeled "Delete project") becomes clickable: `ConfirmDialog` gained a `confirmDisabled` prop (default `false`, applied to `disabled={loading || confirmDisabled}`) and Enter-to-confirm support (`if (e.key === "Enter" && !loading && !confirmDisabled)`, with a guard so Enter inside a `<textarea>` doesn't trigger it). A new shared `TypeToConfirmField` component (`apps/dashboard/src/components/TypeToConfirmField.tsx`) renders the labeled input, turning its border `success`-green once the typed value matches; a new `typeToConfirmMatches(expected, value)` helper (`apps/dashboard/src/utils/index.ts`) does the actual whitespace-trimmed exact-match check, shared by both Project and Workspace deletion so the matching rule can never drift between the two. Native `<input>` semantics mean paste and Enter-to-submit both work with zero extra code.
+
+**Workspace deletion** (`apps/dashboard/src/features/Settings.tsx`) — same `TypeToConfirmField` pattern, gated on the workspace name, plus a new `WorkspaceImpactSummary` component: 7 parallel `useQuery` calls (Projects, Provider Connections, Budgets, open Alerts, Members, API Keys, pending Invitations) reusing the **exact same query keys** every other page for that resource already uses (`["projects-crud", ...]`, `["provider-connections", ...]`, `["budgets", ...]`, `["members", ...]`, `["api-keys", ...]`, `["invitations", ...]`, plus a dedicated `["alerts", organizationId, "impact-summary"]`), so the counts shown can never disagree with what those pages themselves display and never issue a redundant fetch if the user already visited them this session. Rendered inside the confirmation dialog only while it's open (`{deleteWorkspaceOpen && organizationId && <WorkspaceImpactSummary .../>}`), so the 7 queries never fire on every Settings page load — only when the user is actually about to delete something.
+
+Both dialogs reset their typed-confirmation state on cancel and on mutation success/error, so a re-opened dialog never starts pre-filled with a stale value.
+
+### Part 5 — Delivery-event webhooks (Resend)
+
+Closes the "no delivery-event webhooks (bounce/complaint tracking)" gap named as a known limitation in EP-24.4 (§24), and reiterated unresolved in every EP since (§25, §27) until now.
+
+**Architecture** — additive to, never touching, EP-24.4's `EmailService`/`EmailProvider`/`EmailTemplateRenderer`:
+
+```
+Resend (external)
+        │  POST webhook, Svix-signed (svix-id / svix-timestamp / svix-signature headers)
+        ▼
+POST /v1/webhooks/resend   (app/api/v1/webhooks.py, new router — public, no CurrentUser,
+        │                    secured by signature verification instead, mirroring how the
+        │                    Google OAuth callback is public-but-verified rather than
+        │                    RBAC-gated)
+        ▼
+app/email/webhook.py
+        │  verify_signature()  — Svix/HMAC-SHA256 scheme: base64(HMAC-SHA256(secret_bytes,
+        │                        f"{svix_id}.{svix_timestamp}.{body}")), keyed by the
+        │                        base64-decoded portion of a "whsec_..."-formatted secret;
+        │                        accepts a match against any space-separated candidate in
+        │                        svix-signature (Svix's own multi-signature/rotation format);
+        │                        rejects a timestamp more than 5 minutes from "now" (replay
+        │                        protection)
+        │  process_resend_webhook_payload()
+        ▼
+EmailDeliveryEventRepository.create()  →  email_delivery_events table (new)
+        │
+        └─► for BOUNCED/COMPLAINED/DELIVERY_DELAYED only:
+              log_auth_event(AuditEvent.EMAIL_DELIVERY_FAILURE, ...)  — same structlog-only
+              audit convention EP-24.4/EP-24.6 already established, no new audit table
+```
+
+**Database** — one new table, `email_delivery_events` (migration `c9d0e1f2a3b4`, chains off EP-24.6's `b8c9d0e1f2a3`): `provider_message_id`, `event_type`, `recipient_email`, `subject`, `tags` (JSON — mirrors `EmailMessage.tags`, already threaded through every `EmailService.send_*` call since EP-24.4 as `{"category": "verification"|"welcome"|"password_reset"|"invitation"|...}` — the correlation mechanism back to *why* an email was sent, with zero `EmailService` changes required), `raw_payload` (JSON, the verbatim Resend `data` object). Deliberately append-only and the **first** persisted record of email outcomes at all — no prior EP built a "sent emails" table (sends were fire-and-forget by design), so this table serves double duty as both the webhook log and that record, rather than adding a second table purely to correlate against.
+
+**Model** (`app/models/email_delivery_event.py`) — `EmailDeliveryEventType` (StrEnum mirroring Resend's own `email.<x>` event names exactly: `sent`, `delivered`, `delivery_delayed`, `bounced`, `complained`, `opened`, `clicked`) and `FAILURE_EVENT_TYPES = frozenset({BOUNCED, COMPLAINED, DELIVERY_DELAYED})` — the three event types this receiver treats as failures worth auditing loudly; `sent`/`delivered`/`opened`/`clicked` are logged at `info` level only.
+
+**Repository** (`app/repositories/email_delivery_event_repository.py`) — `list_for_message()` (full event history for one send, newest first — "delivery status" is a derived read over this log, the same "status is derived from an event log, never a separately maintained field" pattern `UsageCollectionRun`/`Alert` already use), `list_recent()`, `get_latest_status_for_message()`.
+
+**Settings** — `resend_webhook_secret: SecretStr | None` (`app/config/settings.py`), optional (mirrors `resend_api_key`'s own optionality — no environment without a Resend webhook configured is ever broken by this, `POST /v1/webhooks/resend` returns `503` rather than crashing).
+
+**Security**: signature verification is mandatory before any payload is parsed (`401` on missing headers or a bad signature, checked *before* `json.loads()` — a `400` for malformed JSON only ever fires on an already-authenticated request); the 5-minute timestamp tolerance is the standard Svix-recommended replay window; unrecognized event types and payloads missing `data.email_id`/`type` are silently ignored (`200 {"processed": false}`) rather than raising, since Resend retries non-2xx responses — an unrecognized-but-harmless payload must not trigger a retry storm.
+
+**Verified against real local PostgreSQL 16** (not mocked): applied the migration from a clean `b8c9d0e1f2a3` base (confirmed the `created_at`/`updated_at` `server_default=sa.func.now()` — an initial migration draft omitted this and failed with a real `NotNullViolationError` on the first live INSERT attempt, caught and fixed *before* it could have shipped broken, exactly the value of testing against a real database rather than trusting the ORM model's own Python-side defaults), then round-tripped a real bounce event end-to-end (insert → `list_for_message`/`get_latest_status_for_message` → audit log line emitted), plus a real HMAC signature round-trip (valid signature accepted, tampered signature/body/stale-timestamp all correctly rejected) — all directly against a running Postgres instance, not test doubles.
+
+### Part 6/8/9 — Ownership consistency re-audit + Personal terminology sweep + provider audit
+
+**Ownership consistency (Part 7 of the request)**: every permission grant documented in §18's and §30's matrices (`RequirePermission`/`RequireQueryPermission` annotations across `projects.py`, `provider_connections.py`, `budgets.py`, `alerts.py`, `organizations.py`, `invitations.py`) was re-read against `app/auth/rbac.py`'s current `_MEMBER_PERMS`/`_ADMIN_PERMS`/`_OWNER_PERMS` grants — **zero drift found**. The EP-25.1 personal-org guards (invitations, direct-member-add, rename all correctly refuse for `is_personal=True`) and the EP-25.2 `PATCH /v1/alerts/rules/{id}` addition are both confirmed still present and correctly permissioned. No new gap, no fix required — this was a verification pass, not a repair.
+
+**Personal terminology** — three real leaks found (all previously undetected because EP-25.1/EP-25.2's own relabeling only touched the primary sidebar/command-palette surfaces):
+
+1. **`apps/dashboard/src/features/ApiKeys.tsx`**'s standalone `/api-keys` page (`ApiKeysManager`) had a hardcoded `<PageHeader title="API Keys" .../>` — now reads `useOrgStore((s) => s.isPersonal)` and shows `"My API Keys"` for a personal workspace.
+2. **`apps/dashboard/src/lib/navigation.ts`**'s `routeLabel()` (the header breadcrumb + document `<title>` source, shared by `Header.tsx` and `AppLayout.tsx`) previously ignored `NavItem.personalLabel` entirely — it read `NAV_ITEMS` directly rather than `visibleNavItems()`, so the breadcrumb/tab-title could disagree with what the sidebar showed for the same page. `routeLabel(pathname, isPersonal = false)` now applies the same relabeling `visibleNavItems()` already does, and both call sites (`Header.tsx`, `AppLayout.tsx`) now pass `isPersonal` from `useOrgStore`.
+3. Neither of the above required a new field or endpoint — both are pure consumers of `isPersonal`/`NavItem.personalLabel`, both already present since EP-25.1/EP-25.2.
+
+**Provider usage collection completion audit**: see Part 2 above — confirmed complete since EP-24.3, no changes.
+
+### Part 7 — Brand consistency audit & new logo rollout
+
+**Lovable branding removal** — a full-repo grep (`grep -rli "lovable"`) across both frontend apps found:
+- `apps/website/src/lib/lovable-error-reporting.ts` — a `window.__lovableEvents?.captureException?.()` hook that only ever does anything inside Lovable's own hosted preview iframe. Since this app deploys to Cloudflare (ADR-006, §10), not Lovable's hosting, this hook has been silently dead code since the EP-21 migration — **deleted**, and its one call site (`apps/website/src/routes/__root.tsx`'s `ErrorComponent`) now just calls the `console.error(error)` that was already there, wrapped in the existing `useEffect`.
+- `@lovable.dev/vite-tanstack-config` (a real build-tooling dependency in `vite.config.ts`/`vitest.config.ts`/`package.json`) — **left untouched**: this is the actual Vite/TanStack Start build configuration package, not visible product branding; ripping it out would be a major, unrelated build-tooling change with real regression risk, explicitly out of scope for a branding-consistency pass.
+
+**The actual, highest-severity finding**: `apps/website/public/favicon.ico` was not a Costorah asset at all — it rendered as an unrelated orange/red/blue gradient heart-like glyph, almost certainly a Lovable-platform default left over from the original Lovable export (§2/§8's own history: "Lovable-hosting-specific files removed... `.lovable/`, `AGENTS.md`" — this file was evidently missed). Confirmed via direct visual inspection (Pillow-rendered PNG). Regenerated as a proper multi-resolution `.ico` (16/32/48/256px) from the **same real, already-in-use** `apps/dashboard/src/assets/costorah-mark.png` asset (alpha-cropped, padded to a square canvas, Pillow's `sizes=` ICO writer) — the identical mark already serving as the dashboard's own favicon/apple-touch-icon/manifest icons since before this EP, confirmed visually consistent side-by-side.
+
+**Logo unification**: `apps/website`'s inline SVG `LogoMark` (`SiteNav.tsx`) was a hand-drawn zigzag "trend-line + dot" glyph — teal/mint-colored and on-brand in palette, but a **visually different mark** from the dashboard's real "C"-in-an-arrow glyph, meaning the website and dashboard had never actually shared one logo despite both claiming to be "Costorah." Fixed by copying `costorah-mark.png` into `apps/website/src/assets/` and rewriting `LogoMark` to render that same real PNG asset (`<img src={costorahMark} .../>`) instead of a second, hand-approximated SVG — every one of `LogoMark`'s 4 existing call sites (nav, footer, login, signup) picked up the change with zero call-site edits, since the component's `className`-prop signature was preserved exactly. Both apps now render literally the same image file, not two independently-drawn lookalikes.
+
+**Scope discipline**: this EP's attached reference image (a teal/mint checkmark-arrow mark on a dark rounded square, per the task's own description) could not be extracted into a file — no tool in this environment exposes raw chat-attachment image bytes as a saveable asset. Rather than fabricate an approximation of an image never actually inspectable pixel-for-pixel, the honest and immediately actionable fix was applied instead: eliminate the *actual*, confirmed inconsistency (two different real marks in use, one of which was a stray Lovable default) by converging both apps onto the one real, already-correct Costorah asset already serving the dashboard. This is disclosed explicitly, not silently substituted — see "Known limitations."
+
+**Email templates** (`app/email/renderer.py`) — audited, found already brand-clean: every template uses a plain-text "Costorah" wordmark (`color:{_BRAND_TEAL}`), never an embedded image, never any Lovable reference. No change needed.
+
+**Dashboard** (`index.html`, `manifest.json`, all `public/` icon files) — audited, found already fully and correctly Costorah-branded (confirmed via direct visual inspection of every icon file) — no Lovable remnants anywhere, no change needed.
+
+### Part 10 — Premium auth pages redesign (website)
+
+Per the task's own explicit constraint — "Keep the landing page exactly as it is. ONLY redesign authentication windows... Do not redesign the homepage" — this EP touches exactly two routes: `apps/website/src/routes/login.tsx` and `signup.tsx`. `apps/website/src/routes/index.tsx` (the landing page) and every other route are byte-for-byte unchanged (confirmed via `git status --porcelain` showing no diff on `index.tsx` or any file under `components/site/` other than the logo swap and the new shared component below).
+
+The website's auth pages previously rendered as two separately-bordered boxes stacked vertically (a Google-button box, then a form box) with no ambient background — noticeably plainer than `apps/dashboard`'s own `Login.tsx` (the explicit reference named by the task: `AuroraBackground`, a single `glass-panel` card, an ambient glow blob). A new shared `AuthCard` component (`apps/website/src/components/site/AuthCard.tsx`) brings the website's auth windows up to that same treatment using **only this site's own existing tokens** — no new colors, no new fonts, nothing borrowed wholesale from the dashboard's own component library (which isn't shared with the website, ADR-006): the ambient background reuses `var(--gradient-hero)` (already used by `PageHeader`'s marketing-page hero sections, `SiteLayout.tsx`), the glow behind the logo reuses the site's own `#14D9D3` teal, and the single unified glass panel (`rounded-3xl border border-white/10 bg-white/[0.03] ... backdrop-blur-xl`) replaces the two previously-separate bordered boxes with one cohesive card — the same "one glass panel, not two stacked boxes" structure the dashboard's own card already has. `login.tsx`/`signup.tsx` were refactored to compose `<AuthCard>` around their existing Google button, divider, and form — every line of validation, submission, error-handling, and account-type logic is untouched; only the surrounding markup changed.
+
+### Testing
+
+- **Backend**: `tests/test_ep25_3_polish.py` (4 tests, the `WorkspacePublic.id` regression pins above) + `tests/test_ep25_3_webhooks.py` (23 tests: 8 signature-verification cases — valid, tampered signature, tampered body, stale timestamp, future timestamp, malformed timestamp, malformed secret, multi-candidate signature header; 10 payload-processing cases — delivered/bounced/complained/delayed/sent/opened/clicked classification, unrecognized event type, missing `email_id`/`type`, tags correlation, first-recipient extraction, the `FAILURE_EVENT_TYPES` set itself; 5 API-endpoint cases — 503 unconfigured, 401 missing headers, 401 bad signature, 200 + persisted event on a valid signature, 400 on malformed JSON). Full backend suite: **1946 passed, 30 skipped** (the pre-existing `DATABASE_URL`-gated integration tests, unchanged), `ruff check app tests` / `black --check app tests` / `mypy app` all clean.
+- **Frontend (dashboard)**: `ManageProjectsSection.test.tsx` updated (the existing delete-confirmation test now types the project name before clicking Delete) + 1 new test (delete button stays disabled until the name matches exactly, wrong name never calls `deleteProject`); `Settings.test.tsx` updated similarly for workspace deletion + 1 new disabled-until-match test, plus new mocks (`listProjectsCrud`/`listBudgets`/`listMembers`/`listAlerts`/`listInvitations`/`listProviderConnections`) backing `WorkspaceImpactSummary`. Full dashboard suite: **286 passed**, `tsc -b` clean, `eslint src --max-warnings 0` clean, `vite build` clean.
+- **Frontend (website)**: existing suite (`authSchemas.test.ts`, `api.test.ts`, 19 tests) re-run as a regression check after the `AuthCard`/`LogoMark`/`__root.tsx` changes — unaffected, all passing (this app's test scope has been `environment: "node"`, `.test.ts`-only since EP-21.2, so no component-render test exists for `AuthCard`/`LogoMark`/the auth pages themselves, consistent with — not a new gap introduced by — that established boundary). `eslint .` clean (only the 6 pre-existing `react-refresh/only-export-components` warnings on unused shadcn/ui files), `tsc --noEmit` clean (only the 3 pre-existing, unrelated errors in the same unused `components/ui/*` files — confirmed via `git status --porcelain` that none of those files were touched this EP), `vite build` clean (Nitro SSR, all 13 routes, favicon.ico correctly the new asset in `.output/public/`).
+
+### Known limitations
+
+- **The attached reference logo image (checkmark-arrow mark on a dark rounded square) could not be extracted into the repository** — no tool in this environment exposes raw chat-attachment image bytes as a saveable file. What was actually fixed instead: the real, confirmed inconsistency (website favicon was a stray Lovable-default heart glyph; website's inline-SVG mark didn't match the dashboard's real mark). Both apps now converge on the same real, pre-existing Costorah asset (`costorah-mark.png`) rather than diverging further with an unverifiable approximation of the attachment. If the exact attached mark is the intended *new* brand identity (as opposed to reusing the existing one), it needs to be delivered as an actual image file in a future session for a pixel-accurate rollout.
+- **No `og:image`/`twitter:image` meta tag exists on the website** (`__root.tsx`'s `head()` — confirmed absent both before and after this EP) — building a proper 1200×630 social-share card is real design work beyond a branding-consistency audit's scope; noted here rather than fabricated.
+- **`apps/website`'s test suite has no component-render coverage for `AuthCard`/`LogoMark`/`login.tsx`/`signup.tsx`** — pre-existing scope boundary (`environment: "node"`, EP-21.2), not a gap this EP introduced or was asked to close.
+- **The dashboard-side auth pages** (`Login.tsx`, `ForgotPassword.tsx`, `ResetPassword.tsx`, `VerifyEmail.tsx`, `SetPassword.tsx`) **were not touched** — they were already the *reference* quality this EP's Part 10 asked the website to match, per the task's own framing ("using app.costorah.com's auth card as reference"), not a redesign target themselves.
+- **No live, continuous browser test of any flow this EP touched** (budget/alert creation after the fix, a real Resend webhook delivery, the type-to-confirm deletion dialogs, the redesigned auth pages) — same standing caveat as every prior EP in this document: verified in pieces (live-Postgres backend repro and webhook round-trip, frontend component/unit tests, full production builds for all three apps), not as one continuous browser session, since this sandbox has no way to drive a real browser against a live deployment or receive a genuine Resend webhook callback.
+
+### Next milestone recommendation
+
+The standing next-blocker list carried forward from §25–§30 is unaffected by this EP: (1) a self-service "add a password" flow for Google-only accounts beyond the mandatory first-time gate (§28's own next-item, still open), (2) wiring the remaining 5 providers' bulk usage APIs if/when those platforms ever expose one (§23's own disclosed, external-dependency blocker, unchanged), (3) a Rules management UI on top of the now-complete `AlertRule` CRUD (§30's carry-forward). This EP adds one new item: **a pixel-accurate rollout of the attached reference logo**, if that mark (rather than the existing `costorah-mark.png`) is confirmed as the intended go-forward brand identity — blocked only on receiving the actual image file in a future session, not on any remaining code work.

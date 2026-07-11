@@ -11,6 +11,9 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   danger?: boolean;
   loading?: boolean;
+  /** EP-25.3 — disables the confirm button independently of `loading`, e.g.
+   * while a "type the exact name to confirm" input hasn't matched yet. */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   /** Optional extra content (e.g. a password-confirmation input) rendered
@@ -27,6 +30,7 @@ export default function ConfirmDialog({
   cancelLabel = "Cancel",
   danger = true,
   loading = false,
+  confirmDisabled = false,
   onConfirm,
   onCancel,
   children,
@@ -43,10 +47,17 @@ export default function ConfirmDialog({
     if (!open) return undefined;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape" && !loading) onCancel();
+      // EP-25.3 — Enter confirms once the action is actually allowed
+      // (e.g. a type-to-confirm name input has matched), matching the
+      // task's "Support Enter" requirement for destructive confirmations.
+      if (e.key === "Enter" && !loading && !confirmDisabled) {
+        const target = e.target as HTMLElement | null;
+        if (target?.tagName !== "TEXTAREA") onConfirm();
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, loading, onCancel]);
+  }, [open, loading, confirmDisabled, onCancel, onConfirm]);
 
   return (
     <AnimatePresence>
@@ -100,7 +111,7 @@ export default function ConfirmDialog({
               </button>
               <button
                 onClick={onConfirm}
-                disabled={loading}
+                disabled={loading || confirmDisabled}
                 className={cn(
                   "h-9 text-xs px-3.5 rounded-lg font-semibold flex items-center gap-1.5 transition-colors duration-fast",
                   danger

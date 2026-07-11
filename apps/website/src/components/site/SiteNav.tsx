@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
+import costorahMark from "../../assets/costorah-mark.png";
 
 const links = [
   { to: "/features", label: "Features" },
@@ -95,25 +96,13 @@ export function SiteNav() {
   );
 }
 
+// EP-25.3 — the same real Costorah brand mark asset apps/dashboard uses
+// (src/assets/costorah-mark.png), not a second, hand-drawn approximation.
+// Both apps rendering literally the same image is what "brand consistency"
+// means here — a lookalike SVG redrawn per-app is exactly the kind of
+// drift this pass closes.
 export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
-      <defs>
-        <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#14D9D3" />
-          <stop offset="100%" stopColor="#7AF7E8" />
-        </linearGradient>
-      </defs>
-      <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#lg)" opacity="0.15" />
-      <path
-        d="M9 20 L14 12 L18 17 L23 10"
-        stroke="url(#lg)"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-      <circle cx="23" cy="10" r="1.8" fill="#7AF7E8" />
-    </svg>
+    <img src={costorahMark} alt="" className={`${className} object-contain`} aria-hidden="true" />
   );
 }

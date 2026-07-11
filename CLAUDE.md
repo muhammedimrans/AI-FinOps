@@ -4021,3 +4021,99 @@ Every item in `RELEASE_CHECKLIST.md`'s own "Known Limitations" section applies h
 2. Confirm Redis is live and reachable in the actual production environment, not just configured in `.env.example`.
 3. A basic load/latency check against the real deployment, at least once, before broad beta access.
 4. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-26.0.4 — Provider Branding & Visual Identity
+
+**Status: complete.** A UI/branding-only EP — no business logic, database schema, Provider Framework, or API change of any kind. Replaces the ad hoc color-dot-plus-text-label treatment of provider identity across the dashboard with a centralized Provider Brand Registry and a real logo for every one of the 7 supported providers plus 5 future-ready placeholders.
+
+## Architecture
+
+```
+apps/dashboard/src/assets/providers/*.svg    — 12 locally-stored SVG files, imported exactly
+        │                                        once (never hotlinked, never a CDN URL)
+        ▼
+apps/dashboard/src/lib/providerCatalog.ts
+        │  PROVIDER_BRAND_REGISTRY  — id -> {displayName, logo, website, platform?,
+        │                              service?, capabilities[], officialAsset}
+        │  PROVIDER_BRAND_ALIASES  — normalizes every id/slug shape this codebase
+        │                              already uses (ProviderType enum values,
+        │                              PROVIDER_CATALOG's shorter ids, OpenRouter's
+        │                              vendor slugs) onto one canonical key
+        │  getProviderBrand(id)     — always returns a value, never throws;
+        │                              unrecognized ids get a generic, logo-less
+        │                              fallback entry
+        ▼
+apps/dashboard/src/components/ProviderLogo.tsx
+        │  the one component every page renders a brand mark through — no other
+        │  component imports a provider SVG directly (verified via grep)
+        ▼
+Connections.tsx, Analytics.tsx, Overview.tsx
+```
+
+This mirrors the exact "centralize once, consume everywhere" discipline every prior EP-26.0.x provider EP has used for its own catalog additions (`hasKnownUsageApi`, `providerPlatformInfo`, `parseOpenRouterModelId`) — `PROVIDER_BRAND_REGISTRY` is one more export from the same `providerCatalog.ts` module, not a second competing catalog file.
+
+## Brand assets — sourcing and provenance
+
+Per this EP's own "never hotlink, never use a CDN, download and store locally" instruction, every asset had to be a file physically present in the repository before any component could import it. Two sourcing paths were used, both disclosed transparently in the registry itself via an `officialAsset: boolean` field:
+
+**`officialAsset: true` (8 of 12)** — Anthropic, Google Gemini, OpenRouter, Ollama, DeepSeek, Meta (used for the Llama placeholder), Mistral AI, Qwen. Sourced from the public npm registry package `simple-icons` (fetched via `registry.npmjs.org`, which this sandbox's network policy explicitly allows — confirmed by testing `unpkg.com`/`cdn.jsdelivr.net`, both blocked, before falling back to the registry's own tarball endpoint, which worked). `simple-icons` is a CC0-licensed set of monochrome brand-mark recreations, each recolored here to the provider's own published brand hex (sourced from the same package's `data/simple-icons.json`) and saved as a standalone, self-contained SVG file — no runtime dependency on the `simple-icons` package itself was added to `package.json`; the tarball was fetched, the relevant files extracted, and the temporary download directory deleted once the 8 SVGs were copied into `apps/dashboard/src/assets/providers/`.
+
+**`officialAsset: false` (4 of 12)** — OpenAI, Azure OpenAI, Grok (xAI), Cohere. Confirmed absent from the `simple-icons` distribution by exhaustively grepping its full icon list (3,447 entries) for every plausible slug variant (`openai`, `microsoftazure`, `azure`, `grok`, `xai`, `x-ai`, `cohere`) — none exist. This is consistent with `simple-icons`' own publicly documented history of removing marks on trademark-holder request; it is not an oversight in this session's search. Direct network access to each vendor's own brand-asset pages (`openai.com/brand`, `azure.microsoft.com`, `x.ai`, `cohere.com`) was not attempted given this sandbox's demonstrated policy of blocking exactly this kind of direct-to-vendor request (confirmed blocked for `openrouter.ai` in §33's own investigation, and for CDN hosts `unpkg.com`/`cdn.jsdelivr.net` in this EP). For these four, an **original, unbranded geometric monogram** was hand-authored in the provider's own published product color (OpenAI's teal `#10A37F`, Azure's product blue `#0078D4`, a neutral black for Grok, Cohere's purple `#9B5DE5`) — a simple, non-trademark-derived shape (a stylized "A", concentric circles, a diamond/hex outline), never claimed as a reproduction of the real trademark. This is the same disclosed-substitution pattern §31 (EP-25.3) already established for the logo situation described in that EP's own "Known limitations."
+
+**File format discipline**: every SVG is a single `<path>` (or a small number of paths) with an explicit `fill="#<hex>"` baked directly into the root `<svg>` element — no `currentColor` dependency, no external stylesheet dependency, no raster fallback. A `<title>` element carries the provider's display name for any consumer that renders the SVG directly (not through `<img>`, where the wrapping `alt` attribute is what matters — see Accessibility below).
+
+## Provider Brand Registry
+
+`PROVIDER_BRAND_REGISTRY: Record<string, ProviderBrand>` in `apps/dashboard/src/lib/providerCatalog.ts` — one entry per provider, keyed by the same `ProviderType` enum values `CONNECTABLE_PROVIDERS` already uses for the 7 supported providers, plus 5 additional keys (`deepseek`, `llama`, `mistral`, `cohere`, `qwen`) for the future-ready placeholders. Each entry: `id`, `displayName`, `logo` (the imported asset URL), `website`, optional `platform`/`service` (reusing EP-26.0.2's own Platform/Service concept for Google's AI Studio identity — the registry is the natural home for that field now, though `providerPlatformInfo()` is left unchanged and untouched as its own function for backward compatibility with existing call sites), `capabilities` (a short, cosmetic tag list — e.g. `["Chat", "Vision", "Tools", "Streaming"]` — for visual recognition only, never sourced from any live capability-detection endpoint or the backend's own `ProviderCapabilities` dataclass), and `officialAsset`.
+
+`PROVIDER_BRAND_ALIASES` resolves every already-existing id/slug shape this codebase uses for the same provider onto one canonical registry key: `azure` → `azure_openai` (PROVIDER_CATALOG's shorter id vs. the backend `ProviderType` enum value), `xai`/`x-ai` → `grok`, `meta-llama`/`meta` → `llama`, `mistralai` → `mistral` (OpenRouter's own vendor-slug naming, EP-26.0.1's `parseOpenRouterModelId`). `getProviderBrand(id)` is the one lookup function every consumer calls — it never throws and always returns a value, falling back to a generic, logo-less entry (`logo: ""`, `capabilities: []`) for any id the registry and alias map don't recognize, which `ProviderLogo` renders as a neutral fallback icon rather than a broken image.
+
+## `ProviderLogo` component
+
+`apps/dashboard/src/components/ProviderLogo.tsx` — the single component every page renders a provider's brand mark through (confirmed via `grep -rn "assets/providers"` across `src/` returning matches only inside `providerCatalog.ts`'s own import block). Props: `providerId`, `size` (`xs`/`sm`/`md`/`lg` — 16/20/28/40px), `bare` (omit the chip background, for placement already on a neutral surface like a table cell).
+
+**Dark mode compatibility**: the chip's background is a fixed `bg-white/90` regardless of the page's own `data-theme` — several brand marks (Anthropic `#191919`, Ollama `#000000`) are near-black and would be functionally invisible against the app's `neon-cyber`/`professional-dark` theme card backgrounds if rendered bare. This is the same "logo badge on a neutral chip" pattern most SaaS integration marketplaces already use (Zapier, Notion, n8n) — it makes every logo legible and true-to-brand-color in every theme without needing a second, re-tinted asset per provider per theme.
+
+**Missing-logo fallback**: `getProviderBrand()`'s generic fallback entry (empty `logo` string) triggers `ProviderLogo` to render a `lucide-react` `Box` icon with an accessible `aria-label` instead of an `<img>` with an empty `src` — never a broken-image icon, never a blank chip.
+
+**Accessibility**: the outer chip carries `role="img"` and `aria-label="{displayName} logo"`; the inner `<img>` carries a matching `alt` attribute. High-DPI rendering is inherent to SVG (vector, resolution-independent by construction) — no `srcset`/`2x` asset variants were needed. `loading="lazy"` and `decoding="async"` are set on every `<img>`, satisfying this EP's "lazy-load only if beneficial" instruction — beneficial here since a page like Analytics' Top Models table can render dozens of rows, each with its own logo, and most are off-screen on initial paint.
+
+## UI updates
+
+- **Connections page** (`Connections.tsx`) — the customer-managed connection list's provider identity (previously a plain colored dot) now shows the real logo beside the connection name; the "Add connection" provider `<select>` gained a live logo preview beside the dropdown (native `<option>` elements can't render images, so this is the closest equivalent); the env-var-keyed production-adapter cards (OpenAI/Anthropic connectivity probe, EP-07-era) replaced their colored-initials badge with the same `ProviderLogo`.
+- **Analytics** (`Analytics.tsx`) — the Top Models ranking table's Provider column now shows the logo beside the existing `ProviderBadge` pill; the Model column's OpenRouter vendor-chain display (EP-26.0.1) gained the underlying vendor's own logo, so "OpenRouter → Claude → Claude Sonnet 4" reads as three distinct, correctly-branded identities rather than one ambiguous provider label. Per this EP's own explicit "Charts remain unchanged" instruction, the pie/area chart fills and Recharts' own `<Legend>` (which renders inside the chart's SVG, not a separate DOM tree a plain `<img>` can be composed into without touching chart-rendering internals) were deliberately left untouched — legend branding was scoped to the *table*, which is a genuinely separate DOM tree from the chart itself.
+- **Overview** (`Overview.tsx`) — the Sync Activity feed (per-provider recent sync runs) and the Provider Snapshot grid (per-provider KPI tiles) both gained a logo beside the provider name, replacing a plain colored dot in the snapshot grid's case.
+- **Projects, Settings/API Keys** — audited, not modified. `Projects.tsx` has no per-connection-provider rendering surface at all (confirmed via grep — it renders project names and spend totals, never an individual provider's name or logo); `Settings.tsx`'s only provider-adjacent element is an aggregate connection *count* ("Provider connections: 3"), and Costorah's own `OrganizationApiKey` cards (`ApiKeysManager`) are not scoped to any individual AI provider at all — they're Costorah's own API keys for the platform's SDK/API, unrelated to which AI providers an org has connected. Forcing a provider logo onto either would have been cosmetic noise attached to data that isn't actually provider-specific, which this EP's own "existing functionality is unchanged" and "polished" success criteria argue against, not for.
+
+## Accessibility
+
+Every logo carries an accessible name (`alt` on the `<img>`, `aria-label`/`role="img"` on the chip wrapper) — verified directly in `ProviderLogo.test`-style assertions (see Testing below), not just asserted in prose. Consistent sizing is enforced by the component's own fixed `SIZE_PX` lookup (never an ad hoc inline pixel value at a call site). High-DPI rendering is inherent to SVG. Dark-mode legibility is handled by the fixed-background chip pattern described above, re-verified for the two near-black marks (Anthropic, Ollama) specifically, since those are the two brand colors that would have failed on a dark card background without it.
+
+## Performance
+
+- SVG only, as required — no raster PNG/JPEG was introduced for any of the 12 providers.
+- No duplicate imports — every provider SVG is imported exactly once, inside `providerCatalog.ts`'s own import block; every other file reaches a logo exclusively through `getProviderBrand()`/`ProviderLogo`.
+- Vite's default asset-inlining threshold (4KB) means 11 of the 12 SVGs (all except Ollama's, at 4.7KB) are inlined as base64 directly into the `providerCatalog` JS chunk rather than emitted as separate network requests — confirmed via the production build output (`providerCatalog-*.js`, 13.1KB / 4.76KB gzipped, covering all 12 logos plus the registry/alias logic itself) and via `dist/assets/*.svg` (exactly one file, Ollama's). This is the correct, performant outcome for assets this small — fewer round-trips than 12 separate file requests would cost, at negligible bundle-size overhead.
+- `loading="lazy"`/`decoding="async"` on every rendered `<img>`, per the reasoning in the `ProviderLogo` section above.
+
+## Testing
+
+- **Frontend** (`apps/dashboard/src/__tests__/providerBrand.test.tsx`, 15 new tests): `PROVIDER_BRAND_REGISTRY` — entries exist for all 7 supported + 5 placeholder providers, every entry has a non-empty logo/displayName/capabilities list, `officialAsset` is correctly `true`/`false` per the sourcing decision documented above, Google's entry carries the EP-26.0.2 Platform/Service identity. `getProviderBrand()` — resolves canonical ids directly, resolves `PROVIDER_CATALOG`'s shorter ids and OpenRouter's vendor slugs via the alias map, is case-insensitive, falls back to a generic logo-less entry for an unrecognized id without throwing. `ProviderLogo` — renders an accessible `<img>` with the correct `alt` text, the chip wrapper carries a matching `aria-label`, `bare` omits the chip background, an unrecognized provider id renders the lucide fallback icon (no `<img>` tag) with its own accessible label, `size` maps to the correct pixel dimension.
+- **Regression**: full dashboard suite re-run after every source change — **313 passed** (298 + 15 new), zero regressions from the Connections/Analytics/Overview edits (the removal of now-unused `PROVIDER_COLORS`/`color` bindings in `Connections.tsx` was caught immediately by `tsc -b`, not by a runtime test failure — TypeScript's unused-variable diagnostics did the job here). `tsc -b`, `eslint src --max-warnings 0`, and a production `vite build` are all clean.
+- **Backend**: untouched by this EP — no backend file was read for editing purposes beyond confirming (via this EP's own "do not modify APIs" instruction) that no backend change was warranted or made. The full backend suite was not re-run since no backend source changed; its last-known-clean state (1983 passed, EP-26.0.3) is unaffected.
+
+## Known limitations
+
+- **4 of 12 logos are original monograms, not official trademarks** — OpenAI, Azure OpenAI, Grok (xAI), Cohere. Disclosed via `officialAsset: false` in the registry itself, in this section, and in STARTUP.md — never silently presented as pixel-accurate brand reproductions. If a future session has direct access to each vendor's own brand-asset page (blocked by this sandbox's network policy) or a licensed brand-asset bundle, these four should be the first candidates for replacement with a genuinely official mark.
+- **Recharts' own `<Legend>` (pie/area charts) was not given logo treatment** — deliberately, per this EP's own "Charts remain unchanged" instruction and the practical difficulty of composing an `<img>` into Recharts' internal SVG legend renderer without touching chart-rendering code. Table-based branding (Analytics' Top Models table) was judged the correct, in-scope interpretation of "legends and tables should gain branding."
+- **Meta's corporate logo, not a dedicated "Llama" mark, represents the "Meta Llama" placeholder** — `simple-icons` has no Llama-specific icon; Meta's own corporate infinity-loop mark was judged closer to "official brand asset" than a hand-drawn Llama monogram would have been, and is disclosed as `officialAsset: true` on that basis (it genuinely is Meta's own published mark, just not Llama-product-specific).
+- **Projects and Settings/API Keys pages were audited and found to have no provider-specific rendering surface to brand** — not a gap in this EP's coverage; there was genuinely nothing there to change without attaching a provider logo to data that isn't provider-scoped.
+- **The 4 hand-authored monograms are original but not independently trademark-cleared** — they were designed to be simple, generic geometric shapes with no intentional resemblance to any existing mark (not even the real trademark they stand in for), but no formal trademark-clearance search was performed, consistent with this being a development-sandbox substitution disclosed as temporary, not a final production brand decision.
+
+## Future recommendations
+
+1. Replace the 4 disclosed original monograms (OpenAI, Azure OpenAI, Grok, Cohere) with genuinely licensed or official brand assets once direct vendor-asset access or a licensed icon bundle is available.
+2. If OpenRouter's live model catalog (EP-26.0.1) ever surfaces additional vendor slugs beyond the 12 in this registry, extend `PROVIDER_BRAND_REGISTRY`/`PROVIDER_BRAND_ALIASES` rather than letting `getProviderBrand()`'s generic fallback silently become the common case for real, frequently-routed vendors.
+3. Everything this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, an `AlertRule` management UI, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.

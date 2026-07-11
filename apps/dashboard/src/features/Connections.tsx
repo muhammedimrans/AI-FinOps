@@ -28,6 +28,7 @@ import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
+import ProviderLogo from "../components/ProviderLogo";
 import {
   getProviderInfo,
   getProviderModels,
@@ -48,7 +49,6 @@ import {
   type SyncStatusResponse,
 } from "../services/api";
 import {
-  PROVIDER_COLORS,
   CONNECTABLE_PROVIDERS,
   connectableLabel,
   hasKnownUsageApi,
@@ -144,8 +144,6 @@ function ProductionProviderCard({ providerId, index }: { providerId: string; ind
     },
   });
 
-  const color = PROVIDER_COLORS[providerId] ?? "#888";
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -155,12 +153,7 @@ function ProductionProviderCard({ providerId, index }: { providerId: string; ind
     >
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-            style={{ background: color }}
-          >
-            {adapterLabel(providerId).slice(0, 2).toUpperCase()}
-          </div>
+          <ProviderLogo providerId={providerId} size="lg" />
           <div className="min-w-0">
             <h3 className="text-sm font-semibold text-tx-primary truncate">
               {info.data?.display_name ?? adapterLabel(providerId)}
@@ -520,18 +513,21 @@ export function AddConnectionForm({
       className="flex flex-col gap-2 rounded-xl border border-border-subtle bg-app-muted p-3"
     >
       <div className="flex flex-col sm:flex-row gap-2">
-        <select
-          value={providerType}
-          onChange={(e) => setProviderType(e.target.value)}
-          disabled={create.isPending}
-          className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
-        >
-          {CONNECTABLE_PROVIDERS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <ProviderLogo providerId={providerType} size="sm" />
+          <select
+            value={providerType}
+            onChange={(e) => setProviderType(e.target.value)}
+            disabled={create.isPending}
+            className="rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
+          >
+            {CONNECTABLE_PROVIDERS.map((p) => (
+              <option key={p.value} value={p.value}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
         <input
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
@@ -672,7 +668,6 @@ function ConnectionRow({
     onError: () => toast.error("Couldn't delete connection"),
   });
 
-  const color = CONNECTABLE_PROVIDERS.find((p) => p.value === connection.provider_type)?.color ?? "#888";
   const lastValidatedAt = connection.last_recovery_at ?? connection.last_failure_at;
   const lastValidatedLabel = formatValidatedAt(lastValidatedAt);
 
@@ -680,7 +675,7 @@ function ConnectionRow({
     <div className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-app-muted p-3">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-center gap-2.5 min-w-0 flex-1">
-          <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }} aria-hidden="true" />
+          <ProviderLogo providerId={connection.provider_type} size="md" />
           {editing ? (
             <input
               value={name}

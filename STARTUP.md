@@ -482,4 +482,55 @@ No — a provider connection belongs to exactly one workspace (organization). If
 
 ---
 
-*This document reflects the implementation as of the EP-25.3 milestone. See `CLAUDE.md` for the full engineering changelog and the "Future Roadmap — EP-26" section for what's planned but not yet built.*
+## 18. Production Deployment Guide (EP-26.0.3)
+
+This section is written for whoever actually deploys Costorah, not for a developer running it locally (§2 already covers that). See `RELEASE_CHECKLIST.md` (repo root) for the full pre-launch checklist this section supports.
+
+### Required environment variables
+
+| Variable | Required in production? | Purpose |
+|---|---|---|
+| `DATABASE_URL` | ✅ Always | Neon (or any Postgres) connection string, `postgresql+asyncpg://...` |
+| `REDIS_URL` (or `REDIS_HOST`/`REDIS_PORT`/`REDIS_PASSWORD`) | Strongly recommended | Backs rate limiting, the scheduler's cross-process lock, and the realtime event bus — all three degrade gracefully without Redis (documented, tested fallback behavior), but a production deployment without it loses cross-instance coordination |
+| `APP_SECRET_KEY` | ✅ Always in production | Root of `EncryptionService` (credential encryption at rest) — boot refuses to start with the dev default when `APP_ENV=production` |
+| `APP_SECRET_KEY_PREVIOUS` | Only during a key rotation | Lets old ciphertext keep decrypting during a rotation window |
+| `JWT_SECRET` | ✅ Always in production | Signs access tokens — same production-default-refusal enforcement as `APP_SECRET_KEY` |
+| `SESSION_COOKIE_DOMAIN` | ✅ For the website↔dashboard subdomain flow | Set to `.costorah.com` in production so the session cookie is valid on both `costorah.com` and `app.costorah.com` (§6). Left unset it defaults to host-only, which is correct for local dev but breaks the cross-subdomain handoff in production. |
+| `RESEND_API_KEY` / `EMAIL_FROM` | ✅ Always in production | Boot refuses to start without both when `APP_ENV=production` — verification, password-reset, and invitation emails have no transport otherwise |
+| `RESEND_WEBHOOK_SECRET` | Recommended | Enables the delivery-event webhook receiver (`POST /v1/webhooks/resend`, EP-25.3) — without it the endpoint returns 503 rather than accepting unverifiable payloads |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Optional | "Continue with Google" is additive, not required — omitting these returns 503 on the Google OAuth start/link endpoints but never breaks password auth |
+| `SCHEDULER_ENABLED` | Optional (default `True`) | Set to `False` only if you deliberately want no background sync (e.g. a read-only staging mirror) |
+| `SCHEDULER_TICK_INTERVAL_SECONDS` | Optional (default `60`) | How often the scheduler checks which organizations are due |
+| `API_CORS_ORIGINS` | ✅ Always in production | Must include the real `https://costorah.com`, `https://www.costorah.com`, `https://app.costorah.com` — a missing entry here surfaces to users as a generic "Could not reach the server." (§10's own documented incident) |
+| `DASHBOARD_URL` | ✅ Always in production | The website's post-auth redirect target and the target embedded in invitation/verification email links |
+| `API_BASE_URL` | ✅ Always in production | Used to build absolute links in emails |
+
+Never commit real values for any of these — `backend/.env.example` documents every variable with a placeholder; `backend/.env` (gitignored) holds real local-dev values only.
+
+### Provider onboarding (production)
+
+Every provider's own account-creation and API-key-generation walkthrough lives in §3–§11 above (OpenAI, Anthropic, Google, OpenRouter, Azure, Grok, Ollama). Nothing about onboarding a *production* connection differs from a development one — the same encrypted-credential storage, live validation, and sync pipeline runs identically in both environments; the only production-specific consideration is making sure `RESEND_API_KEY`/`EMAIL_FROM` are set so the invitation/verification emails those workflows depend on actually send (see above).
+
+### Troubleshooting (production-specific)
+
+- **"Could not reach the server." on login/signup from the website** — almost always a missing `API_CORS_ORIGINS` entry for the exact origin the request came from (`www.` vs. bare domain matters), not a real outage. See §10's full incident writeup for the exact diagnostic steps.
+- **A freshly-deployed backend crashes on boot with `ModuleNotFoundError: No module named 'cryptography'`** — a real, previously-shipped incident (EP-22.1, §15): confirm the deploy's build step ran `pip install -e "."` against the *declared* production dependencies, not a dev venv that happened to have `cryptography` installed transitively. Fixed in the dependency declaration since EP-22.1; only relevant if deploying from a commit that predates it.
+- **Website nav routes 404 in production but work locally** — a Cloudflare **project-type** mismatch (Pages vs. Workers), not an application bug; see §10's deployment checklist.
+- **A provider connection stays "healthy" but never imports usage** — check the Provider Validation Matrix in §3 first; for 4 of 7 providers (Google, Azure, Grok, Ollama) this is expected, permanent, honest behavior, not a bug to chase.
+- **Scheduler never seems to run** — confirm `SCHEDULER_ENABLED` isn't set to `False`, and check `GET /v1/organizations/{org_id}/provider-connections/scheduler/status` for the org's own `auto_sync_enabled`/interval settings (Settings → Workspace tab).
+- **Emails never arrive** — confirm `RESEND_API_KEY`/`EMAIL_FROM` are actually set in the deployed environment (not just `.env.example`); a missing key doesn't error, it silently logs `email_send_skipped_unconfigured` and the request that triggered it still succeeds (by design — registration/reset must never block on email transport, §24).
+
+### Known provider limitations (production)
+
+Unchanged from §3's own Provider Validation Matrix — repeated here because it's the single most common source of a "is this broken?" support question: **Google, Azure OpenAI, Grok, and Ollama will never show non-zero historical usage**, by design, because none of those four platforms exposes a bulk usage-history API on the credential type Costorah connects to. This is a real, external platform constraint, not a Costorah defect — see §3 for the full per-provider explanation and CLAUDE.md's EP-26.0.2.1/EP-26.0.3 sections for the underlying validation evidence.
+
+### Production recommendations
+
+1. Before inviting external beta users, perform at least one real Connect → Validate → Sync walkthrough against a live OpenAI or Anthropic account on the actual deployed environment — every provider's code has been validated hermetically (mocked HTTP against researched, realistic response shapes) but never against a live account from within this development sandbox. See `RELEASE_CHECKLIST.md`'s "Go / No-Go Decision" for the full reasoning.
+2. Confirm Redis is genuinely reachable in production, not just configured — the scheduler's cross-process locking and the login rate limiter both degrade to weaker, single-process behavior without it (safe, documented, but not the intended production posture).
+3. Re-run `alembic upgrade head` against the real production database as part of every deploy, not just in CI against a throwaway instance.
+4. Monitor `/health` and `/ready` from your load balancer/uptime tooling — both already report Postgres and Redis connectivity, no additional instrumentation needed to start.
+
+---
+
+*This document reflects the implementation as of the EP-26.0.3 milestone. See `CLAUDE.md` for the full engineering changelog, `RELEASE_CHECKLIST.md` for the pre-launch checklist, and the "Future Roadmap — EP-26" section for what's planned but not yet built.*

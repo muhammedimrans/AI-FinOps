@@ -4642,3 +4642,113 @@ A live, continuous browser session driving a real Playground request against a r
 1. If the Playground UI ever exposes additional OpenAI-shaped sampling controls beyond Top P (frequency/presence penalty, stop sequences), extend `GoogleProvider.complete()`'s extra-key translation table the same way this EP did for `top_p`/`top_k`.
 2. A live-account smoke test of a real Google Gemini Playground execution remains the single highest-priority verification gap for this specific provider, unchanged from every prior EP's own recommendation.
 3. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, delivery-event-driven alert channels) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-25.4.1 — AI Playground UX Redesign
+
+**Status: complete.** A pure frontend redesign of AI Playground (EP-25.4, §"EP-25.4 — AI Playground (Prompt Studio)") — no backend file, API contract, or execution-flow change of any kind. The backend (`PlaygroundService`, `/v1/organizations/{org_id}/playground/*`, `UsageEvent`/`UsageCostRecord`/`PricingEngine`/Analytics/Budgets/Alerts wiring) is untouched, confirmed by `git diff --stat` touching only `apps/dashboard/src/**`. This EP turns the EP-25.4 UI — a functional but plain single-column form-and-table layout — into a real chat product, taking cues from OpenAI Playground, Claude, Google AI Studio, Cursor, and the Vercel AI Playground while staying inside Costorah's own design system (`glass-card`, `Section`, `EmptyState`, `ConfirmDialog`, `ProviderLogo`/Provider Brand Registry, the `success`/`warning`/`danger`/`info`/`brand` token palette) — no new UI library, no new component framework.
+
+## UX rationale
+
+Three structural problems drove every decision below:
+
+1. **The conversation area looked like a debug console, not a chat product.** Plain divs with no visual hierarchy between "you" and "the model," a markdown-lite renderer with no tables/lists/syntax color, and zero post-response affordances beyond a bare "In: 10 / Out: 5" line. Fixed by real chat bubbles (`MessageBubble.tsx`), a richer markdown renderer with tables/lists/headings/blockquotes/syntax-tinted code blocks (`markdown.tsx` + `CodeBlock.tsx`), and a full response-actions row.
+2. **The configuration panel competed for attention with the conversation instead of supporting it.** Three always-open cards (Provider & Model / Parameters / System Prompt) pushed the actual chat further down the page. Fixed by `CollapsibleSection` — Provider & Model stays open (the thing you touch most), Parameters and System Prompt collapse by default with a one-line summary, matching every real Playground's "compact by default, expand when you need it" convention.
+3. **There was no reason to believe Costorah's Playground is *Costorah's* Playground rather than a generic devtool.** Nothing on the page connected a request back to what Costorah is actually for — cost intelligence. Fixed by the Cost Analysis differentiator (below), which is the one piece of this redesign with no direct analog in any of the five reference products named in the task.
+
+## Layout decisions
+
+```
+┌─ PageHeader ────────────────────────────────────────────────────────────┐
+│ Chat | Compare | History                                                 │
+├────────────────────────────────────────────────────────────────────────┤
+│ [Chat history  ] [ Conversation ─────────────────────┐ [ Provider&Model ]│
+│ [ sidebar,     ] │ user bubble →                      │ [ (collapsible) ]│
+│ [ collapsible  ] │       ← assistant bubble + actions  │ [ Advanced      ]│
+│ [ on desktop,  ] │            + stats + cost analysis  │ [ Parameters    ]│
+│ [ toggled on   ] │ composer (Enter to send)            │ [ (collapsed)   ]│
+│ [ mobile       ] └──────────────────────────────────────┘ [ System Prompt ]│
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Three-column desktop shell** (`flex flex-col lg:flex-row`): history rail (fixed ~256px, collapsible to a 44px icon rail), the conversation column (`flex-1 min-w-0`, absorbs all remaining width), and the config panel (fixed 320px). Below `lg`, everything stacks to a single column and the history rail becomes an on-demand toggle (`MobileHistoryToggle`) instead of permanently consuming vertical space above the composer — a real chat client's answer to "which panel loses first on a narrow screen."
+- **The history rail is a single mounted instance, not two.** Its own internal collapse state gates a `hidden lg:flex` icon-only rail vs. the full panel; wrapping it in a *second*, independently-mounted mobile instance would have doubled the `listPlaygroundHistory` network call every render (both breakpoints' DOM exist simultaneously under Tailwind's `hidden` classes — CSS visibility, not unmounting). Instead `Playground.tsx` renders **one** `<HistorySidebar>` toggled by a single `className` (`hidden lg:block` unless `mobileHistoryOpen`), so the query key and its cache are shared regardless of viewport.
+- **Costorah has no server-side multi-turn conversation entity** (unchanged from EP-25.4 — every `PlaygroundExecution` row is one independent prompt/response pair). The history sidebar therefore browses real, individually-persisted executions grouped by day (Today/Yesterday/Earlier via `groupByRelativeDay`), not a fabricated "thread" concept — clicking one loads that exact past exchange into the conversation pane to review or build on, which is an honest description of what actually happens, disclosed directly in `types.ts`'s own `ConversationTurn` doc comment.
+
+## Component architecture
+
+New directory, `apps/dashboard/src/features/playground/` (nothing lives loose in `Playground.tsx` beyond the three tab shells and the page wrapper, which orchestrate everything below):
+
+| File | Responsibility |
+|---|---|
+| `types.ts` | `ConversationTurn` — the client-only pairing of a sent prompt and its (eventual) execution result; documents why no server-side conversation entity exists |
+| `format.ts` | Pure functions: `formatCost`/`formatLatency`/`formatExecutionTime`/`formatRelativeDay`/`groupByRelativeDay`/`estimateCostForModel` — unit-tested in isolation (`playgroundFormat.test.ts`) |
+| `markdown.tsx` | `renderMarkdown()` — tables, ordered/unordered lists, headings, blockquotes, horizontal rules, bold/italic/inline-code/links, paragraphs. Delegates fenced code blocks to... |
+| `CodeBlock.tsx` | ...a separate file specifically so `markdown.tsx` exports only a plain function (never mixed with a component export in the same file — `eslint-plugin-react-refresh`'s `only-export-components` rule, already enforced repo-wide via `--max-warnings 0`, correctly flags that mix). Contains the lightweight keyword/string/comment/number tokenizer that gives code blocks real token-level color without a new syntax-highlighting dependency |
+| `CollapsibleSection.tsx` | Generic collapsible card — the building block behind all three config-panel sections, reusable anywhere else in the app that wants one later |
+| `ProviderInfoCard.tsx` | Logo, platform/service (Provider Brand Registry, EP-26.0.4/EP-26.0.2), connection health + last validation (`PlaygroundConnectionOption.last_validation_status`), capability tags, selected model's context window — every field sourced from data this page or the shared registry already has, nothing new fetched |
+| `StatsPanel.tsx` | Input/output/total tokens, estimated cost, latency, execution time, status — six real fields straight off `PlaygroundExecutionRecord` |
+| `CostAnalysis.tsx` | The differentiator — see its own section below |
+| `MessageBubble.tsx` | One exchange: user bubble + assistant card (pending/error/success states), the response-actions row, and mounts `StatsPanel`/`CostAnalysis` |
+| `ConfigPanel.tsx` | Composes the three `CollapsibleSection`s (Provider & Model / Advanced Parameters / System Prompt) |
+| `HistorySidebar.tsx` | The chat-history rail — search, provider filter, day-grouped list, New chat, collapse toggle; also exports `MobileHistoryToggle` |
+| `CompareResultCard.tsx` | One side-by-side response card for Compare mode, with Fastest/Cheapest crown badges |
+
+`Playground.tsx` itself: `ChatTab` (owns conversation state, the execute/retry/regenerate/continue/delete mutations, and the lazy cross-provider model-catalog fetch for Cost Analysis), `CompareTab` (now renders `CompareResultCard` grid instead of a table), `HistoryTab` (day-grouped, status-filterable), and the page shell (tabs + `PageHeader`, unchanged).
+
+## New UX features (redesign goals, mapped to what shipped)
+
+1. **True chat interface** — bubbles replace the old bare-div conversation list; the composer clears on send and supports Enter-to-send (Shift+Enter for a newline).
+2. **Markdown/tables/lists/syntax-tinted code** — `markdown.tsx` + `CodeBlock.tsx`, unit-tested.
+3. **Response actions** — Copy, Regenerate, Continue, Export, Delete on every completed assistant turn. **Regenerate/Retry now use the turn's own captured connection/model/prompts**, not whatever happens to be in the composer at click time — a real correctness fix over EP-25.4's original `retry()`, which re-read live composer state. **Continue** is honestly scoped: since Playground requests carry no conversation history (EP-25.4's own architecture), "Continue" sends a new, independent request with the literal instruction "Please continue your previous response." — disclosed via the button's own tooltip, never presented as if real multi-turn memory were being sent. **Delete** calls the real `DELETE .../history/{id}` endpoint when the turn has a persisted execution, removing it from history too, not just the local view.
+4. **Compact, collapsible config panel** — `CollapsibleSection`, three sections, Provider & Model open by default, the other two collapsed with a live summary line.
+5. **Chat history sidebar** — search, provider filter, day grouping, New chat, collapsible — browsing real `PlaygroundExecution` rows (see "Layout decisions" above for why this isn't a fabricated thread view).
+6. **Statistics panel** — `StatsPanel`, six real fields, every execution.
+7. **Provider information card** — `ProviderInfoCard`, logo/platform/service/health/last-validation/capabilities/context-window.
+8. **Compare mode, side-by-side cards** — `CompareResultCard` grid (1/2/3 columns responsive) replaces the old `<table>`, with Fastest/Cheapest crown badges and a live "Sending prompt to N providers…" indicator while a comparison runs.
+9. **History mode, Gmail-like filtering** — status filter (client-side, since the backend's `PlaygroundHistoryFilters` has no status field — filtering already-fetched real data, not a fabricated query param) layered on the existing provider/search filters, plus day grouping.
+10. **Empty states** — every empty condition (no provider connected, no conversation yet, no comparison run yet, no history) uses the shared `EmptyState` component with a context-specific icon and a real next action, never a blank area.
+11. **Animation/loading feedback** — a three-dot "typing" indicator while a request is in flight (replacing the old static "Waiting for response…" text), `framer-motion` entrance animation per turn (unchanged library, already a dependency), a live progress line during Compare mode.
+
+## Costorah differentiator — Cost Analysis
+
+Per the task's own explicit "do not fabricate data" instruction, every number in `CostAnalysis.tsx` is one of exactly two kinds:
+
+- **Real, already-recorded**: this execution's actual cost/tokens/latency (`PlaygroundExecutionRecord`, unchanged).
+- **Real inputs, disclosed arithmetic**: an "estimated cost on model X" is *this execution's real token counts* multiplied by *model X's real, published per-1k pricing* (from that model's own live catalog entry — the same `GET .../models` call EP-25.4/EP-26.0.1/EP-26.0.2 already make) — computed only when both models have known pricing; a model with `input_cost_per_1k: null` is skipped, never guessed. "Cheapest model" and the "~N% cheaper on X" recommendation sentence both come from this real arithmetic.
+
+Two further fields disclose their own limits rather than inventing a number:
+- **"Fastest model"** is derived from this **browser session's own** completed turns' real `latency_ms` values, grouped by (provider, model) — never a global benchmark Costorah doesn't have. With no other model tried yet, it says so ("Not enough data yet — try this prompt against another model") instead of fabricating a figure.
+- **"Largest context window"** is a static catalog fact (`context_window`) needing no execution at all.
+
+Cross-provider comparison is populated **lazily**: `ChatTab` only fetches every other configured connection's live model catalog the first time any turn's Cost Analysis panel is opened (`costAnalysisEverOpened`), reusing the exact same `["playground-models", orgId, connectionId]` query key every other part of this page already uses — no second query shape, no wasted requests on page load.
+
+## Future extensibility
+
+- **Prompt Library / Templates**: `PlaygroundExecution` already stores every prompt sent; a template is a saved, reusable prompt with no execution attached — a small addition, not a new pipeline.
+- **Real streaming**: the "Stop" button is present and visibly disabled with an explanatory tooltip (requests are synchronous — EP-25.4's own architecture) rather than faking a no-op cancel action. Wiring real SSE/token streaming would need a backend response-shape change out of this EP's explicit "do not change Playground APIs" scope.
+- **Cross-connection Cost Analysis beyond what's already been browsed**: currently limited to connections whose model catalog has already been fetched (lazily, on first Cost Analysis open) — could eagerly warm every connection's catalog if a future EP decides the extra background requests are worth it.
+- **A real "Continue"** (actual conversation memory) would require a backend conversation/thread entity — explicitly out of scope here (no API changes), and disclosed as a single independent request in the meantime.
+
+## Testing
+
+18 rewritten/extended tests in `Playground.test.tsx` (provider info card, response actions, regenerate re-sends the turn's own params, Cost Analysis opens, collapsible parameters, chat-history sidebar day-grouping + New chat, History tab day-grouping + client-side status filter + scoped delete-confirmation query, Compare tab's live "sending" indicator) plus two new dedicated unit-test files: `playgroundFormat.test.ts` (7 tests — cost/latency/execution-time formatting, day-relative classification, `estimateCostForModel`'s real arithmetic) and `playgroundMarkdown.test.tsx` (5 tests — code blocks, tables, lists, inline formatting, headings/rules). Full dashboard suite: **355 passed** (up from 334 pre-EP), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), production build clean (`vite build` — `Playground` remains its own lazy-loaded chunk, 51.57 kB / 14.07 kB gzipped).
+
+## Known limitations
+
+- **No real token-by-token streaming** — unchanged from EP-25.4, disclosed via the Stop button's own tooltip.
+- **"Continue" does not carry real conversation history** — a single independent request with a fixed instruction, disclosed via the button's tooltip; a genuine multi-turn Continue needs a backend conversation entity, out of this EP's no-API-changes scope.
+- **Cost Analysis's cross-provider comparison only covers connections whose catalog has been fetched this session** (lazily, on first open) — a connection never browsed in Compare mode or explicitly opened here won't appear as an alternative until its catalog is fetched at least once.
+- **The lightweight code-block tokenizer is a keyword/string/comment/number highlighter, not a full language grammar** — deliberately, to avoid a new syntax-highlighting dependency for one page (same reasoning EP-25.4's own CLAUDE.md note already gave for the base markdown renderer).
+- **No live, continuous browser session against a real provider was used to validate this redesign** — verified via the full automated test suite (355 tests) and a production build, not a live browser session, consistent with every prior provider/UI EP's disclosed sandbox limitation in this document.
+
+## Final report
+
+1. **Files changed** — New: `apps/dashboard/src/features/playground/{types,format,markdown,CodeBlock,CollapsibleSection,ProviderInfoCard,StatsPanel,CostAnalysis,MessageBubble,ConfigPanel,HistorySidebar,CompareResultCard}.tsx`, `apps/dashboard/src/__tests__/{playgroundFormat.test.ts,playgroundMarkdown.test.tsx}`. Rewritten: `apps/dashboard/src/features/Playground.tsx`, `apps/dashboard/src/__tests__/Playground.test.tsx`. No backend file touched.
+2. **Components redesigned** — the entire Playground surface: Chat (bubbles, composer, config panel, history sidebar), Compare (side-by-side cards), History (day-grouped, status-filterable).
+3. **New UX features** — see "New UX features" above (all 11 redesign goals plus the Cost Analysis differentiator).
+4. **Accessibility improvements** — every textarea/select carries a `<label>`/`htmlFor` or `aria-label`; every icon-only button carries `aria-label`; collapsible sections expose `aria-expanded`/`aria-controls`; the existing `ConfirmDialog`'s `role="alertdialog"`/focus-trap/`Escape`-to-close behavior is reused unchanged for the new per-message delete confirmation; keyboard Enter-to-send is additive (Shift+Enter still inserts a newline); global `:focus-visible` ring styling (unchanged, `index.css`) covers every new interactive element.
+5. **Responsiveness** — three-column desktop layout collapses to a single column below `lg`; the history sidebar becomes an on-demand toggle rather than a fixed panel on mobile; Compare's result grid is 1/2/3 columns (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3`); every existing responsive convention from EP-25.4 (`Section`, `EmptyState`, button sizing) is unchanged and reused.
+6. **Validation results** — backend: unaffected, not re-run (no backend file changed; last known state 2016 passed, unchanged by this EP). Frontend: `vitest run` → **355 passed** (0 failed); `eslint src --max-warnings 0` → clean; `npx tsc -b` → clean; `vite build` → clean.
+7. **Future enhancement opportunities** — see "Future extensibility" above: Prompt Library/Templates, real token streaming (needs a backend change, out of scope here), eager cross-connection catalog warming for Cost Analysis, and real multi-turn "Continue" (needs a backend conversation entity).

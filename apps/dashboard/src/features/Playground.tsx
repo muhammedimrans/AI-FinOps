@@ -1,18 +1,16 @@
 import { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AnimatePresence } from "framer-motion";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Copy,
   Download,
   Loader2,
+  MessageSquarePlus,
   Play,
-  RotateCw,
-  Search,
+  Send,
   Sparkles,
   Square,
   Trash2,
   Wand2,
-  X,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
@@ -30,105 +28,64 @@ import {
   listProjectsCrud,
   ApiError,
   type PlaygroundConnectionOption,
-  type PlaygroundModelInfo,
   type PlaygroundExecutionRecord,
 } from "../services/api";
-import { CONNECTABLE_PROVIDERS } from "../lib/providerCatalog";
+import { getProviderBrand } from "../lib/providerCatalog";
 import { useOrgStore } from "../stores/org";
 import { toast } from "../stores/toast";
-import { cn, formatNumber } from "../utils";
+import { cn } from "../utils";
+import type { ConversationTurn } from "./playground/types";
+import MessageBubble from "./playground/MessageBubble";
+import ConfigPanel from "./playground/ConfigPanel";
+import HistorySidebar, { MobileHistoryToggle } from "./playground/HistorySidebar";
+import CompareResultCard from "./playground/CompareResultCard";
+import { formatCost, formatLatency, groupByRelativeDay } from "./playground/format";
+import type { ModelsForConnection } from "./playground/CostAnalysis";
 
 type Tab = "chat" | "compare" | "history";
 
-interface ConversationTurn {
-  id: string;
-  connectionId: string;
-  providerType: string;
-  model: string;
-  systemPrompt: string;
-  userPrompt: string;
-  execution: PlaygroundExecutionRecord | null;
-  error: string | null;
-  isPending: boolean;
+function exchangeMarkdown(turn: { model: string; providerType: string; systemPrompt: string; userPrompt: string; execution: PlaygroundExecutionRecord | null; error: string | null }) {
+  const header = `## ${turn.model} (${turn.providerType})\n`;
+  const sys = turn.systemPrompt ? `**System:** ${turn.systemPrompt}\n\n` : "";
+  const user = `**Prompt:** ${turn.userPrompt}\n\n`;
+  const resp = turn.execution?.response_text
+    ? `**Response:**\n${turn.execution.response_text}\n`
+    : turn.error
+      ? `**Error:** ${turn.error}\n`
+      : "";
+  return header + sys + user + resp;
 }
 
-/** Minimal markdown-lite renderer for the response window — no new
- * dependency (this app has none for markdown today): handles fenced code
- * blocks, inline code, bold/italic, and paragraph breaks. Genuinely helpful
- * for the common cases an LLM response actually uses without pulling in a
- * full markdown/remark pipeline for one page. */
-function renderMarkdownLite(text: string) {
-  const blocks = text.split(/```/);
-  return blocks.map((block, i) => {
-    if (i % 2 === 1) {
-      const lines = block.split("\n");
-      const lang = lines[0]?.trim();
-      const code = lang && !lang.includes(" ") ? lines.slice(1).join("\n") : block;
-      return (
-        <pre
-          key={i}
-          className="my-2 overflow-x-auto rounded-lg bg-app-bg border border-border-subtle p-3 text-xs font-mono text-tx-primary"
-        >
-          <code>{code}</code>
-        </pre>
-      );
-    }
-    return block.split(/\n{2,}/).map((para, j) => {
-      if (!para.trim()) return null;
-      const html = para
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/`([^`]+)`/g, "<code class='px-1 py-0.5 rounded bg-app-bg font-mono text-[0.85em]'>$1</code>")
-        .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-        .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-        .replace(/\n/g, "<br/>");
-      return <p key={`${i}-${j}`} className="mb-2 last:mb-0 leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />;
-    });
-  });
+function downloadMarkdown(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
-function CostBadge({ execution }: { execution: PlaygroundExecutionRecord }) {
-  if (execution.estimated_cost === null) {
-    return (
-      <span className="badge bg-app-muted text-tx-muted text-[10px]" title="No pricing configured for this model">
-        No pricing
-      </span>
-    );
-  }
-  const cost = Number(execution.estimated_cost);
-  return (
-    <span className="badge bg-brand-subtle text-brand text-[10px] font-mono">
-      {cost < 0.01 ? `<$0.01` : `$${cost.toFixed(4)}`} {execution.currency}
-    </span>
-  );
-}
-
-function MetricsRow({ execution }: { execution: PlaygroundExecutionRecord }) {
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-tx-muted font-mono">
-      <span>In: {formatNumber(execution.prompt_tokens)}</span>
-      <span>Out: {formatNumber(execution.completion_tokens)}</span>
-      <span>Total: {formatNumber(execution.total_tokens)}</span>
-      {execution.latency_ms !== null && <span>{Math.round(execution.latency_ms)}ms</span>}
-      <CostBadge execution={execution} />
-    </div>
-  );
-}
-
-function useConnectionsAndModels(organizationId: string | null) {
-  const connectionsQuery = useQuery({
+function useConnections(organizationId: string | null) {
+  return useQuery({
     queryKey: ["playground-connections", organizationId],
     queryFn: () => listPlaygroundConnections(organizationId!),
     enabled: !!organizationId,
   });
-  return connectionsQuery;
 }
 
 // ── Chat tab ─────────────────────────────────────────────────────────────────
 
+interface RunParams {
+  turnId: string;
+  connectionId: string;
+  modelId: string;
+  systemPrompt: string;
+  userPrompt: string;
+}
+
 function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPersonal: boolean }) {
-  const connectionsQuery = useConnectionsAndModels(organizationId);
+  const connectionsQuery = useConnections(organizationId);
   const projectsQuery = useQuery({
     queryKey: ["projects-crud", organizationId],
     queryFn: () => listProjectsCrud(organizationId),
@@ -146,6 +103,9 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   const [topP, setTopP] = useState(1);
   const [maxTokens, setMaxTokens] = useState(1024);
   const [turns, setTurns] = useState<ConversationTurn[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<ConversationTurn | null>(null);
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
+  const [costAnalysisEverOpened, setCostAnalysisEverOpened] = useState(false);
 
   const activeConnectionId = connectionId || configured[0]?.id || "";
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
@@ -159,18 +119,42 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   const activeModelId = modelId || models[0]?.id || "";
   const activeModel = models.find((m) => m.id === activeModelId);
 
+  // Cost Analysis's cross-provider comparisons: lazily fetch every OTHER
+  // configured connection's real, live model catalog the first time any
+  // turn's Cost Analysis panel is opened — never on page load, and never a
+  // second query shape (the same listPlaygroundModels/query key every other
+  // part of this page already uses).
+  const otherConnections = configured.filter((c) => c.id !== activeConnectionId);
+  const otherModelsQueries = useQueries({
+    queries: otherConnections.map((c) => ({
+      queryKey: ["playground-models", organizationId, c.id],
+      queryFn: () => listPlaygroundModels(organizationId, c.id),
+      enabled: costAnalysisEverOpened,
+    })),
+  });
+  const modelsByConnection = useMemo<Record<string, ModelsForConnection>>(() => {
+    const map: Record<string, ModelsForConnection> = {};
+    if (activeConnection) map[activeConnection.id] = { connection: activeConnection, models };
+    otherConnections.forEach((c, i) => {
+      const data = otherModelsQueries[i]?.data;
+      if (data) map[c.id] = { connection: c, models: data };
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConnection, models, otherConnections.map((c) => c.id).join(","), otherModelsQueries.map((q) => q.dataUpdatedAt).join(",")]);
+
   const execute = useMutation({
-    mutationFn: (turnId: string) =>
+    mutationFn: (params: RunParams) =>
       executePlayground(organizationId, {
-        provider_connection_id: activeConnectionId,
-        model_id: activeModelId,
+        provider_connection_id: params.connectionId,
+        model_id: params.modelId,
         project_id: projectId || undefined,
-        system_prompt: systemPrompt.trim() || undefined,
-        user_prompt: userPrompt,
+        system_prompt: params.systemPrompt.trim() || undefined,
+        user_prompt: params.userPrompt,
         temperature,
         top_p: topP,
         max_tokens: maxTokens,
-      }).then((execution) => ({ turnId, execution })),
+      }).then((execution) => ({ turnId: params.turnId, execution })),
     onSuccess: ({ turnId, execution }) => {
       setTurns((prev) =>
         prev.map((t) => (t.id === turnId ? { ...t, execution, isPending: false } : t)),
@@ -178,19 +162,24 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
       if (execution.status === "failed") {
         toast.error("Playground request failed", execution.error_message ?? "The provider returned an error.");
       } else {
-        toast.success("Response received", `${formatNumber(execution.total_tokens)} tokens in ${Math.round(execution.latency_ms ?? 0)}ms.`);
+        toast.success("Response received", `${execution.total_tokens.toLocaleString()} tokens in ${Math.round(execution.latency_ms ?? 0)}ms.`);
       }
     },
-    onError: (err: unknown, turnId) => {
+    onError: (err: unknown, params) => {
       const message = err instanceof ApiError ? err.message : "Please try again.";
-      setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, error: message, isPending: false } : t)));
+      setTurns((prev) => prev.map((t) => (t.id === params.turnId ? { ...t, error: message, isPending: false } : t)));
       toast.error("Couldn't reach the provider", message);
     },
+  });
+
+  const deleteExecution = useMutation({
+    mutationFn: (executionId: string) => deletePlaygroundExecution(organizationId, executionId),
   });
 
   function run() {
     if (!activeConnectionId || !activeModelId || !userPrompt.trim()) return;
     const turnId = crypto.randomUUID();
+    const prompt = userPrompt;
     setTurns((prev) => [
       ...prev,
       {
@@ -199,18 +188,76 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
         providerType: activeConnection?.provider_type ?? "",
         model: activeModelId,
         systemPrompt,
-        userPrompt,
+        userPrompt: prompt,
         execution: null,
         error: null,
         isPending: true,
       },
     ]);
-    execute.mutate(turnId);
+    setUserPrompt("");
+    execute.mutate({ turnId, connectionId: activeConnectionId, modelId: activeModelId, systemPrompt, userPrompt: prompt });
   }
 
   function retry(turn: ConversationTurn) {
     setTurns((prev) => prev.map((t) => (t.id === turn.id ? { ...t, isPending: true, error: null } : t)));
-    execute.mutate(turn.id);
+    execute.mutate({ turnId: turn.id, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: turn.userPrompt });
+  }
+
+  function regenerate(turn: ConversationTurn) {
+    const newId = crypto.randomUUID();
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: newId,
+        connectionId: turn.connectionId,
+        providerType: turn.providerType,
+        model: turn.model,
+        systemPrompt: turn.systemPrompt,
+        userPrompt: turn.userPrompt,
+        execution: null,
+        error: null,
+        isPending: true,
+      },
+    ]);
+    execute.mutate({ turnId: newId, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: turn.userPrompt });
+  }
+
+  function continueTurn(turn: ConversationTurn) {
+    const newId = crypto.randomUUID();
+    const continuationPrompt = "Please continue your previous response.";
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: newId,
+        connectionId: turn.connectionId,
+        providerType: turn.providerType,
+        model: turn.model,
+        systemPrompt: turn.systemPrompt,
+        userPrompt: continuationPrompt,
+        execution: null,
+        error: null,
+        isPending: true,
+        isContinuation: true,
+      },
+    ]);
+    execute.mutate({ turnId: newId, connectionId: turn.connectionId, modelId: turn.model, systemPrompt: turn.systemPrompt, userPrompt: continuationPrompt });
+  }
+
+  function exportTurn(turn: ConversationTurn) {
+    downloadMarkdown(`costorah-playground-${turn.id.slice(0, 8)}.md`, exchangeMarkdown(turn));
+  }
+
+  function confirmDeleteTurn() {
+    if (!pendingDelete) return;
+    const turn = pendingDelete;
+    setPendingDelete(null);
+    if (turn.execution?.id) {
+      deleteExecution.mutate(turn.execution.id, {
+        onSettled: () => setTurns((prev) => prev.filter((t) => t.id !== turn.id)),
+      });
+    } else {
+      setTurns((prev) => prev.filter((t) => t.id !== turn.id));
+    }
   }
 
   function copy(text: string) {
@@ -219,24 +266,31 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   }
 
   function downloadConversation() {
-    const lines = turns.map((t) => {
-      const header = `## ${t.model} (${t.providerType})\n`;
-      const sys = t.systemPrompt ? `**System:** ${t.systemPrompt}\n\n` : "";
-      const user = `**Prompt:** ${t.userPrompt}\n\n`;
-      const resp = t.execution?.response_text
-        ? `**Response:**\n${t.execution.response_text}\n`
-        : t.error
-          ? `**Error:** ${t.error}\n`
-          : "";
-      return header + sys + user + resp;
-    });
-    const blob = new Blob([lines.join("\n---\n\n")], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `costorah-playground-conversation-${Date.now()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const content = turns.map(exchangeMarkdown).join("\n---\n\n");
+    downloadMarkdown(`costorah-playground-conversation-${Date.now()}.md`, content);
+  }
+
+  function loadHistoryEntry(execution: PlaygroundExecutionRecord) {
+    setTurns((prev) => [
+      ...prev,
+      {
+        id: `history-${execution.id}-${Date.now()}`,
+        connectionId: execution.provider_connection_id,
+        providerType: execution.provider,
+        model: execution.model,
+        systemPrompt: execution.system_prompt ?? "",
+        userPrompt: execution.user_prompt,
+        execution,
+        error: null,
+        isPending: false,
+      },
+    ]);
+    const matchingConnection = connections.find((c) => c.id === execution.provider_connection_id);
+    if (matchingConnection) {
+      setConnectionId(matchingConnection.id);
+      setModelId(execution.model);
+    }
+    setMobileHistoryOpen(false);
   }
 
   if (connectionsQuery.isLoading) {
@@ -265,276 +319,149 @@ function ChatTab({ organizationId, isPersonal }: { organizationId: string; isPer
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-4">
-      <div className="flex flex-col gap-4 min-w-0">
-        <Section title="Conversation" bodyClassName="p-0">
-          <div className="flex flex-col gap-4 p-4 max-h-[520px] overflow-y-auto">
-            {turns.length === 0 ? (
-              <p className="text-xs text-tx-muted text-center py-8">
-                Send a prompt below — the response, tokens, and cost will appear here, and this
-                request becomes real Costorah usage immediately.
-              </p>
-            ) : (
-              <AnimatePresence initial={false}>
-                {turns.map((turn) => (
-                  <motion.div
-                    key={turn.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="flex flex-col gap-2"
-                  >
-                    <div className="flex items-start gap-2">
-                      <div className="flex-1 min-w-0 rounded-xl bg-app-muted px-3 py-2 text-sm text-tx-primary whitespace-pre-wrap">
-                        {turn.userPrompt}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => copy(turn.userPrompt)}
-                        className="p-1.5 text-tx-muted hover:text-tx-primary flex-shrink-0"
-                        aria-label="Copy prompt"
-                      >
-                        <Copy size={13} />
-                      </button>
-                    </div>
+    <div className="flex flex-col gap-3">
+      <MobileHistoryToggle open={mobileHistoryOpen} onToggle={() => setMobileHistoryOpen((o) => !o)} />
 
-                    <div className="flex items-start gap-2">
-                      <div className="flex items-center gap-2 pt-1">
-                        <ProviderLogo providerId={turn.providerType} size="sm" />
-                      </div>
-                      <div className="flex-1 min-w-0 rounded-xl border border-border-subtle bg-app-bg px-3 py-2.5">
-                        {turn.isPending ? (
-                          <div className="flex items-center gap-2 text-xs text-tx-muted">
-                            <Loader2 size={13} className="animate-spin" /> Waiting for response…
-                          </div>
-                        ) : turn.error ? (
-                          <div className="flex flex-col gap-2">
-                            <p className="text-xs text-danger">{turn.error}</p>
-                            <button
-                              type="button"
-                              onClick={() => retry(turn)}
-                              className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1 self-start"
-                            >
-                              <RotateCw size={11} /> Retry
-                            </button>
-                          </div>
-                        ) : turn.execution?.status === "failed" ? (
-                          <div className="flex flex-col gap-2">
-                            <p className="text-xs text-danger">{turn.execution.error_message}</p>
-                            <button
-                              type="button"
-                              onClick={() => retry(turn)}
-                              className="btn-outline h-7 px-2 text-[11px] inline-flex items-center gap-1 self-start"
-                            >
-                              <RotateCw size={11} /> Retry
-                            </button>
-                          </div>
-                        ) : turn.execution ? (
-                          <div className="flex flex-col gap-2">
-                            <div className="text-sm text-tx-primary">
-                              {renderMarkdownLite(turn.execution.response_text ?? "")}
-                            </div>
-                            <MetricsRow execution={turn.execution} />
-                          </div>
-                        ) : null}
-                      </div>
-                      {turn.execution?.response_text && (
-                        <button
-                          type="button"
-                          onClick={() => copy(turn.execution!.response_text!)}
-                          className="p-1.5 text-tx-muted hover:text-tx-primary flex-shrink-0"
-                          aria-label="Copy response"
-                        >
-                          <Copy size={13} />
-                        </button>
-                      )}
-                    </div>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
-            )}
-          </div>
+      <div className="flex flex-col lg:flex-row gap-4 items-start">
+        <div className={cn("w-full lg:w-auto", !mobileHistoryOpen && "hidden lg:block")}>
+          <HistorySidebar organizationId={organizationId} onSelect={loadHistoryEntry} onNewChat={() => setTurns([])} />
+        </div>
 
-          <div className="border-t border-border-subtle p-4 flex flex-col gap-2">
-            <textarea
-              value={userPrompt}
-              onChange={(e) => setUserPrompt(e.target.value)}
-              placeholder="Send a message…"
-              rows={3}
-              className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
-            />
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={downloadConversation}
-                  disabled={turns.length === 0}
-                  className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
-                >
-                  <Download size={12} /> Download
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTurns([])}
-                  disabled={turns.length === 0}
-                  className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
-                >
-                  <Trash2 size={12} /> Clear
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  title="Streaming isn't implemented yet — requests are synchronous, so there's nothing to stop mid-flight."
-                  className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 opacity-40 cursor-not-allowed"
-                >
-                  <Square size={12} /> Stop
-                </button>
-              </div>
-              <button
-                type="button"
-                onClick={run}
-                disabled={!userPrompt.trim() || !activeModelId || execute.isPending}
-                className="btn-primary h-9 px-4 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
-              >
-                {execute.isPending ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
-                Send
-              </button>
-            </div>
-          </div>
-        </Section>
-      </div>
-
-      <div className="flex flex-col gap-4">
-        <Section title="Provider &amp; model">
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="text-[11px] text-tx-muted mb-1 block">Provider connection</label>
-              <div className="flex items-center gap-2">
-                <ProviderLogo providerId={activeConnection?.provider_type ?? ""} size="sm" />
-                <select
-                  value={activeConnectionId}
-                  onChange={(e) => {
-                    setConnectionId(e.target.value);
-                    setModelId("");
-                  }}
-                  className="flex-1 rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
-                >
-                  {connections.map((c) => (
-                    <option key={c.id} value={c.id} disabled={!c.has_credential && c.provider_type !== "ollama"}>
-                      {c.display_name}
-                      {!c.has_credential && c.provider_type !== "ollama" ? " (no credential — connect first)" : ""}
-                    </option>
+        <div className="flex-1 min-w-0 w-full">
+          <Section title="Conversation" bodyClassName="p-0">
+            <div className="flex flex-col gap-4 p-4 max-h-[560px] overflow-y-auto">
+              {turns.length === 0 ? (
+                <EmptyState
+                  icon={MessageSquarePlus}
+                  title="Start a conversation"
+                  description="Send a prompt below — the response, tokens, and cost will appear here, and this request becomes real Costorah usage immediately."
+                />
+              ) : (
+                <AnimatePresence initial={false}>
+                  {turns.map((turn) => (
+                    <MessageBubble
+                      key={turn.id}
+                      turn={turn}
+                      allTurns={turns}
+                      modelsByConnection={modelsByConnection}
+                      onCopy={copy}
+                      onRetry={retry}
+                      onRegenerate={regenerate}
+                      onContinue={continueTurn}
+                      onExport={exportTurn}
+                      onDelete={setPendingDelete}
+                      onCostAnalysisOpen={() => setCostAnalysisEverOpened(true)}
+                    />
                   ))}
-                </select>
-              </div>
-            </div>
-
-            <div>
-              <label className="text-[11px] text-tx-muted mb-1 block">Model</label>
-              <select
-                value={activeModelId}
-                onChange={(e) => setModelId(e.target.value)}
-                disabled={modelsQuery.isLoading || models.length === 0}
-                className="w-full rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand disabled:opacity-60"
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.display_name}
-                    {m.is_deprecated ? " (deprecated)" : ""}
-                  </option>
-                ))}
-              </select>
-              {activeModel && (
-                <p className="text-[10px] text-tx-muted mt-1">
-                  {activeModel.context_window ? `${formatNumber(activeModel.context_window)} ctx` : ""}
-                  {activeModel.capabilities.length > 0 ? ` · ${activeModel.capabilities.join(", ")}` : ""}
-                </p>
+                </AnimatePresence>
               )}
             </div>
 
-            {!isPersonal && (
-              <div>
-                <label className="text-[11px] text-tx-muted mb-1 block">Project (optional)</label>
-                <select
-                  value={projectId}
-                  onChange={(e) => setProjectId(e.target.value)}
-                  className="w-full rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
+            <div className="border-t border-border-subtle p-4 flex flex-col gap-2">
+              <textarea
+                value={userPrompt}
+                onChange={(e) => setUserPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    run();
+                  }
+                }}
+                placeholder="Send a message…"
+                rows={3}
+                aria-label="Message"
+                className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
+              />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={downloadConversation}
+                    disabled={turns.length === 0}
+                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Download size={12} /> Download
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTurns([])}
+                    disabled={turns.length === 0}
+                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 disabled:opacity-40"
+                  >
+                    <Trash2 size={12} /> Clear
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Streaming isn't implemented yet — requests are synchronous, so there's nothing to stop mid-flight."
+                    className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1 opacity-40 cursor-not-allowed"
+                  >
+                    <Square size={12} /> Stop
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={run}
+                  disabled={!userPrompt.trim() || !activeModelId || execute.isPending}
+                  className="btn-primary h-9 px-4 text-xs disabled:opacity-60 inline-flex items-center gap-1.5"
                 >
-                  <option value="">No project</option>
-                  {(projectsQuery.data?.projects ?? []).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                  {execute.isPending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                  Send
+                </button>
               </div>
-            )}
-          </div>
-        </Section>
+            </div>
+          </Section>
+        </div>
 
-        <Section title="Parameters">
-          <div className="flex flex-col gap-3">
-            <div>
-              <label className="flex items-center justify-between text-[11px] text-tx-muted mb-1">
-                Temperature <span className="font-mono">{temperature.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={2}
-                step={0.05}
-                value={temperature}
-                onChange={(e) => setTemperature(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="flex items-center justify-between text-[11px] text-tx-muted mb-1">
-                Top P <span className="font-mono">{topP.toFixed(2)}</span>
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.05}
-                value={topP}
-                onChange={(e) => setTopP(Number(e.target.value))}
-                className="w-full"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-tx-muted mb-1 block">Max tokens</label>
-              <input
-                type="number"
-                min={1}
-                max={32000}
-                value={maxTokens}
-                onChange={(e) => setMaxTokens(Number(e.target.value))}
-                className="w-full rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
-              />
-            </div>
-          </div>
-        </Section>
-
-        <Section title="System prompt">
-          <textarea
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder="You are a helpful assistant…"
-            rows={4}
-            className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
+        <div className="w-full lg:w-80 flex-shrink-0">
+          <ConfigPanel
+            connections={connections}
+            activeConnectionId={activeConnectionId}
+            onConnectionChange={(id) => {
+              setConnectionId(id);
+              setModelId("");
+            }}
+            models={models}
+            modelsLoading={modelsQuery.isLoading}
+            activeModelId={activeModelId}
+            onModelChange={setModelId}
+            activeConnection={activeConnection}
+            activeModel={activeModel}
+            isPersonal={isPersonal}
+            projectId={projectId}
+            onProjectChange={setProjectId}
+            projects={projectsQuery.data?.projects ?? []}
+            temperature={temperature}
+            onTemperatureChange={setTemperature}
+            topP={topP}
+            onTopPChange={setTopP}
+            maxTokens={maxTokens}
+            onMaxTokensChange={setMaxTokens}
+            systemPrompt={systemPrompt}
+            onSystemPromptChange={setSystemPrompt}
           />
-        </Section>
+        </div>
       </div>
+
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Delete this message?"
+        description="This removes it from your Playground conversation and history. It does not affect Analytics, Budgets, or any already-recorded usage."
+        confirmLabel="Delete"
+        loading={deleteExecution.isPending}
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={confirmDeleteTurn}
+      />
     </div>
   );
 }
 
 // ── Compare tab ──────────────────────────────────────────────────────────────
 
-type SortKey = "fastest" | "cheapest" | "context" | "lowest_latency";
+type SortKey = "fastest" | "cheapest" | "lowest_latency";
 
 function CompareTab({ organizationId }: { organizationId: string }) {
-  const connectionsQuery = useConnectionsAndModels(organizationId);
+  const connectionsQuery = useConnections(organizationId);
   const connections = (connectionsQuery.data?.connections ?? []).filter(
     (c) => c.has_credential || c.provider_type === "ollama",
   );
@@ -568,20 +495,27 @@ function CompareTab({ organizationId }: { organizationId: string }) {
   const sorted = useMemo(() => {
     const copyArr = [...results];
     switch (sortKey) {
-      case "fastest":
-        return copyArr.sort((a, b) => (a.latency_ms ?? Infinity) - (b.latency_ms ?? Infinity));
-      case "lowest_latency":
-        return copyArr.sort((a, b) => (a.latency_ms ?? Infinity) - (b.latency_ms ?? Infinity));
       case "cheapest":
         return copyArr.sort(
           (a, b) => Number(a.estimated_cost ?? Infinity) - Number(b.estimated_cost ?? Infinity),
         );
-      case "context":
-        return copyArr;
+      case "fastest":
+      case "lowest_latency":
       default:
-        return copyArr;
+        return copyArr.sort((a, b) => (a.latency_ms ?? Infinity) - (b.latency_ms ?? Infinity));
     }
   }, [results, sortKey]);
+
+  const fastestId = sorted.length > 0 ? [...sorted].sort((a, b) => (a.latency_ms ?? Infinity) - (b.latency_ms ?? Infinity))[0]?.id : undefined;
+  const cheapestId =
+    sorted.length > 0
+      ? [...sorted].sort((a, b) => Number(a.estimated_cost ?? Infinity) - Number(b.estimated_cost ?? Infinity))[0]?.id
+      : undefined;
+
+  function copy(text: string) {
+    void navigator.clipboard.writeText(text);
+    toast.info("Copied to clipboard");
+  }
 
   if (connections.length < 1) {
     return (
@@ -605,8 +539,8 @@ function CompareTab({ organizationId }: { organizationId: string }) {
               <label
                 key={c.id}
                 className={cn(
-                  "flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer text-sm",
-                  isSelected ? "border-brand bg-brand-subtle" : "border-border-subtle bg-app-muted",
+                  "flex items-center gap-2 rounded-lg border px-3 py-2 cursor-pointer text-sm transition-colors",
+                  isSelected ? "border-brand bg-brand-subtle" : "border-border-subtle bg-app-muted hover:border-border-strong",
                 )}
               >
                 <input
@@ -642,7 +576,7 @@ function CompareTab({ organizationId }: { organizationId: string }) {
                 organizationId={organizationId}
                 connection={c}
                 value={modelByConnection[c.id] ?? ""}
-                onChange={(modelId) => setModelByConnection((prev) => ({ ...prev, [c.id]: modelId }))}
+                onChange={(mid) => setModelByConnection((prev) => ({ ...prev, [c.id]: mid }))}
               />
             ))}
           </div>
@@ -656,6 +590,7 @@ function CompareTab({ organizationId }: { organizationId: string }) {
             onChange={(e) => setSystemPrompt(e.target.value)}
             placeholder="System prompt (optional)"
             rows={2}
+            aria-label="Comparison system prompt"
             className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
           />
           <textarea
@@ -663,6 +598,7 @@ function CompareTab({ organizationId }: { organizationId: string }) {
             onChange={(e) => setUserPrompt(e.target.value)}
             placeholder="Prompt to send to every selected provider…"
             rows={3}
+            aria-label="Comparison prompt"
             className="w-full resize-none rounded-lg border border-border-subtle bg-app-bg px-3 py-2 text-sm text-tx-primary outline-none focus:border-brand"
           />
           <button
@@ -682,6 +618,13 @@ function CompareTab({ organizationId }: { organizationId: string }) {
         </div>
       </Section>
 
+      {compare.isPending && (
+        <div className="flex items-center justify-center gap-2 text-xs text-tx-muted py-6">
+          <Loader2 size={14} className="animate-spin" /> Sending prompt to {Object.keys(selected).length} provider
+          {Object.keys(selected).length === 1 ? "" : "s"}…
+        </div>
+      )}
+
       {results.length > 0 && (
         <Section
           title="Results"
@@ -689,6 +632,7 @@ function CompareTab({ organizationId }: { organizationId: string }) {
             <select
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value as SortKey)}
+              aria-label="Sort comparison results"
               className="rounded-lg border border-border-subtle bg-app-bg px-2 py-1 text-xs text-tx-primary outline-none focus:border-brand"
             >
               <option value="fastest">Sort: Fastest</option>
@@ -697,46 +641,16 @@ function CompareTab({ organizationId }: { organizationId: string }) {
             </select>
           }
         >
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[11px] text-tx-muted border-b border-border-subtle">
-                  <th className="py-2 pr-3">Provider</th>
-                  <th className="py-2 pr-3">Model</th>
-                  <th className="py-2 pr-3">Response</th>
-                  <th className="py-2 pr-3">Latency</th>
-                  <th className="py-2 pr-3">Tokens</th>
-                  <th className="py-2 pr-3">Cost</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r) => (
-                  <tr key={r.id} className="border-b border-border-subtle/60 align-top">
-                    <td className="py-2 pr-3">
-                      <div className="flex items-center gap-2">
-                        <ProviderLogo providerId={r.provider} size="sm" />
-                        <span className="text-xs">{r.provider}</span>
-                      </div>
-                    </td>
-                    <td className="py-2 pr-3 text-xs font-mono">{r.model}</td>
-                    <td className="py-2 pr-3 max-w-xs text-xs text-tx-primary">
-                      {r.status === "failed" ? (
-                        <span className="text-danger">{r.error_message}</span>
-                      ) : (
-                        <span className="line-clamp-3">{r.response_text}</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-3 text-xs font-mono">
-                      {r.latency_ms !== null ? `${Math.round(r.latency_ms)}ms` : "—"}
-                    </td>
-                    <td className="py-2 pr-3 text-xs font-mono">{formatNumber(r.total_tokens)}</td>
-                    <td className="py-2 pr-3">
-                      <CostBadge execution={r} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {sorted.map((r) => (
+              <CompareResultCard
+                key={r.id}
+                result={r}
+                onCopy={copy}
+                isFastest={r.id === fastestId && sorted.length > 1}
+                isCheapest={r.id === cheapestId && sorted.length > 1}
+              />
+            ))}
           </div>
         </Section>
       )}
@@ -773,10 +687,11 @@ function CompareModelRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={modelsQuery.isLoading}
+        aria-label={`Model for ${connection.display_name}`}
         className="flex-1 rounded-lg border border-border-subtle bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand disabled:opacity-60"
       >
         <option value="">Select a model…</option>
-        {models.map((m: PlaygroundModelInfo) => (
+        {models.map((m) => (
           <option key={m.id} value={m.id}>
             {m.display_name}
           </option>
@@ -788,10 +703,13 @@ function CompareModelRow({
 
 // ── History tab ──────────────────────────────────────────────────────────────
 
+type StatusFilter = "all" | "succeeded" | "failed";
+
 function HistoryTab({ organizationId }: { organizationId: string }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("");
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<PlaygroundExecutionRecord | null>(null);
 
   const historyQuery = useQuery({
@@ -828,17 +746,7 @@ function HistoryTab({ organizationId }: { organizationId: string }) {
     const csv = [
       "provider,model,status,prompt_tokens,completion_tokens,cost,currency,latency_ms,created_at",
       ...rows.map((r) =>
-        [
-          r.provider,
-          r.model,
-          r.status,
-          r.prompt_tokens,
-          r.completion_tokens,
-          r.estimated_cost ?? "",
-          r.currency,
-          r.latency_ms ?? "",
-          r.created_at,
-        ].join(","),
+        [r.provider, r.model, r.status, r.prompt_tokens, r.completion_tokens, r.estimated_cost ?? "", r.currency, r.latency_ms ?? "", r.created_at].join(","),
       ),
     ].join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
@@ -850,34 +758,45 @@ function HistoryTab({ organizationId }: { organizationId: string }) {
     URL.revokeObjectURL(url);
   }
 
-  const executions = historyQuery.data?.executions ?? [];
+  const filtered = (historyQuery.data?.executions ?? []).filter((e) => status === "all" || e.status === status);
+  const groups = groupByRelativeDay(filtered);
 
   return (
     <Section
       title="Prompt history"
+      description="Every request from Chat or Compare, real and searchable — grouped by day."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as StatusFilter)}
+            aria-label="Filter by status"
+            className="rounded-lg border border-border-subtle bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand"
+          >
+            <option value="all">All statuses</option>
+            <option value="succeeded">Succeeded</option>
+            <option value="failed">Failed</option>
+          </select>
           <select
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
+            aria-label="Filter by provider"
             className="rounded-lg border border-border-subtle bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand"
           >
             <option value="">All providers</option>
-            {CONNECTABLE_PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
+            {[...new Set((historyQuery.data?.executions ?? []).map((e) => e.provider))].map((p) => (
+              <option key={p} value={p}>
+                {getProviderBrand(p).displayName}
               </option>
             ))}
           </select>
-          <div className="relative">
-            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-muted" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search prompts…"
-              className="rounded-lg border border-border-subtle bg-app-bg pl-7 pr-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand w-40"
-            />
-          </div>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search prompts…"
+            aria-label="Search prompt history"
+            className="rounded-lg border border-border-subtle bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand w-40"
+          />
           <button type="button" onClick={exportHistory} className="btn-ghost h-8 px-2 text-[11px] inline-flex items-center gap-1">
             <Download size={12} /> Export
           </button>
@@ -888,47 +807,61 @@ function HistoryTab({ organizationId }: { organizationId: string }) {
         <div className="flex items-center justify-center py-12">
           <Loader2 size={18} className="animate-spin text-tx-muted" />
         </div>
-      ) : executions.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
+          icon={MessageSquarePlus}
           title="No Playground history yet"
           description="Every request sent from the Chat or Compare tab appears here — searchable, exportable, and re-runnable."
         />
       ) : (
-        <div className="flex flex-col divide-y divide-border-subtle">
-          {executions.map((execution) => (
-            <div key={execution.id} className="flex items-start gap-3 py-3">
-              <ProviderLogo providerId={execution.provider} size="sm" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-tx-primary truncate">{execution.user_prompt}</p>
-                <div className="flex items-center gap-2 mt-1 text-[10px] text-tx-muted">
-                  <span className="font-mono">{execution.model}</span>
-                  <span>{new Date(execution.created_at).toLocaleString()}</span>
-                  {execution.status === "failed" ? (
-                    <span className="text-danger">Failed</span>
-                  ) : (
-                    <span>{formatNumber(execution.total_tokens)} tok</span>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={() => rerun.mutate(execution.id)}
-                  disabled={rerun.isPending}
-                  className="p-1.5 text-tx-muted hover:text-tx-primary"
-                  aria-label="Re-run"
-                  title="Re-run this prompt"
-                >
-                  <RotateCw size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPendingDelete(execution)}
-                  className="p-1.5 text-tx-muted hover:text-danger"
-                  aria-label="Delete"
-                >
-                  <X size={13} />
-                </button>
+        <div className="flex flex-col">
+          {groups.map((group) => (
+            <div key={group.label}>
+              <p className="px-1 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-tx-muted first:pt-0">
+                {group.label}
+              </p>
+              <div className="flex flex-col divide-y divide-border-subtle">
+                {group.items.map((execution) => (
+                  <div key={execution.id} className="flex items-start gap-3 py-3">
+                    <ProviderLogo providerId={execution.provider} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs text-tx-primary truncate">{execution.user_prompt}</p>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-tx-muted">
+                        <span className="font-mono">{execution.model}</span>
+                        <span>{new Date(execution.created_at).toLocaleString()}</span>
+                        {execution.status === "failed" ? (
+                          <span className="text-danger">Failed</span>
+                        ) : (
+                          <>
+                            <span>{execution.total_tokens.toLocaleString()} tok</span>
+                            <span>{formatLatency(execution.latency_ms)}</span>
+                            <span>{formatCost(execution.estimated_cost, execution.currency)}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => rerun.mutate(execution.id)}
+                        disabled={rerun.isPending}
+                        className="p-1.5 text-tx-muted hover:text-tx-primary"
+                        aria-label="Re-run"
+                        title="Re-run this prompt"
+                      >
+                        <Play size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingDelete(execution)}
+                        className="p-1.5 text-tx-muted hover:text-danger"
+                        aria-label="Delete"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}

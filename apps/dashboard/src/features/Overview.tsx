@@ -39,6 +39,9 @@ import {
   Bell,
   TrendingUp as TrendingUpIcon,
   Info,
+  X,
+  EyeOff,
+  Rocket,
 } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
@@ -57,6 +60,7 @@ import {
 } from "../hooks/useDashboard";
 import { useDashboardState, type DashboardSetupState } from "../hooks/useDashboardState";
 import { useBudgetSummary } from "../hooks/useBudgets";
+import { useOnboardingWidgetStore } from "../stores/onboardingWidget";
 import { useLiveMetrics, useConnectionStatus } from "../realtime/hooks";
 import {
   formatCost,
@@ -71,7 +75,7 @@ import {
 import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
-import type { Granularity, ActivityRunItem, ActivityFailureItem } from "../types/api";
+import type { Granularity, ActivityRunItem, ActivityFailureItem, OverviewKPIs } from "../types/api";
 
 // EP-22.3 — Intelligent Dashboard Empty States & Guided First Experience.
 //
@@ -98,20 +102,134 @@ interface ChecklistItem {
   noteAction?: { to: string; label: string } | undefined;
 }
 
-export function GettingStartedBanner() {
-  const progress = useDashboardState();
-  if (progress.isLoading) return null;
+function StatTile({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-xl border border-border-subtle bg-app-bg p-3">
+      <p className="text-[10px] text-tx-muted uppercase tracking-wide">{label}</p>
+      <p className="mt-1 font-display text-lg font-semibold text-tx-primary tabular-nums">{value}</p>
+    </div>
+  );
+}
 
-  const { hasConnections, hasValidatedConnection, hasProjects, hasUsage, hasUsageCapableConnection } =
-    progress;
-  const allDone = hasConnections && hasValidatedConnection && hasProjects && hasUsage;
-  if (allDone) return null;
+// EP-25.4.4 Part 1/7 — replaces the permanent checklist with a genuine
+// "you're done" state once setup is complete, instead of the checklist
+// simply vanishing (EP-22.3's prior behavior). Every figure here is real
+// data already fetched by the parent (`Overview()`) or by
+// `useDashboardState()` — nothing is fabricated for this card.
+function WorkspaceReadyCard({
+  providersConnected,
+  projects,
+  models,
+  todayCost,
+  currency,
+  lastSyncLabel,
+}: {
+  providersConnected: number;
+  projects: number;
+  models: number;
+  todayCost: string;
+  currency: string;
+  lastSyncLabel: string | null;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="glass-card rounded-card-lg border border-border-subtle p-5 sm:p-6"
+    >
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-10 h-10 rounded-xl bg-success-dim flex items-center justify-center flex-shrink-0">
+          <CheckCircle2 size={20} className="text-success" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-tx-primary">Workspace Ready</h3>
+          <p className="text-xs text-tx-muted mt-0.5">
+            Setup is complete — here&apos;s your workspace at a glance.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+        <StatTile label="Providers Connected" value={providersConnected} />
+        <StatTile label="Projects" value={projects} />
+        <StatTile label="Models" value={models} />
+        <StatTile label="Today's Usage" value={formatCost(todayCost, currency, true)} />
+      </div>
+      <p className="text-[11px] text-tx-muted mb-4">Last sync: {lastSyncLabel ?? "never"}</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Link to="/playground" className="btn-primary h-9 px-4 text-xs inline-flex items-center gap-1.5">
+          <Rocket size={13} /> Open Playground
+        </Link>
+        <Link to="/analytics" className="btn-outline h-9 px-4 text-xs">
+          Analytics
+        </Link>
+        <Link to="/connections" className="btn-outline h-9 px-4 text-xs">
+          Connections
+        </Link>
+      </div>
+    </motion.div>
+  );
+}
+
+// EP-22.3 / EP-25.4.4 — the dashboard's Getting Started widget. Shows a
+// checklist while setup is incomplete; once every step is done, replaces
+// itself with `WorkspaceReadyCard` instead of quietly disappearing. Every
+// signal is derived from `useDashboardState()` (provider connections,
+// projects, dashboard overview — no duplicate progress state) plus the
+// real, persisted `visitedAnalytics` flag from `useOnboardingWidgetStore`
+// (EP-25.4.4 Part 2's "smart completion" for "View Analytics").
+export function OnboardingWidget({
+  kpi,
+  lastSyncAt,
+}: {
+  kpi?: OverviewKPIs | undefined;
+  lastSyncAt?: string | null;
+}) {
+  const progress = useDashboardState();
+  const { currency } = useUIStore();
+  const neverShow = useOnboardingWidgetStore((s) => s.neverShow);
+  const dismissed = useOnboardingWidgetStore((s) => s.dismissed);
+  const visitedAnalytics = useOnboardingWidgetStore((s) => s.visitedAnalytics);
+  const dismiss = useOnboardingWidgetStore((s) => s.dismiss);
+  const setNeverShow = useOnboardingWidgetStore((s) => s.setNeverShow);
+
+  if (progress.isLoading || neverShow) return null;
+
+  const {
+    hasConnections,
+    connectionsCount,
+    hasValidatedConnection,
+    hasProjects,
+    projectsCount,
+    hasUsage,
+    hasUsageCapableConnection,
+  } = progress;
+
+  // EP-25.4.4 Part 1/2 — "setup complete" now also requires the user to
+  // have actually opened Analytics at least once, not just that usage
+  // exists — see useOnboardingWidgetStore's own header comment for why
+  // this supersedes EP-22.3's original "no separate flag" decision.
+  const allDone = hasConnections && hasValidatedConnection && hasProjects && hasUsage && visitedAnalytics;
+
+  if (allDone) {
+    return (
+      <WorkspaceReadyCard
+        providersConnected={connectionsCount}
+        projects={projectsCount}
+        models={kpi?.active_models ?? 0}
+        todayCost={kpi?.today_cost ?? "0"}
+        currency={currency}
+        lastSyncLabel={lastSyncAt ? formatDateTime(lastSyncAt) : null}
+      />
+    );
+  }
+
+  if (dismissed) return null;
 
   // EP-26.0.3.2 — a validated connection whose provider has no bulk usage
-  // API (Google/Azure/Grok/Ollama) can never make "Generate AI Usage"/"View
-  // Analytics" complete on its own. Rather than leaving those two items
-  // looking like an indefinitely-stuck todo, disclose why once the
-  // connection is validated but usage genuinely can't come from it.
+  // API (Google/Azure/Grok/Ollama) can never make "Generate AI Usage"
+  // complete on its own. Rather than leaving that item looking like an
+  // indefinitely-stuck todo, disclose why once the connection is validated
+  // but usage genuinely can't come from it.
   const usageWillNeverArrive = hasValidatedConnection && !hasUsageCapableConnection && !hasUsage;
   const usageNote = usageWillNeverArrive
     ? "Connected provider doesn't expose historical usage — this is expected, not an error."
@@ -135,17 +253,11 @@ export function GettingStartedBanner() {
       note: usageNote,
       noteAction: playgroundAction,
     },
-    // "View Analytics" tracks the same signal as "Generate AI Usage" —
-    // this page *is* the analytics view, so once usage exists there is
-    // nothing further to detect; no separate "has visited" flag is
-    // introduced (would be duplicate state the spec explicitly forbids).
-    {
-      label: "View Analytics",
-      done: hasUsage,
-      to: "/analytics",
-      note: usageNote,
-      noteAction: playgroundAction,
-    },
+    // EP-25.4.4 Part 2 — "View Analytics" is now a real, independently
+    // trackable action (has the user opened /analytics at least once),
+    // not a mirror of "Generate AI Usage" — a user can complete this step
+    // regardless of whether usage exists yet.
+    { label: "View Analytics", done: visitedAnalytics, to: "/analytics" },
   ];
   const doneCount = items.filter((i) => i.done).length;
 
@@ -162,11 +274,33 @@ export function GettingStartedBanner() {
             {doneCount} of {items.length} steps complete
           </p>
         </div>
-        <div className="w-24 h-1.5 rounded-full bg-app-muted overflow-hidden flex-shrink-0" aria-hidden="true">
-          <div
-            className="h-full bg-brand rounded-full transition-all duration-500"
-            style={{ width: `${(doneCount / items.length) * 100}%` }}
-          />
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="w-24 h-1.5 rounded-full bg-app-muted overflow-hidden" aria-hidden="true">
+            <div
+              className="h-full bg-brand rounded-full transition-all duration-500"
+              style={{ width: `${(doneCount / items.length) * 100}%` }}
+            />
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setNeverShow(true)}
+              className="p-1 text-tx-muted hover:text-tx-primary"
+              aria-label="Never show this again"
+              title="Never show this again — reset from Settings > Preferences"
+            >
+              <EyeOff size={13} />
+            </button>
+            <button
+              type="button"
+              onClick={dismiss}
+              className="p-1 text-tx-muted hover:text-tx-primary"
+              aria-label="Dismiss"
+              title="Dismiss for this session"
+            >
+              <X size={13} />
+            </button>
+          </div>
         </div>
       </div>
       <ul className="space-y-2">
@@ -679,6 +813,14 @@ export default function Overview() {
   const providerList = providers.data?.providers ?? [];
   const modelList = models.data?.models ?? [];
 
+  // EP-25.4.4 — "Last Sync" for the Workspace Ready card: the most recent
+  // real import/sync run timestamp, derived from the same activity feed
+  // the "Sync Activity" section below already renders — no second query.
+  const lastSyncAt = [...(activityFeed.data?.imports ?? []), ...(activityFeed.data?.syncs ?? [])]
+    .map((r) => r.startedAt)
+    .sort()
+    .at(-1);
+
   // Sparklines derived from ts data (last 7 pts)
   const recent7 = tsData.slice(-7).map((d) => parseFloat(d.total_cost));
 
@@ -772,7 +914,7 @@ export default function Overview() {
 
       <CriticalAlertBanner />
 
-      <GettingStartedBanner />
+      <OnboardingWidget kpi={kpi} lastSyncAt={lastSyncAt ?? null} />
 
       {!dashboardState.isLoading && (
         <DashboardStateHero

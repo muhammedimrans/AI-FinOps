@@ -4868,3 +4868,78 @@ The Chat tab's "no provider configured" state (unchanged `EmptyState` + "Go to C
 6. **Accessibility improvements** — every new interactive element carries an accessible name (`aria-label` or visible text); the execution drawer uses `role="dialog"`/`aria-modal`/focus-on-open/Escape-to-close; collapsible sections expose `aria-expanded`; Ctrl+Enter is additive (plain Enter still inserts a newline, unlike a send-only binding that would trap keyboard users mid-thought).
 7. **Validation** — backend: unaffected, confirmed via `git status --porcelain` showing zero non-`apps/dashboard`/non-`CLAUDE.md` changes. Frontend: `vitest run` → 362 passed; `eslint src --max-warnings 0` → clean; `npx tsc -b` → clean; `vite build` → clean.
 8. **Remaining future opportunities** — real token-by-token streaming (needs a backend SSE/WebSocket response path, explicitly out of this EP's frontend-only scope); genuine multi-turn "Continue" (needs a backend conversation entity); slash commands (the hook point exists, no commands implemented); an "Attach file" capability (currently honestly disabled); eager (rather than lazy) cross-connection model-catalog warming for Compare/Cost Analysis if the extra background requests are ever judged worth it at scale.
+
+---
+
+# EP-25.4.4 — Dashboard UX Polish & Provider Promotion
+
+**Status: complete.** Frontend-only UX pass — zero backend files touched (confirmed via `git status` against every non-`apps/dashboard` path). No provider adapter, `PlaygroundService`, or analytics logic was modified; every change composes existing endpoints (`GET /v1/organizations/{id}/provider-connections`, `GET /v1/dashboard/overview`, `GET /v1/dashboard/activity`, `GET /v1/organizations/{id}/playground/connections/{id}/models`) that already existed before this EP.
+
+## Part 1/2/7 — Onboarding widget: complete-state card + smart completion
+
+`features/Overview.tsx`'s `GettingStartedBanner` (EP-22.3) is renamed `OnboardingWidget` and gains a genuine "done" state instead of silently returning `null` once every step is checked off:
+
+- **`WorkspaceReadyCard`** (new) — shown once `hasConnections && hasValidatedConnection && hasProjects && hasUsage && visitedAnalytics` are all true. Shows **Providers Connected** / **Projects** (real counts, `useDashboardState()` extended with `connectionsCount`/`projectsCount`, derived from the same `listProviderConnections`/`listProjectsCrud` responses the hook already fetched — no new query), **Models** (`kpi.active_models`, already fetched via `useOverview()`), **Today's Usage** (`kpi.today_cost`), and **Last Sync** (the most recent timestamp across `activityFeed.data.imports`/`.syncs` — the same feed the page's existing "Sync Activity" section already renders, passed down as a prop rather than re-fetched). Three quick-action buttons: **Open Playground**, **Analytics**, **Connections** — satisfying both Part 1's three-button list and Part 7's Overview requirement in one component, since Part 7's "Workspace Ready card" *is* this same widget rendered on Overview (there was never a second, separate card to build).
+- **Dismiss / Never show again** — `stores/onboardingWidget.ts` (new, zustand + `persist`, mirroring the existing `stores/onboarding.ts` welcome-popup convention exactly). `dismissed` is deliberately **not** persisted (`partialize` excludes it) — dismissing hides the checklist only for the rest of the current browser session, so an incomplete setup can't vanish forever by an accidental click. `neverShow` **is** persisted, and is the only thing "Reset onboarding" (Settings → Preferences → Dashboard, new `SectionCard`) clears.
+- **Smart completion (Part 2)** — "Generate AI Usage" is unchanged (already auto-completes from real `UsageCostRecord` existence via `hasUsage`, EP-22.3). **"View Analytics" is now a real, independently-tracked signal** — `visitedAnalytics`, set once by a `useEffect` in `features/Analytics.tsx` on mount, persisted in the same store. This is a deliberate, disclosed reversal of EP-22.3's own design note ("no separate 'has visited' flag... would be duplicate state") — this EP's task explicitly asked for exactly that signal, so the earlier decision is superseded, not silently ignored. Previously "View Analytics" was a mirror of `hasUsage` (and inherited its "usage will never arrive" note/Playground-redirect for usage-incapable providers, EP-26.0.3.2/3.3); it no longer needs that note at all, since visiting the page is fully within the user's control regardless of whether any provider has produced usage yet.
+
+No backend change was needed for any of this — `connectionsCount`/`projectsCount` are a two-line addition to `useDashboardState.ts` (already-fetched response fields, not new fields), and `visitedAnalytics` has no server-side equivalent by design (a page-visit flag has no reason to live in the database).
+
+## Part 3/4/5/6 — Provider Directory (Connections page)
+
+### Why Google/OpenRouter are promoted without any backend change
+
+The pre-existing "Adapters in Development" / "Production Providers" split on the Connections page (`PRODUCTION_ADAPTERS = ["openai", "anthropic"]`, `IN_DEVELOPMENT_ADAPTERS`) is **not** a measure of customer-facing product readiness — it gates `app/api/v1/providers.py`'s `_PRODUCTION_PROVIDERS` allowlist, a narrow, internal, env-var-keyed diagnostic probe (EP-07) that tests *Costorah's own server-side credentials*, unrelated to a customer's connection. This distinction was already established and documented by EP-26.0.3.2/EP-26.0.3.3 (§ earlier in this document) — re-confirmed by reading `app/api/v1/providers.py` directly this session: expanding it to Google/OpenRouter would require adding real config-builder branches (`_make_config_with_key`/`_make_config_no_key`) for both, a genuine backend change this EP's own "Do NOT modify backend logic" instruction rules out, *and* it would depend on Costorah's ops team actually provisioning `GOOGLE_API_KEY`/`OPENROUTER_API_KEY` server-side credentials that may not exist — promoting the UI without that would produce broken buttons in production.
+
+The actual, already-real answer to "is this provider production-ready for a customer" is the **customer-credential path** — encryption, live validation, live model discovery, and background sync, real for all 7 catalog providers since EP-22/EP-24.3/EP-26.0.1/EP-26.0.2. This EP builds the customer-facing "Production Providers" promotion entirely on top of that existing, already-shipped capability — `DIRECTORY_PRODUCTION = ["openai", "anthropic", "google", "openrouter"]`, `DIRECTORY_PREVIEW = ["azure_openai", "grok", "ollama", "cohere"]` — deliberately a *different* list from the legacy ops-probe's `PRODUCTION_ADAPTERS`, which is left completely unchanged (still exactly `["openai", "anthropic"]`, since that reflects a genuinely different, real fact: which providers Costorah's own internal probe supports).
+
+### `ProviderPromotionCard` (Part 3/4)
+
+One card per directory provider, reusing exactly the primitives EP-26.0.4's Provider Brand Registry and EP-22/EP-23.3's connection machinery already provide — no new backend call shape:
+
+- **Logo** — `ProviderLogo`/`getProviderBrand` (EP-26.0.4), unchanged.
+- **Platform badge** — `providerPlatformInfo()` (EP-26.0.2) — renders "AI Studio" for Google, `null`/nothing for every other provider, exactly as it already did on the Connections page's per-connection rows.
+- **Capabilities** — `brand.capabilities` (the same cosmetic tag list every other surface in this app already uses, EP-26.0.4 — never a live capability probe).
+- **Test Connection** — if the org has a real connection for this provider (`connections.find(c => c.provider_type === providerId)`), calls the exact same `testProviderConnectionById()` the "Your provider connections" section's `ConnectionRow` already calls; if not connected, the button is disabled with a tooltip pointing at "Your provider connections" above, rather than either a broken action or a fake success.
+- **Live Models** — an on-demand toggle fetching `listPlaygroundModels(organizationId, connectionId)` — the exact same live-catalog endpoint AI Playground (EP-25.4) and EP-26.0.1/EP-26.0.2 already use — gated so it never fires until the user actually opens it, and only ever for a real connection.
+- **Docs** — `brand.website` (Provider Brand Registry).
+- **Pricing** — links to the existing `/pricing` page (real catalog + calculator, built in an earlier EP) rather than re-implementing pricing display inline.
+- **Health** — the real connection's `health_status` (`HealthBadge`, unchanged) or an honest "Not connected" badge.
+- **Context Window** — derived from the live model catalog's own `context_window` values once fetched (max across the connection's models); `—` until then — never a static, possibly-stale number.
+
+A provider with no connection yet (including every Preview-tier provider, and a not-yet-connected Production one) still renders a full card — logo, capabilities, docs, pricing link — with only the connection-dependent actions disabled and explained, satisfying "shown for discovery" without faking functionality that doesn't exist yet. Cohere (Preview) has no backend `ProviderType`/adapter at all — its card discloses this plainly ("No Costorah adapter exists for this provider yet — shown for roadmap visibility only") rather than presenting a connect flow that would 404.
+
+### `ProviderDetailsDrawer` (Part 6)
+
+Clicking a card opens a slide-out drawer (same accessibility pattern as AI Playground's `ExecutionDetailsDrawer`, EP-25.4.3 — `role="dialog"`, focus-on-open, Escape/backdrop-to-close), with six sections, each honestly scoped to real data:
+
+| Section | Source |
+|---|---|
+| Supported Models | Live catalog (`listPlaygroundModels`) if connected; "Connect this provider to see its live model catalog" otherwise |
+| Pricing | Per-model `input_cost_per_1k`/`output_cost_per_1k` from the same live catalog, plus a link to `/pricing` |
+| Limits | Explicitly disclosed as **not tracked** — "rate limits are enforced and reported by {provider} itself, not by this dashboard" — Costorah has no rate-limit telemetry for any provider, so this is stated rather than fabricated (the same disclosure pattern `ModelInfoPanel`'s "Reasoning: Not tracked" already established in EP-25.4.3) |
+| Documentation | `brand.website` |
+| Connection Status | Every real connection this org has for the provider (name, health, active/inactive) — "Not connected yet" if none |
+| Recent Activity | `useActivityFeed()` (EP-24.1's existing hook, unchanged), filtered client-side to `run.provider === providerId` / `failure.providerType === providerId` — gated on the drawer being open, so it never fires on page load |
+
+No new backend endpoint — every field is either already-fetched connection data, the existing live model-catalog endpoint, or the existing activity-feed endpoint, filtered client-side.
+
+### Removing duplicate appearance
+
+The old "Other adapters (platform diagnostics only)" tile grid — plain grey "No ops probe" tiles for Google/Azure/Grok/OpenRouter/Ollama — is removed entirely. Every one of those providers now has a real, richer card in the Provider Directory's Production or Preview grid (logo, capabilities, connection status), which is strictly more informative than the old tile ever was for them. The legacy ops-probe `ProductionProviderCard` grid (OpenAI/Anthropic only) is left in place, unchanged, still clearly labeled as an internal-only diagnostic distinct from both the customer connections above and the new Provider Directory.
+
+## Testing
+
+- **Backend**: none — no backend file changed, confirmed via `git status --porcelain` against every non-`apps/dashboard`/non-`CLAUDE.md` path.
+- **Frontend**:
+  - `src/__tests__/OnboardingWidget.test.tsx` (new, 9 tests, supersedes `GettingStartedBanner.test.tsx`) — the five-item checklist unchanged behavior for Connect/Validate/Create Project; "Generate AI Usage" completes independently of "View Analytics" now; "View Analytics" completes only once `visitedAnalytics` is set; the usage-incapable-provider note now applies only to "Generate AI Usage"; the `WorkspaceReadyCard` renders with real stat values and three working links once every step (including `visitedAnalytics`) is complete; Dismiss hides the widget for the session; Never show again persists and is reversible via `reset()` (the same function Settings' "Reset onboarding" button calls).
+  - `src/__tests__/ManageConnectionsSection.test.tsx` — updated: wraps `<Connections />` in a `MemoryRouter` (the page now uses real `<Link>` navigation for the Provider Directory's Pricing/Docs actions), and one pre-existing assertion (`getByText("Not tested")`) widened to `getAllByText` since the new Provider Directory's OpenAI card now also renders a health badge for the same connection.
+  - Full dashboard suite: **365 passed** (up from 362 pre-EP), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), production build clean (`vite build`).
+
+## Final report
+
+1. **Files changed** — New: `apps/dashboard/src/stores/onboardingWidget.ts`, `apps/dashboard/src/__tests__/OnboardingWidget.test.tsx`. Modified: `apps/dashboard/src/features/Overview.tsx` (`OnboardingWidget`/`WorkspaceReadyCard`), `apps/dashboard/src/features/Analytics.tsx` (visit-tracking effect), `apps/dashboard/src/features/Settings.tsx` (Reset onboarding control), `apps/dashboard/src/features/Connections.tsx` (`ProviderPromotionCard`, `ProviderDetailsDrawer`, `ProviderDirectory`, removed the old diagnostics tile grid), `apps/dashboard/src/hooks/useDashboardState.ts` (`connectionsCount`/`projectsCount`), `apps/dashboard/src/__tests__/ManageConnectionsSection.test.tsx`. Deleted: `apps/dashboard/src/__tests__/GettingStartedBanner.test.tsx` (superseded). No backend file touched.
+2. **UX improvements** — a genuine "you're done" state (Workspace Ready) instead of the checklist just disappearing; Dismiss/Never-show-again/Reset controls; a real "visited Analytics" completion signal; a customer-facing Provider Directory with working Test Connection/Live Models/Docs/Pricing/Health/Context Window for every production provider; a real provider-details drawer.
+3. **Provider changes** — Google Gemini and OpenRouter promoted to "Production Providers" in the customer-facing directory (Azure OpenAI/Grok/Ollama/Cohere remain Preview); the legacy internal ops-probe allowlist (`_PRODUCTION_PROVIDERS`, backend) is unchanged and untouched, since it measures a different, narrower thing than customer-facing production readiness.
+4. **Validation** — `tsc -b` clean, `eslint src --max-warnings 0` clean, `vitest run` → 365 passed, `vite build` clean, zero backend files changed.
+5. **Remaining recommendations** — Azure OpenAI/Grok's own live model catalogs are still static (§ EP-26.0.2.1's own standing recommendation, unaffected by this EP); a future EP could extend `ProviderPromotionCard`'s Context Window/pricing display to pull from a cached catalog rather than requiring the user to open "Live Models" first; the ops-probe diagnostic section could eventually be moved to an admin-only surface now that it's clearly redundant with the customer-facing directory for OpenAI/Anthropic specifically.

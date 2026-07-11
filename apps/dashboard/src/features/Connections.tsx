@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
@@ -7,9 +8,13 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  DollarSign,
   Download,
   Eye,
   EyeOff,
+  FileText,
+  History,
+  Info,
   KeyRound,
   Loader2,
   Pencil,
@@ -22,6 +27,7 @@ import {
   Timer,
   Trash2,
   Wrench,
+  X,
   XCircle,
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
@@ -43,12 +49,14 @@ import {
   syncProviderConnection,
   syncAllProviderConnections,
   getSchedulerStatus,
+  listPlaygroundModels,
   ApiError,
   type TestConnectionResponse,
   type TestProviderConnectionResult,
   type ProviderConnectionRecord,
   type SyncStatusResponse,
 } from "../services/api";
+import { useActivityFeed } from "../hooks/useDashboard";
 import {
   CONNECTABLE_PROVIDERS,
   connectableLabel,
@@ -56,14 +64,33 @@ import {
   providerPlatformInfo,
   getProviderBrand,
 } from "../lib/providerCatalog";
-import { cn, formatNumber, providerDisplayName } from "../utils";
+import { cn, formatNumber, formatDateTime, providerDisplayName } from "../utils";
 import { toast } from "../stores/toast";
 import { useOrgStore } from "../stores/org";
 
-// Adapters the backend can actually talk to today (kept in sync with the
-// backend's _PRODUCTION_PROVIDERS). Everything else 404s at the API.
+// Adapters Costorah's own internal, env-var-keyed diagnostic probe (EP-07,
+// "Platform diagnostics" below) can talk to — kept in sync with the
+// backend's _PRODUCTION_PROVIDERS. This is a narrow, internal allowlist
+// unrelated to whether a provider is production-ready for customers: see
+// DIRECTORY_PRODUCTION below for the real, customer-facing answer to that
+// question (EP-25.4.4).
 const PRODUCTION_ADAPTERS = ["openai", "anthropic"];
-const IN_DEVELOPMENT_ADAPTERS = ["google", "azure_openai", "grok", "openrouter", "ollama"];
+
+// EP-25.4.4 Part 3/4/5 — the real, customer-facing Provider Directory.
+// Every one of these providers already has a full, production-ready
+// customer-credential adapter (encryption, live validation, live model
+// discovery, background sync — EP-22/EP-24.3/EP-26.0.1/EP-26.0.2), which is
+// what "production ready" actually means for a Costorah customer — this is
+// deliberately a *different* list from PRODUCTION_ADAPTERS above (the
+// legacy ops-probe's env-var allowlist, gated by Costorah's own server
+// credentials, not a customer's). See CLAUDE.md's EP-25.4.4 section for the
+// full rationale on why Google Gemini and OpenRouter are promoted here
+// without any backend change.
+const DIRECTORY_PRODUCTION = ["openai", "anthropic", "google", "openrouter"];
+// Providers with no real backend ProviderType/adapter (Cohere) render as an
+// honest "not yet available" placeholder rather than being omitted or
+// faked as connectable.
+const DIRECTORY_PREVIEW = ["azure_openai", "grok", "ollama", "cohere"];
 
 const ADAPTER_LABELS: Record<string, string> = {
   azure_openai: "Azure OpenAI",
@@ -1119,6 +1146,542 @@ function ManageConnectionsSection() {
   );
 }
 
+/** EP-25.4.4 Part 4 — a compact test-result summary for a directory card,
+ * reusing `TestProviderConnectionResult` (the real per-connection test,
+ * same endpoint `ConnectionRow`'s "Test" button already calls) rather than
+ * the ops-probe's `TestConnectionResponse` shape. */
+function DirectoryTestResult({ result }: { result: TestProviderConnectionResult }) {
+  const ok = result.health_status === "healthy";
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 rounded-xl border p-2.5 text-[11px] mb-3",
+        ok ? "bg-success-dim border-success/25" : "bg-danger-dim border-danger/25",
+      )}
+      role="status"
+    >
+      {ok ? (
+        <CheckCircle2 size={13} className="text-success mt-0.5 flex-shrink-0" />
+      ) : (
+        <XCircle size={13} className="text-danger mt-0.5 flex-shrink-0" />
+      )}
+      <p className={cn(ok ? "text-success" : "text-danger")}>{result.detail}</p>
+    </div>
+  );
+}
+
+/** EP-25.4.4 Part 3/4 — one card per directory provider. Every field is
+ * either a static, honest catalog fact (logo, capabilities, docs link) or
+ * real data from the org's own connection for this provider, if one
+ * exists — never fabricated. A provider with no connection yet still gets
+ * a full card (so it can be discovered/promoted), just with its
+ * connection-dependent actions (Test Connection, Live Models, Health,
+ * Context Window) disabled and explained rather than broken. */
+function ProviderPromotionCard({
+  providerId,
+  connections,
+  organizationId,
+  index,
+  preview,
+  onOpenDetails,
+}: {
+  providerId: string;
+  connections: ProviderConnectionRecord[];
+  organizationId: string | null;
+  index: number;
+  preview?: boolean;
+  onOpenDetails: (providerId: string) => void;
+}) {
+  const brand = getProviderBrand(providerId);
+  const platform = providerPlatformInfo(providerId);
+  const match = connections.find((c) => c.provider_type === providerId);
+  const connectable = CONNECTABLE_PROVIDERS.some((p) => p.value === providerId);
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [testResult, setTestResult] = useState<TestProviderConnectionResult | null>(null);
+
+  const models = useQuery({
+    queryKey: ["playground-models", organizationId, match?.id],
+    queryFn: () => listPlaygroundModels(organizationId!, match!.id),
+    enabled: modelsOpen && !!organizationId && !!match,
+  });
+
+  const test = useMutation({
+    mutationFn: () => testProviderConnectionById(organizationId!, match!.id),
+    onSuccess: (result) => setTestResult(result),
+    onError: () => {
+      setTestResult(null);
+      toast.error("Test failed", `Couldn't reach ${brand.displayName}. Check the connection's API key.`);
+    },
+  });
+
+  const maxContext = Math.max(0, ...(models.data ?? []).map((m) => m.context_window ?? 0));
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.05 }}
+      className={cn(
+        "glass-card rounded-card-lg border p-5",
+        preview ? "border-dashed border-border-subtle opacity-90" : "border-border-subtle",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onOpenDetails(providerId)}
+        className="flex w-full items-start justify-between gap-3 mb-4 text-left"
+        aria-label={`View details for ${brand.displayName}`}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <ProviderLogo providerId={providerId} size="lg" />
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold text-tx-primary truncate">{brand.displayName}</h3>
+            <p className="text-xs text-tx-muted truncate">{brand.service ?? "AI provider"}</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+          {preview ? (
+            <span className="badge bg-app-muted text-tx-muted text-[10px]">
+              <Wrench size={10} /> Preview
+            </span>
+          ) : (
+            <span className="badge bg-success-dim text-success text-[10px]">
+              <ShieldCheck size={10} /> Production
+            </span>
+          )}
+          {platform && (
+            <span className="badge bg-app-muted text-tx-secondary text-[10px]">{platform.platform}</span>
+          )}
+        </div>
+      </button>
+
+      {brand.capabilities.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {brand.capabilities.map((cap) => (
+            <span key={cap} className="badge bg-app-muted text-tx-secondary text-[10px]">
+              {cap}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-tx-muted mb-3">
+        <span className="inline-flex items-center gap-1.5">
+          Health:{" "}
+          {match ? (
+            <HealthBadge status={match.health_status} />
+          ) : (
+            <span className="badge bg-app-muted text-tx-muted text-[10px]">Not connected</span>
+          )}
+        </span>
+        <span>Context window: {maxContext > 0 ? `${formatNumber(maxContext, true)} tok` : "—"}</span>
+      </div>
+
+      {testResult && <DirectoryTestResult result={testResult} />}
+
+      {!connectable ? (
+        <p className="text-[11px] text-tx-muted mb-1">
+          No Costorah adapter exists for this provider yet — shown for roadmap visibility only.
+        </p>
+      ) : !match ? (
+        <p className="text-[11px] text-tx-muted mb-1">
+          Not connected — add it in &quot;Your provider connections&quot; above to test, sync, and browse
+          live models.
+        </p>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => test.mutate()}
+          disabled={!match || test.isPending}
+          title={match ? undefined : "Connect this provider first"}
+          className="btn-primary h-8 text-xs px-3 disabled:opacity-50"
+        >
+          {test.isPending ? <Loader2 size={13} className="animate-spin" /> : <Activity size={13} />}
+          Test Connection
+        </button>
+        <button
+          onClick={() => setModelsOpen((o) => !o)}
+          disabled={!match}
+          title={match ? undefined : "Connect this provider first"}
+          className="btn-outline h-8 text-xs px-3 disabled:opacity-50"
+          aria-expanded={modelsOpen}
+        >
+          <ChevronDown size={13} className={cn("transition-transform duration-base", modelsOpen && "rotate-180")} />
+          {modelsOpen ? "Hide models" : "Live Models"}
+        </button>
+        {brand.website && (
+          <a
+            href={brand.website}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-ghost h-8 text-xs px-3 inline-flex items-center gap-1.5"
+          >
+            <BookOpen size={13} /> Docs
+          </a>
+        )}
+        <Link to="/pricing" className="btn-ghost h-8 text-xs px-3 inline-flex items-center gap-1.5">
+          <DollarSign size={13} /> Pricing
+        </Link>
+      </div>
+
+      {modelsOpen && match && (
+        <div className="mt-4 border-t border-border-subtle pt-3">
+          {models.isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-5 skeleton rounded" />)}
+            </div>
+          ) : models.isError ? (
+            <p className="text-xs text-danger">Could not fetch the live model list for this connection.</p>
+          ) : (
+            <>
+              <p className="text-[10px] text-tx-muted uppercase tracking-wide mb-2">
+                {(models.data ?? []).length} models · live from this connection
+              </p>
+              <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                <table className="w-full data-table">
+                  <thead>
+                    <tr>
+                      <th>Model</th>
+                      <th className="text-right">Context</th>
+                      <th className="text-right">In $/1K</th>
+                      <th className="text-right">Out $/1K</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(models.data ?? []).map((m) => (
+                      <tr key={m.id} className={m.is_deprecated ? "opacity-50" : ""}>
+                        <td className="font-mono text-xs text-tx-primary">
+                          {m.id}
+                          {m.is_deprecated && (
+                            <span className="ml-1.5 badge bg-warning-dim text-warning text-[9px]">deprecated</span>
+                          )}
+                        </td>
+                        <td className="text-right font-mono text-xs">
+                          {m.context_window ? formatNumber(m.context_window, true) : "—"}
+                        </td>
+                        <td className="text-right font-mono text-xs">
+                          {m.input_cost_per_1k != null ? `$${m.input_cost_per_1k.toFixed(4)}` : "—"}
+                        </td>
+                        <td className="text-right font-mono text-xs">
+                          {m.output_cost_per_1k != null ? `$${m.output_cost_per_1k.toFixed(4)}` : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+function DrawerSection({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-5">
+      <div className="flex items-center gap-1.5 mb-2">
+        <Icon size={13} className="text-tx-muted" />
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-tx-muted">{title}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** EP-25.4.4 Part 6 — clicking a provider card opens this slide-out with
+ * everything real Costorah knows about that provider: live models and
+ * pricing (if connected), documentation, connection status, and recent
+ * sync activity. "Limits" is explicitly disclosed as not tracked rather
+ * than fabricated — Costorah has no rate-limit telemetry for any provider. */
+function ProviderDetailsDrawer({
+  providerId,
+  open,
+  onClose,
+  connections,
+  organizationId,
+}: {
+  providerId: string | null;
+  open: boolean;
+  onClose: () => void;
+  connections: ProviderConnectionRecord[];
+  organizationId: string | null;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  useEffect(() => {
+    if (open) ref.current?.focus();
+  }, [open]);
+
+  const brand = providerId ? getProviderBrand(providerId) : null;
+  const matches = providerId ? connections.filter((c) => c.provider_type === providerId) : [];
+  const primary = matches[0];
+
+  const models = useQuery({
+    queryKey: ["playground-models", organizationId, primary?.id],
+    queryFn: () => listPlaygroundModels(organizationId!, primary!.id),
+    enabled: open && !!organizationId && !!primary,
+  });
+
+  const activity = useActivityFeed(20, { enabled: open && !!providerId });
+  const relevantRuns = providerId
+    ? [...(activity.data?.imports ?? []), ...(activity.data?.syncs ?? [])].filter(
+        (r) => r.provider === providerId,
+      )
+    : [];
+  const relevantFailures = providerId
+    ? (activity.data?.failures ?? []).filter((f) => f.providerType === providerId)
+    : [];
+
+  if (!providerId || !brand) return null;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-[160] flex justify-end">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={onClose}
+            aria-hidden="true"
+          />
+          <motion.div
+            ref={ref}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${brand.displayName} details`}
+            initial={{ x: 32, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 32, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="relative w-full max-w-md h-full glass-panel shadow-elevated overflow-y-auto p-5"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2.5">
+                <ProviderLogo providerId={providerId} size="md" />
+                <div>
+                  <h2 className="text-sm font-semibold text-tx-primary">{brand.displayName}</h2>
+                  {brand.service && <p className="text-[11px] text-tx-muted">{brand.service}</p>}
+                </div>
+              </div>
+              <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 text-tx-muted hover:text-tx-primary">
+                <X size={16} />
+              </button>
+            </div>
+
+            <DrawerSection icon={Activity} title="Supported Models">
+              {!primary ? (
+                <p className="text-xs text-tx-muted">Connect this provider to see its live model catalog.</p>
+              ) : models.isLoading ? (
+                <div className="h-5 skeleton rounded" />
+              ) : models.isError ? (
+                <p className="text-xs text-danger">Could not fetch the live model list.</p>
+              ) : (models.data ?? []).length === 0 ? (
+                <p className="text-xs text-tx-muted">No models reported by this connection.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {(models.data ?? []).map((m) => (
+                    <li key={m.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="font-mono text-tx-primary truncate">{m.id}</span>
+                      <span className="text-tx-muted flex-shrink-0">
+                        {m.context_window ? `${formatNumber(m.context_window, true)} tok` : "—"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DrawerSection>
+
+            <DrawerSection icon={DollarSign} title="Pricing">
+              {primary && (models.data ?? []).some((m) => m.input_cost_per_1k != null) ? (
+                <ul className="flex flex-col gap-1 text-xs mb-2">
+                  {(models.data ?? [])
+                    .filter((m) => m.input_cost_per_1k != null)
+                    .map((m) => (
+                      <li key={m.id} className="flex items-center justify-between text-tx-secondary">
+                        <span className="font-mono truncate">{m.id}</span>
+                        <span className="text-tx-muted flex-shrink-0">
+                          ${m.input_cost_per_1k!.toFixed(4)} in · ${(m.output_cost_per_1k ?? 0).toFixed(4)} out /1K
+                        </span>
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-tx-muted mb-2">No live per-model pricing available yet.</p>
+              )}
+              <Link to="/pricing" className="text-xs font-medium text-brand hover:text-brand-hover">
+                Full catalog &amp; cost calculator →
+              </Link>
+            </DrawerSection>
+
+            <DrawerSection icon={FileText} title="Limits">
+              <p className="text-xs text-tx-muted italic">
+                Not tracked by Costorah — rate limits are enforced and reported by {brand.displayName} itself,
+                not by this dashboard.
+              </p>
+            </DrawerSection>
+
+            <DrawerSection icon={BookOpen} title="Documentation">
+              {brand.website ? (
+                <a
+                  href={brand.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-brand hover:text-brand-hover"
+                >
+                  {brand.website.replace(/^https?:\/\//, "")} ↗
+                </a>
+              ) : (
+                <p className="text-xs text-tx-muted">No documentation link available.</p>
+              )}
+            </DrawerSection>
+
+            <DrawerSection icon={PlugZap} title="Connection Status">
+              {matches.length === 0 ? (
+                <p className="text-xs text-tx-muted">Not connected yet.</p>
+              ) : (
+                <ul className="flex flex-col gap-2">
+                  {matches.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-tx-primary truncate">{c.display_name}</span>
+                      <span className="flex items-center gap-1.5 flex-shrink-0">
+                        <HealthBadge status={c.health_status} />
+                        <span className={cn("badge text-[10px]", c.is_active ? "bg-success-dim text-success" : "bg-app-muted text-tx-muted")}>
+                          {c.is_active ? "Active" : "Inactive"}
+                        </span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DrawerSection>
+
+            <DrawerSection icon={History} title="Recent Activity">
+              {activity.isLoading ? (
+                <div className="h-5 skeleton rounded" />
+              ) : relevantRuns.length === 0 && relevantFailures.length === 0 ? (
+                <p className="text-xs text-tx-muted">No recent activity for this provider.</p>
+              ) : (
+                <ul className="flex flex-col gap-1.5">
+                  {relevantRuns.slice(0, 6).map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-2 text-xs">
+                      <span className={r.status === "failed" ? "text-danger" : "text-tx-secondary"}>
+                        {r.triggeredBy === "manual" ? "Import" : "Sync"} · {r.status}
+                      </span>
+                      <span className="text-tx-muted flex-shrink-0">{formatDateTime(r.startedAt)}</span>
+                    </li>
+                  ))}
+                  {relevantFailures.slice(0, 4).map((f) => (
+                    <li key={f.connectionId} className="flex items-center gap-1.5 text-xs text-danger">
+                      <Info size={11} className="flex-shrink-0" />
+                      <span className="truncate">{f.lastError ?? "Unknown error"}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </DrawerSection>
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/** EP-25.4.4 Part 3/5 — the real, customer-facing provider directory:
+ * Production Providers (OpenAI, Anthropic, Google Gemini, OpenRouter — all
+ * four have identical, full production support) and Preview (providers
+ * with no adapter yet, or genuinely still maturing). Distinct from, and
+ * shown above, the legacy internal "Platform diagnostics" probe below. */
+function ProviderDirectory() {
+  const organizationId = useOrgStore((s) => s.organizationId);
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
+
+  const connectionsQuery = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
+  const connections = connectionsQuery.data?.connections ?? [];
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-wide text-tx-muted mb-1">
+          Production Providers
+        </p>
+        <p className="text-xs text-tx-muted max-w-2xl">
+          Fully supported: encrypted credentials, live validation, live model discovery, and
+          background usage sync.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {DIRECTORY_PRODUCTION.map((p, i) => (
+          <ProviderPromotionCard
+            key={p}
+            providerId={p}
+            connections={connections}
+            organizationId={organizationId}
+            index={i}
+            onOpenDetails={setDetailsFor}
+          />
+        ))}
+      </div>
+
+      <div className="pt-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-tx-muted mb-1">Preview</p>
+        <p className="text-xs text-tx-muted max-w-2xl">
+          Not yet production-ready — either the adapter is still maturing, or (Cohere) no Costorah
+          adapter exists yet.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {DIRECTORY_PREVIEW.map((p, i) => (
+          <ProviderPromotionCard
+            key={p}
+            providerId={p}
+            connections={connections}
+            organizationId={organizationId}
+            index={i}
+            preview
+            onOpenDetails={setDetailsFor}
+          />
+        ))}
+      </div>
+
+      <ProviderDetailsDrawer
+        providerId={detailsFor}
+        open={!!detailsFor}
+        onClose={() => setDetailsFor(null)}
+        connections={connections}
+        organizationId={organizationId}
+      />
+    </div>
+  );
+}
+
 export default function Connections() {
   return (
     <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
@@ -1130,6 +1693,14 @@ export default function Connections() {
       <AutoSyncStatusSection />
 
       <ManageConnectionsSection />
+
+      {/* EP-25.4.4 Parts 3-6 — the real, customer-facing provider
+          directory: production-ready providers get a full card (logo,
+          badge, capabilities, Test Connection, Live Models, Docs, Pricing,
+          Health, Context Window), everything else is an honest Preview. */}
+      <Section title="Provider Directory" icon={ShieldCheck}>
+        <ProviderDirectory />
+      </Section>
 
       {/* EP-26.0.3.2 — everything below this point is a separate, internal
           diagnostic surface: it tests Costorah's own server-side
@@ -1144,7 +1715,7 @@ export default function Connections() {
         </p>
         <p className="text-xs text-tx-muted max-w-2xl">
           Internal connectivity checks against Costorah&apos;s own server-side credentials — unrelated
-          to the customer connections you manage above.
+          to the customer connections you manage above and to the Provider Directory above.
         </p>
       </div>
 
@@ -1154,26 +1725,19 @@ export default function Connections() {
         ))}
       </div>
 
-      <Section
-        title="Other adapters (platform diagnostics only)"
-        description="These providers don't yet have a server-side ops credential wired up for this internal check. This has no bearing on your own connections above — a provider you've connected and validated can appear here too."
-        icon={Wrench}
-      >
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          {IN_DEVELOPMENT_ADAPTERS.map((p) => (
-            <div
-              key={p}
-              className="rounded-xl border border-dashed border-border-subtle p-4 flex flex-col items-center text-center gap-2 opacity-70"
-            >
-              <div className="w-9 h-9 rounded-lg bg-app-muted flex items-center justify-center">
-                <PlugZap size={15} className="text-tx-muted" />
-              </div>
-              <span className="text-xs font-medium text-tx-secondary">{adapterLabel(p)}</span>
-              <span className="badge bg-app-muted text-tx-muted text-[9px]">No ops probe</span>
-            </div>
-          ))}
-        </div>
-      </Section>
+      {/* EP-25.4.4 Part 3 — "Remove duplicate appearance": the old
+          "Other adapters (platform diagnostics only)" tile grid (Google,
+          Azure, Grok, OpenRouter, Ollama as plain grey "No ops probe"
+          tiles) has been removed — every one of those providers now has a
+          real, richer card in the Provider Directory's Production or
+          Preview grid above (logo, capabilities, connection status),
+          which is strictly more informative than this internal probe ever
+          was for them. Only OpenAI/Anthropic — the two providers this
+          internal probe actually supports — remain below. */}
+      <p className="text-[11px] text-tx-muted max-w-2xl">
+        Every other catalog provider is covered by the Provider Directory above — no separate
+        diagnostics tile is needed for providers this internal probe was never wired up for.
+      </p>
     </div>
   );
 }

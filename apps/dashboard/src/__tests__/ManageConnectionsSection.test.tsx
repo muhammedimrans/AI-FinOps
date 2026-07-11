@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Connections from "../features/Connections";
 import { useOrgStore } from "../stores/org";
@@ -111,7 +112,9 @@ function renderPage() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Connections />
+      <MemoryRouter>
+        <Connections />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -136,7 +139,10 @@ describe("Connections page — Manage provider connections (EP-22)", () => {
     mockedApi.listProviderConnections.mockResolvedValue(list);
     renderPage();
     expect(await screen.findByText("Production OpenAI")).toBeTruthy();
-    expect(screen.getByText("Not tested")).toBeTruthy();
+    // EP-25.4.4 — the Provider Directory's own OpenAI card also renders a
+    // "Not tested" health badge for this same connection, so this label is
+    // no longer unique on the page.
+    expect(screen.getAllByText("Not tested").length).toBeGreaterThan(0);
     expect(screen.getByText("Active")).toBeTruthy();
   });
 

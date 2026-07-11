@@ -44,6 +44,7 @@ import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import { getSchedulerStatus, listProviderConnections } from "../services/api";
+import { useOnboardingWidgetStore } from "../stores/onboardingWidget";
 import type { Granularity, ModelSummary, ProjectCost } from "../types/api";
 
 const columnHelper = createColumnHelper<ModelSummary & { rank: number }>();
@@ -70,6 +71,16 @@ export default function Analytics() {
   const [sorting, setSorting] = useState<SortingState>([{ id: "total_cost", desc: true }]);
   const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 });
   const [exportFormat, setExportFormat] = useState<ExportFormat>("models");
+
+  // EP-25.4.4 Part 2 — marks the dashboard's "View Analytics" onboarding
+  // step complete the moment this page is actually opened, persisted so
+  // it survives reloads (see stores/onboardingWidget.ts's own header
+  // comment for why this is a real, tracked signal rather than a mirror
+  // of "usage exists").
+  const markVisitedAnalytics = useOnboardingWidgetStore((s) => s.markVisitedAnalytics);
+  useEffect(() => {
+    markVisitedAnalytics();
+  }, [markVisitedAnalytics]);
 
   // EP-24.1 — dimension filters (Project / Provider / Model). Organization
   // is already the implicit scope of every query (useOrgStore) and Date

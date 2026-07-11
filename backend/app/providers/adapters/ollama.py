@@ -34,6 +34,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
 )
 
 if TYPE_CHECKING:
@@ -227,7 +228,46 @@ class OllamaProvider(AIProvider):
         return live or list(_MODELS)
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        raise NotImplementedError("Ollama completion is implemented in EP-07")
+        """Submit a chat request — EP-25.4 (AI Playground).
+
+        POST /api/chat, non-streaming (``stream: false``). Ollama has no
+        token-cost concept (free/local, ``supports_usage_api=False`` above)
+        but does report ``prompt_eval_count``/``eval_count`` — real token
+        counts — in its own response, which Playground still surfaces for
+        prompt-size visibility even though PricingEngine will find no
+        pricing row and correctly attribute $0 cost.
+        """
+        payload: dict[str, Any] = {
+            "model": request.model_id,
+            "messages": [{"role": m.role.value, "content": m.content} for m in request.messages],
+            "stream": False,
+        }
+        options: dict[str, Any] = {}
+        if request.max_tokens is not None:
+            options["num_predict"] = request.max_tokens
+        if request.temperature is not None:
+            options["temperature"] = request.temperature
+        if options:
+            payload["options"] = options
+        payload.update(request.extra)
+
+        async with self._build_client() as client:
+            data = await client.post("/api/chat", json=payload)
+
+        message = data.get("message") or {}
+        prompt_tokens = data.get("prompt_eval_count", 0)
+        completion_tokens = data.get("eval_count", 0)
+        return ProviderResponse(
+            model_id=data.get("model", request.model_id),
+            content=message.get("content") or "",
+            usage=UsageData(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+            ),
+            finish_reason="stop" if data.get("done") else None,
+            raw_response=data,
+        )
 
     async def check_capability(self, capability: str) -> bool:
         cap = capability.lower()

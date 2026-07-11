@@ -456,6 +456,51 @@ No integration with any of these three exists today. Named here only because the
 
 ---
 
+## 15.5 Using AI Playground (EP-25.4)
+
+**AI Playground** (sidebar → "AI Playground", `/playground`) is Costorah's built-in interface for testing a connected provider, comparing models, and generating real usage data — the intended replacement for testing a connection with Postman or curl.
+
+### How it works
+
+Every request you send from the Playground is a genuine API call to the provider you selected, made through the exact same code path (`ProviderInterface → ProviderFactory → Provider Adapter → PricingEngine → UsageCollection`) every background sync uses. There is no simulated/demo mode — a request you send here:
+
+1. Decrypts your connection's stored credential (same `EncryptionService` as everywhere else in Costorah).
+2. Calls the real provider API (`POST /v1/chat/completions`, `POST /v1/messages`, `:generateContent`, etc., depending on the provider).
+3. Writes a real `UsageEvent` + `UsageCostRecord` — the same tables Analytics, Budgets, and Alerts already read from.
+4. Immediately triggers budget evaluation, exactly like a background sync completing.
+
+**This means a Playground request shows up in Analytics, the Overview dashboard, Top Models/Top Providers, and Budgets within seconds — no waiting for the next scheduled sync.**
+
+### Connect and test a provider
+
+1. Go to **Connections** and connect at least one provider (see §3–§11 above for provider-specific setup).
+2. Open **AI Playground** — only providers with a connection appear in the provider dropdown. A connection with no credential stored yet (and isn't Ollama, which needs none) shows as disabled with an inline "connect first" hint — you never need to leave the page to figure out why a provider can't be used yet.
+3. Pick a model — the list is pulled live from the provider's own catalog (the same live model list EP-26.0.1/EP-26.0.2 wired into the Connections page), not a hardcoded list.
+4. Type a prompt and click **Send**. The response, token counts (input/output/total), latency, and estimated cost appear inline.
+
+### Chat, Compare, and History tabs
+
+- **Chat** — a normal single-provider conversation. Each turn is sent as its own request (no real token-by-token streaming yet — see "Known limitations" below); you can copy the prompt or response, download the whole conversation as Markdown, or clear it.
+- **Compare** — select up to 8 connected providers, assign a model to each, and send the same prompt to all of them at once. Results are sorted by fastest, cheapest, or lowest latency — useful for deciding which provider/model fits a given workload before wiring it into production.
+- **History** — every request you've ever sent from the Playground, searchable by prompt/response text and filterable by provider. You can re-run any past prompt (sends it again, fresh) or delete an entry (this only removes it from the History list — it never touches the usage/cost records Analytics already recorded).
+
+### Personal vs. Business
+
+- **Personal accounts**: no workspace/project selector — every request belongs directly to your one personal workspace, exactly like every other resource in Costorah for a Personal account.
+- **Business accounts**: an optional Project selector lets you attribute a Playground request to a specific project, exactly like usage synced from a real background sync. RBAC is unchanged — any role that can read a provider connection (every role, including Viewer) can use the Playground; only Admin/Owner can create or rotate the underlying connection itself, on the Connections page.
+
+### Why some providers can't show historical import volume, but Playground still works for all of them
+
+Google AI Studio, Azure OpenAI, Grok, and Ollama don't expose a bulk usage-history API a background sync can pull from (see §3's provider matrix) — but the Playground doesn't need one. It calls the provider's live chat-completion endpoint directly and records the result itself, so **every one of the 7 supported providers works fully in the Playground**, regardless of whether that provider can also be synced retroactively in the background.
+
+### Known limitations
+
+- **No real token-by-token streaming yet.** Requests are synchronous — you wait for the full response, not a live-typing effect. The "Stop" button is visibly disabled with an explanation, rather than pretending to work.
+- **Cost may show "No pricing"** for a model with no `ModelPricing` row configured yet (e.g. a brand-new model) — this matches how Analytics/Budgets already handle unpriced models: token counts are still real and recorded, only the dollar figure is withheld rather than fabricated.
+- **A failed request writes no usage** — exactly like a real provider never bills you for a failed call, Costorah doesn't record spend for one either. It still appears in History so you can see what was attempted and why it failed.
+
+---
+
 ## 16. Troubleshooting
 
 **Provider won't connect**

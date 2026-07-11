@@ -743,7 +743,9 @@ class TestOpenAIProvider:
         assert provider.provider_type == ProviderType.OPENAI
 
     @pytest.mark.asyncio
-    async def test_complete_raises_not_implemented(self) -> None:
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
+        # EP-25.4: complete() is now real; with no api_key_ref configured it
+        # raises AuthenticationError before attempting any network call.
         from app.providers.adapters.openai import OpenAIProvider
         from app.providers.models import Message, MessageRole, ProviderRequest
 
@@ -753,7 +755,7 @@ class TestOpenAIProvider:
             model_id="gpt-4o",
             messages=[Message(role=MessageRole.USER, content="hi")],
         )
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await provider.complete(req)
 
     @pytest.mark.asyncio
@@ -890,7 +892,7 @@ class TestAnthropicProvider:
             await provider.verify_auth()
 
     @pytest.mark.asyncio
-    async def test_complete_raises_not_implemented(self) -> None:
+    async def test_complete_without_key_raises_authentication_error(self) -> None:
         from app.providers.adapters.anthropic import AnthropicProvider
         from app.providers.models import Message, MessageRole, ProviderRequest
 
@@ -900,7 +902,7 @@ class TestAnthropicProvider:
             model_id="claude-3-5-sonnet-20241022",
             messages=[Message(role=MessageRole.USER, content="hi")],
         )
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(AuthenticationError):
             await provider.complete(req)
 
 

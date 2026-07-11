@@ -46,6 +46,7 @@ from app.providers.models import (
     ModelMetadata,
     ProviderRequest,
     ProviderResponse,
+    UsageData,
     UsagePage,
 )
 
@@ -263,7 +264,54 @@ class AnthropicProvider(AIProvider):
         )
 
     async def complete(self, request: ProviderRequest) -> ProviderResponse:
-        raise NotImplementedError("Anthropic completion is implemented in a later EP")
+        """Submit a message request — EP-25.4 (AI Playground).
+
+        POST /v1/messages. Anthropic takes the system prompt as a top-level
+        ``system`` field, not a message with role="system" — the only
+        provider-specific shaping this method does; everything else
+        (auth, client, retry) is the same shared machinery every other
+        method on this adapter already uses.
+        """
+        key = self._resolve_key()
+        system_parts = [m.content for m in request.messages if m.role.value == "system"]
+        turn_messages = [
+            {"role": m.role.value, "content": m.content}
+            for m in request.messages
+            if m.role.value != "system"
+        ]
+        payload: dict[str, Any] = {
+            "model": request.model_id,
+            "messages": turn_messages,
+            "max_tokens": request.max_tokens or 1024,
+        }
+        if system_parts:
+            payload["system"] = "\n".join(str(p) for p in system_parts)
+        if request.temperature is not None:
+            payload["temperature"] = request.temperature
+        payload.update(request.extra)
+
+        async with self._build_client(key) as client:
+            data = await client.post("/v1/messages", json=payload)
+
+        content_blocks = data.get("content") or []
+        text = "".join(
+            block.get("text", "") for block in content_blocks if block.get("type") == "text"
+        )
+        usage = data.get("usage") or {}
+        prompt_tokens = usage.get("input_tokens", 0)
+        completion_tokens = usage.get("output_tokens", 0)
+        return ProviderResponse(
+            model_id=data.get("model", request.model_id),
+            content=text,
+            usage=UsageData(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=prompt_tokens + completion_tokens,
+                cached_tokens=usage.get("cache_read_input_tokens"),
+            ),
+            finish_reason=data.get("stop_reason"),
+            raw_response=data,
+        )
 
     async def get_usage(
         self,

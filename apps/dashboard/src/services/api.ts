@@ -1368,6 +1368,184 @@ export async function updateAlertPreferences(
   );
 }
 
+// ── AI Playground (EP-25.4) ──────────────────────────────────────────────────
+// Every function below is a thin wrapper over
+// /v1/organizations/{org_id}/playground/* — see CLAUDE.md's EP-25.4 section
+// for the full architecture. No separate "playground client" exists; these
+// calls go through the same ProviderInterface -> ProviderFactory -> Provider
+// Adapter -> PricingEngine -> UsageCollection -> Analytics/Budgets/Alerts
+// chain every other real usage-producing path in this app uses.
+
+export interface PlaygroundConnectionOption {
+  id: string;
+  provider_type: string;
+  display_name: string;
+  is_active: boolean;
+  has_credential: boolean;
+  last_validation_status: ProviderValidationStatus | null;
+}
+
+export interface PlaygroundConnectionsResponse {
+  connections: PlaygroundConnectionOption[];
+}
+
+export async function listPlaygroundConnections(
+  organizationId: string,
+): Promise<PlaygroundConnectionsResponse> {
+  return get<PlaygroundConnectionsResponse>(
+    `/v1/organizations/${organizationId}/playground/connections`,
+  );
+}
+
+export interface PlaygroundModelInfo {
+  id: string;
+  display_name: string;
+  context_window: number | null;
+  max_output_tokens: number | null;
+  capabilities: string[];
+  input_cost_per_1k: number | null;
+  output_cost_per_1k: number | null;
+  is_deprecated: boolean;
+}
+
+export async function listPlaygroundModels(
+  organizationId: string,
+  connectionId: string,
+): Promise<PlaygroundModelInfo[]> {
+  return get<PlaygroundModelInfo[]>(
+    `/v1/organizations/${organizationId}/playground/connections/${connectionId}/models`,
+  );
+}
+
+export interface PlaygroundExecutionParams {
+  temperature?: number | undefined;
+  top_p?: number | undefined;
+  max_tokens?: number | undefined;
+}
+
+export interface ExecutePlaygroundRequest extends PlaygroundExecutionParams {
+  provider_connection_id: string;
+  model_id: string;
+  project_id?: string | undefined;
+  system_prompt?: string | undefined;
+  user_prompt: string;
+}
+
+export interface PlaygroundExecutionRecord {
+  id: string;
+  provider: string;
+  model: string;
+  provider_connection_id: string;
+  project_id: string | null;
+  system_prompt: string | null;
+  user_prompt: string;
+  response_text: string | null;
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost: string | null;
+  currency: string;
+  latency_ms: number | null;
+  status: "succeeded" | "failed";
+  error_message: string | null;
+  comparison_group_id: string | null;
+  created_at: string;
+}
+
+export async function executePlayground(
+  organizationId: string,
+  body: ExecutePlaygroundRequest,
+): Promise<PlaygroundExecutionRecord> {
+  return post<PlaygroundExecutionRecord>(
+    `/v1/organizations/${organizationId}/playground/execute`,
+    body,
+  );
+}
+
+export interface ComparePlaygroundRequest extends PlaygroundExecutionParams {
+  targets: string[];
+  model_ids: Record<string, string>;
+  project_id?: string | undefined;
+  system_prompt?: string | undefined;
+  user_prompt: string;
+}
+
+export interface ComparePlaygroundResponse {
+  comparison_group_id: string;
+  executions: PlaygroundExecutionRecord[];
+}
+
+export async function comparePlayground(
+  organizationId: string,
+  body: ComparePlaygroundRequest,
+): Promise<ComparePlaygroundResponse> {
+  return post<ComparePlaygroundResponse>(
+    `/v1/organizations/${organizationId}/playground/compare`,
+    body,
+  );
+}
+
+export interface PlaygroundHistoryFilters {
+  mine_only?: boolean;
+  provider?: string | undefined;
+  model?: string | undefined;
+  search?: string | undefined;
+  limit?: number;
+  offset?: number;
+}
+
+export interface PlaygroundHistoryResponse {
+  executions: PlaygroundExecutionRecord[];
+  total: number;
+}
+
+export async function listPlaygroundHistory(
+  organizationId: string,
+  filters: PlaygroundHistoryFilters = {},
+): Promise<PlaygroundHistoryResponse> {
+  const params: Record<string, string | undefined> = {
+    mine_only: filters.mine_only ? "true" : undefined,
+    provider: filters.provider,
+    model: filters.model,
+    search: filters.search,
+    limit: filters.limit !== undefined ? String(filters.limit) : undefined,
+    offset: filters.offset !== undefined ? String(filters.offset) : undefined,
+  };
+  return get<PlaygroundHistoryResponse>(
+    `/v1/organizations/${organizationId}/playground/history`,
+    params,
+  );
+}
+
+export async function getPlaygroundExecution(
+  organizationId: string,
+  executionId: string,
+): Promise<PlaygroundExecutionRecord> {
+  return get<PlaygroundExecutionRecord>(
+    `/v1/organizations/${organizationId}/playground/history/${executionId}`,
+  );
+}
+
+export async function deletePlaygroundExecution(
+  organizationId: string,
+  executionId: string,
+): Promise<void> {
+  return del<void>(`/v1/organizations/${organizationId}/playground/history/${executionId}`);
+}
+
+export async function rerunPlaygroundExecution(
+  organizationId: string,
+  executionId: string,
+): Promise<PlaygroundExecutionRecord> {
+  return post<PlaygroundExecutionRecord>(
+    `/v1/organizations/${organizationId}/playground/history/${executionId}/rerun`,
+    {},
+  );
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function delay(ms: number): Promise<void> {

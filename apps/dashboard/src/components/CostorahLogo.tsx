@@ -1,11 +1,11 @@
 /**
- * Costorah brand mark — the actual logo artwork (src/assets/costorah-mark.png),
- * cropped and alpha-keyed from the source lockup so it drops in transparently
- * at any size. `variant="mark"` renders the glyph only (sidebar, favicon-style
- * contexts); `variant="full"` adds the wordmark + tagline (login, splash contexts).
+ * Costorah brand mark — the official logo artwork (src/assets/Costorah.png,
+ * provided by the product team). `variant="mark"` renders the glyph only
+ * (sidebar, favicon-style contexts); `variant="full"` adds the wordmark +
+ * tagline (login, splash contexts).
  */
 import { cn } from "../utils";
-import markSrc from "../assets/costorah-mark.png";
+import markSrc from "../assets/Costorah.png";
 
 interface CostorahLogoProps {
   variant?: "mark" | "full";

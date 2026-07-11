@@ -36,6 +36,13 @@ from app.models.alert import (  # noqa: F401
 from app.models.budget import Budget, BudgetPeriod, BudgetScopeType  # noqa: F401
 from app.models.daily_cost_summary import DailyCostSummary  # noqa: F401
 
+# EP-25.3 - Email delivery-event webhook log (no FK dependency, standalone table)
+from app.models.email_delivery_event import (  # noqa: F401
+    FAILURE_EVENT_TYPES,
+    EmailDeliveryEvent,
+    EmailDeliveryEventType,
+)
+
 # EP-24.6 - Organization invitations (import after Organization, User; FK dependency)
 from app.models.invitation import Invitation, InvitationStatus  # noqa: F401
 from app.models.membership import Membership, MembershipRole  # noqa: F401

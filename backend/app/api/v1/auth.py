@@ -199,7 +199,16 @@ async def register(
         email_verification_required=True,
         user=_build_user_public(user),
         workspace=WorkspacePublic(
-            id=workspace.external_id,
+            # EP-25.3: the raw hyphenated UUID, not `workspace.external_id`
+            # (`org_<hex>`) — every organization_id-typed endpoint in this
+            # API (query param or path param) declares `uuid.UUID`, matching
+            # `OrgMembershipItem.id`'s own documented convention
+            # ("organization UUID (hyphenated) — consumed directly by
+            # dashboard endpoints"). Using external_id here was the root
+            # cause of budget/alert/analytics/dashboard creation 422s for
+            # every Google OAuth login/registration — see CLAUDE.md's
+            # EP-25.3 section for the full trace.
+            id=str(workspace.id),
             name=workspace.name,
             slug=workspace.slug,
             is_personal=workspace.is_personal,
@@ -458,7 +467,7 @@ async def upgrade_to_business(
             detail="No personal workspace found to upgrade",
         ) from exc
     return WorkspacePublic(
-        id=workspace.external_id,
+        id=str(workspace.id),
         name=workspace.name,
         slug=workspace.slug,
         is_personal=workspace.is_personal,
@@ -835,7 +844,17 @@ def _build_dashboard_handoff_url(
     }
     if workspace is not None:
         payload["workspace"] = {
-            "id": workspace.external_id,
+            # EP-25.3: raw hyphenated UUID, not `workspace.external_id` —
+            # this is what `consumeSessionHandoff.ts` feeds straight into
+            # `useOrgStore.setOrganization()`, and every organization_id-
+            # typed dashboard endpoint expects a plain UUID. Using
+            # external_id here (as this line did before EP-25.3) silently
+            # broke every Budget/Alert/Analytics/Dashboard/Usage/Pricing/
+            # Projects/Connections request for a Google OAuth user, since
+            # `AuthGuard` only renders `OrgSelector` (which would have
+            # fetched and corrected it via GET /v1/organizations) when
+            # `organizationId` is falsy — and the handoff always sets one.
+            "id": str(workspace.id),
             "name": workspace.name,
             "is_personal": workspace.is_personal,
         }

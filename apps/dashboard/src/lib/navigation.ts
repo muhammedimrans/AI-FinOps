@@ -74,9 +74,14 @@ const ROUTE_LABEL_OVERRIDES: Record<string, string> = {
   "/connections": "Provider Connections",
 };
 
-/** Human-readable label for a route, shared by the header breadcrumb and document title. */
-export function routeLabel(pathname: string): string | null {
+/** Human-readable label for a route, shared by the header breadcrumb and
+ * document title. `isPersonal` (EP-25.3) applies the same relabeling
+ * `visibleNavItems` uses, so the breadcrumb never disagrees with the
+ * sidebar/command-palette label for the page currently being viewed. */
+export function routeLabel(pathname: string, isPersonal = false): string | null {
   const override = ROUTE_LABEL_OVERRIDES[pathname];
   if (override) return override;
-  return NAV_ITEMS.find((n) => n.to === pathname)?.label ?? null;
+  const item = NAV_ITEMS.find((n) => n.to === pathname);
+  if (!item) return null;
+  return isPersonal && item.personalLabel ? item.personalLabel : item.label;
 }

@@ -49,6 +49,7 @@ function apiErrorMessage(err: unknown, fallback: string): { title: string; descr
  */
 export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
   const organizationId = useOrgStore((s) => s.organizationId);
+  const isPersonal = useOrgStore((s) => s.isPersonal);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [name, setName] = useState("");
@@ -157,7 +158,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
     <div className={compact ? "space-y-4" : "space-y-4 sm:space-y-6"}>
       {!compact && (
         <PageHeader
-          title="API Keys"
+          title={isPersonal ? "My API Keys" : "API Keys"}
           description="Issue and revoke programmatic API keys for connecting external applications."
           actions={
             <button onClick={() => setCreateOpen(true)} className="btn-primary h-9 text-xs px-4">

@@ -113,10 +113,39 @@ describe("Projects page — Manage projects (EP-23)", () => {
 
     await user.click(screen.getByRole("button", { name: /delete project/i }));
     const confirm = await screen.findByRole("alertdialog");
-    await user.click(within(confirm).getByRole("button", { name: "Delete" }));
+    await user.type(
+      within(confirm).getByLabelText(new RegExp(`type ${SAMPLE_PROJECT.name} to confirm`, "i")),
+      SAMPLE_PROJECT.name,
+    );
+    await user.click(within(confirm).getByRole("button", { name: "Delete project" }));
 
     await waitFor(() => {
       expect(mockedApi.deleteProject).toHaveBeenCalledWith("org_1", "proj_1");
     });
+  });
+
+  it("keeps the delete button disabled until the project name is typed exactly", async () => {
+    const user = userEvent.setup();
+    mockedApi.listProjectsCrud.mockResolvedValue({ projects: [SAMPLE_PROJECT], total: 1 });
+
+    renderPage();
+    await screen.findByText("Marketing Bot");
+
+    await user.click(screen.getByRole("button", { name: /delete project/i }));
+    const confirm = await screen.findByRole("alertdialog");
+    const deleteButton = within(confirm).getByRole("button", { name: "Delete project" });
+    expect(deleteButton).toBeDisabled();
+
+    const field = within(confirm).getByLabelText(
+      new RegExp(`type ${SAMPLE_PROJECT.name} to confirm`, "i"),
+    );
+    await user.type(field, "wrong name");
+    expect(deleteButton).toBeDisabled();
+
+    await user.clear(field);
+    await user.type(field, SAMPLE_PROJECT.name);
+    expect(deleteButton).not.toBeDisabled();
+
+    expect(mockedApi.deleteProject).not.toHaveBeenCalled();
   });
 });

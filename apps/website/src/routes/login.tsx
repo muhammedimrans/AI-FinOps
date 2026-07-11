@@ -2,9 +2,9 @@ import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
+import { AuthCard } from "@/components/site/AuthCard";
 import { GoogleButton } from "@/components/site/GoogleButton";
 import { SiteLayout } from "@/components/site/SiteLayout";
-import { LogoMark } from "@/components/site/SiteNav";
 import {
   ApiError,
   buildDashboardHandoffUrl,
@@ -75,23 +75,14 @@ function Login() {
 
   return (
     <SiteLayout>
-      <section className="mx-auto flex max-w-md flex-col items-center px-6 py-24">
-        <LogoMark className="h-9 w-9" />
-        <h1 className="mt-6 font-display text-3xl font-semibold tracking-tight">Welcome back</h1>
-        <p className="mt-2 text-sm text-muted-foreground">Log in to your Costorah workspace.</p>
-        <div className="mt-8 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6">
-          <GoogleButton label="Continue with Google" />
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="h-px flex-1 bg-white/10" />
-            or log in with email
-            <span className="h-px flex-1 bg-white/10" />
-          </div>
+      <AuthCard title="Welcome back" subtitle="Log in to your Costorah workspace.">
+        <GoogleButton label="Continue with Google" />
+        <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
+          <span className="h-px flex-1 bg-white/10" />
+          or log in with email
+          <span className="h-px flex-1 bg-white/10" />
         </div>
-        <form
-          onSubmit={(e) => void handleSubmit(onSubmit)(e)}
-          noValidate
-          className="mt-4 w-full space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
-        >
+        <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="space-y-4">
           {formError && (
             <div
               role="alert"
@@ -168,7 +159,7 @@ function Login() {
             </Link>
           </p>
         </form>
-      </section>
+      </AuthCard>
     </SiteLayout>
   );
 }

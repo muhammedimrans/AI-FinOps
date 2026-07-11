@@ -51,6 +51,9 @@ class AuditEvent(enum.StrEnum):
     OAUTH_INVALID_TOKEN = "oauth_invalid_token"  # noqa: S105
     OAUTH_STATE_VALIDATION_FAILURE = "oauth_state_validation_failure"
 
+    # ── Email delivery-event webhooks (EP-25.3) ─────────────────────────────
+    EMAIL_DELIVERY_FAILURE = "email_delivery_failure"
+
 
 def log_auth_event(
     event: AuditEvent,

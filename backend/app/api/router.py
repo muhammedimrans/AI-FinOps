@@ -17,6 +17,7 @@ from app.api.v1 import (
     rbac,
     realtime,
     usage,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -63,3 +64,6 @@ api_router.include_router(budgets.router, prefix="/v1")
 
 # EP-24.6 — Organization Invitations & Team Collaboration
 api_router.include_router(invitations.router, prefix="/v1")
+
+# EP-25.3 — Inbound webhooks (Resend delivery events)
+api_router.include_router(webhooks.router, prefix="/v1")

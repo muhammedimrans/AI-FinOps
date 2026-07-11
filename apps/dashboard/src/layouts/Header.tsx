@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn, getDaysAgo, getToday, subtractDays, toISODate } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { useOrgStore } from "../stores/org";
 import { routeLabel } from "../lib/navigation";
 import { useAlerts, type AlertSeverity } from "../hooks/useAlerts";
 import { useAlertActions } from "../hooks/useAlertsHistory";
@@ -65,7 +66,8 @@ export default function Header({ onMenuClick }: HeaderProps) {
   const currencyRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const pageLabel = routeLabel(location.pathname) ?? "Dashboard";
+  const isPersonal = useOrgStore((s) => s.isPersonal);
+  const pageLabel = routeLabel(location.pathname, isPersonal) ?? "Dashboard";
   const breadcrumb = location.pathname.split("/").filter(Boolean);
   const currentPreset = DATE_PRESETS.find((p) => p.value === datePreset);
 

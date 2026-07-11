@@ -129,3 +129,9 @@ export function modelDisplayName(modelId: string): string {
   };
   return map[modelId] ?? modelId;
 }
+
+/** Whitespace-trimmed exact-match check shared by every "type the name to
+ * confirm" deletion guard (EP-25.3 — Project deletion, Workspace deletion). */
+export function typeToConfirmMatches(expected: string, value: string): boolean {
+  return value.trim().length > 0 && value.trim() === expected.trim();
+}

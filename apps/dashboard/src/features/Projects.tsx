@@ -20,6 +20,7 @@ import Section from "../components/Section";
 import EmptyState from "../components/EmptyState";
 import MetricCard from "../components/MetricCard";
 import ConfirmDialog from "../components/ConfirmDialog";
+import TypeToConfirmField from "../components/TypeToConfirmField";
 import { useProjects } from "../hooks/useDashboard";
 import {
   listProjectsCrud,
@@ -29,7 +30,7 @@ import {
   ApiError,
   type ProjectRecord,
 } from "../services/api";
-import { formatCost, formatNumber, modelDisplayName, cn } from "../utils";
+import { formatCost, formatNumber, modelDisplayName, cn, typeToConfirmMatches } from "../utils";
 import { useUIStore } from "../stores/ui";
 import { useOrgStore } from "../stores/org";
 import { toast } from "../stores/toast";
@@ -109,6 +110,7 @@ function ProjectCrudRow({ organizationId, project }: { organizationId: string; p
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(project.name);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["projects-crud", organizationId] });
 
@@ -186,12 +188,24 @@ function ProjectCrudRow({ organizationId, project }: { organizationId: string; p
       <ConfirmDialog
         open={confirmingDelete}
         title="Delete this project?"
-        description={`"${project.name}" will be removed. This can't be undone.`}
-        confirmLabel="Delete"
+        description={`This permanently deletes "${project.name}" and its budget history. This can't be undone.`}
+        confirmLabel="Delete project"
         loading={remove.isPending}
+        confirmDisabled={!typeToConfirmMatches(project.name, deleteConfirmText)}
         onConfirm={() => remove.mutate(undefined, { onSuccess: () => setConfirmingDelete(false) })}
-        onCancel={() => setConfirmingDelete(false)}
-      />
+        onCancel={() => {
+          setConfirmingDelete(false);
+          setDeleteConfirmText("");
+        }}
+      >
+        <TypeToConfirmField
+          id={`confirm-delete-project-${project.id}`}
+          expected={project.name}
+          value={deleteConfirmText}
+          onChange={setDeleteConfirmText}
+          disabled={remove.isPending}
+        />
+      </ConfirmDialog>
     </div>
   );
 }

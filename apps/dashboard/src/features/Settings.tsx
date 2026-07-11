@@ -33,7 +33,7 @@ import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
 import ConfirmDialog from "../components/ConfirmDialog";
 import GoogleGlyph from "../components/GoogleGlyph";
-import { cn, formatDateTime } from "../utils";
+import { cn, formatDateTime, typeToConfirmMatches } from "../utils";
 import { toast } from "../stores/toast";
 import {
   ApiError,
@@ -43,6 +43,13 @@ import {
   getMe,
   getOrganizations,
   getSchedulerStatus,
+  listAlerts,
+  listApiKeys,
+  listBudgets,
+  listInvitations,
+  listMembers,
+  listProjectsCrud,
+  listProviderConnections,
   resendVerification,
   startGoogleLink,
   unlinkGoogle,
@@ -53,6 +60,7 @@ import {
   upgradeToBusiness,
   type SchedulerInterval,
 } from "../services/api";
+import TypeToConfirmField from "../components/TypeToConfirmField";
 import type { Currency } from "../types/api";
 
 const TIMEZONES = [
@@ -245,6 +253,78 @@ function UpgradeToBusinessCard({ onUpgraded }: { onUpgraded: () => void }) {
         Upgrade to Business
       </button>
     </SectionCard>
+  );
+}
+
+/**
+ * Everything a workspace deletion will take with it (EP-25.3, Part 4).
+ * Fetched only while the delete-workspace dialog is open — each list call
+ * reuses the exact same paginated endpoint its own management page already
+ * calls (Projects/Budgets/Members/API Keys/Alerts/Invitations/Connections),
+ * never a bespoke "count everything" endpoint.
+ */
+function WorkspaceImpactSummary({ organizationId }: { organizationId: string }) {
+  const projects = useQuery({
+    queryKey: ["projects-crud", organizationId],
+    queryFn: () => listProjectsCrud(organizationId),
+  });
+  const budgets = useQuery({
+    queryKey: ["budgets", organizationId],
+    queryFn: () => listBudgets(organizationId),
+  });
+  const members = useQuery({
+    queryKey: ["members", organizationId],
+    queryFn: () => listMembers(organizationId),
+  });
+  const apiKeys = useQuery({
+    queryKey: ["api-keys", organizationId],
+    queryFn: () => listApiKeys(organizationId),
+  });
+  const alerts = useQuery({
+    queryKey: ["alerts", organizationId, "impact-summary"],
+    queryFn: () => listAlerts({ organizationId, status: "open", limit: 200 }),
+  });
+  const invitations = useQuery({
+    queryKey: ["invitations", organizationId],
+    queryFn: () => listInvitations(organizationId),
+  });
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId),
+  });
+
+  const rows: { label: string; count: number | null }[] = [
+    { label: "Projects", count: projects.data?.total ?? null },
+    { label: "Provider connections", count: connections.data?.total ?? null },
+    { label: "Budgets", count: budgets.data?.total ?? null },
+    { label: "Open alerts", count: alerts.data?.total ?? null },
+    { label: "Members", count: members.data?.total ?? null },
+    { label: "API keys", count: apiKeys.data?.total ?? null },
+    { label: "Pending invitations", count: invitations.data?.total ?? null },
+  ];
+  const loading = [projects, budgets, members, apiKeys, alerts, invitations, connections].some(
+    (q) => q.isLoading,
+  );
+
+  return (
+    <div className="mt-3 rounded-lg border border-danger/20 bg-danger-dim px-3 py-2.5">
+      <p className="mb-1.5 text-xs font-semibold text-danger">This will permanently delete:</p>
+      {loading ? (
+        <div className="flex items-center gap-2 text-xs text-tx-muted">
+          <Loader2 size={12} className="animate-spin" />
+          Calculating impact…
+        </div>
+      ) : (
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-tx-secondary">
+          {rows.map((r) => (
+            <li key={r.label} className="flex items-center justify-between gap-2">
+              <span>{r.label}</span>
+              <span className="font-mono font-semibold text-tx-primary">{r.count ?? "—"}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -831,6 +911,7 @@ export default function Settings() {
   // ── Danger Zone ────────────────────────────────────────────────────────────
 
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [deleteWorkspaceConfirmText, setDeleteWorkspaceConfirmText] = useState("");
   const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
   const [deleteAccountPassword, setDeleteAccountPassword] = useState("");
 
@@ -840,6 +921,7 @@ export default function Settings() {
       toast.success("Workspace deleted");
       clearOrganization();
       setDeleteWorkspaceOpen(false);
+      setDeleteWorkspaceConfirmText("");
       void queryClient.invalidateQueries({ queryKey: ["organizations"] });
     },
     onError: (err: unknown) => {
@@ -849,6 +931,7 @@ export default function Settings() {
       );
       toast.error(title, description);
       setDeleteWorkspaceOpen(false);
+      setDeleteWorkspaceConfirmText("");
     },
   });
 
@@ -1367,12 +1450,27 @@ export default function Settings() {
       <ConfirmDialog
         open={deleteWorkspaceOpen}
         title={`Delete "${organizationName ?? "this workspace"}"?`}
-        description="This permanently deletes the workspace and all its data — projects, connections, API keys, and members. This cannot be undone."
+        description="This permanently deletes the workspace and everything in it. This cannot be undone."
         confirmLabel="Delete workspace"
         loading={deleteWorkspaceMutation.isPending}
+        confirmDisabled={!typeToConfirmMatches(organizationName ?? "", deleteWorkspaceConfirmText)}
         onConfirm={() => deleteWorkspaceMutation.mutate()}
-        onCancel={() => setDeleteWorkspaceOpen(false)}
-      />
+        onCancel={() => {
+          setDeleteWorkspaceOpen(false);
+          setDeleteWorkspaceConfirmText("");
+        }}
+      >
+        {deleteWorkspaceOpen && organizationId && (
+          <WorkspaceImpactSummary organizationId={organizationId} />
+        )}
+        <TypeToConfirmField
+          id="confirm-delete-workspace"
+          expected={organizationName ?? ""}
+          value={deleteWorkspaceConfirmText}
+          onChange={setDeleteWorkspaceConfirmText}
+          disabled={deleteWorkspaceMutation.isPending}
+        />
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={deleteAccountOpen}

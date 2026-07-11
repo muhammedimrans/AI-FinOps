@@ -16,6 +16,7 @@ import {
   MailCheck,
   Palette,
   Rocket,
+  RotateCcw,
   Save,
   Shield,
   Timer,
@@ -28,6 +29,7 @@ import { useUIStore } from "../stores/ui";
 import { THEMES, useThemeStore } from "../stores/theme";
 import { useAuthStore } from "../stores/auth";
 import { useOrgStore } from "../stores/org";
+import { useOnboardingWidgetStore } from "../stores/onboardingWidget";
 import { ApiKeysManager } from "./ApiKeys";
 import PageHeader from "../components/PageHeader";
 import Avatar from "../components/Avatar";
@@ -636,6 +638,7 @@ export default function Settings() {
   const { sidebarCollapsed, setSidebarCollapsed } = useUIStore();
   const { user, updateUser, clearAuth } = useAuthStore();
   const { organizationId, organizationName, setOrganization, clearOrganization } = useOrgStore();
+  const resetOnboardingWidget = useOnboardingWidgetStore((s) => s.reset);
   const [active, setActive] = useState<(typeof SECTIONS)[number]["id"]>("profile");
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1390,6 +1393,33 @@ export default function Settings() {
                     />
                   </SettingRow>
                 ))}
+              </SectionCard>
+
+              {/* EP-25.4.4 Part 1 — reverses "Never show again" on the
+                  dashboard's Getting Started widget (features/Overview.tsx's
+                  OnboardingWidget). This is a per-browser preference
+                  (stores/onboardingWidget.ts), not a backend field — there
+                  is nothing server-side to reset. */}
+              <SectionCard
+                title="Dashboard"
+                icon={Rocket}
+                description="Controls for the Overview page's Getting Started widget."
+              >
+                <SettingRow
+                  label="Getting Started widget"
+                  description="Bring back the setup checklist if you previously dismissed it with “Never show again.”"
+                >
+                  <button
+                    onClick={() => {
+                      resetOnboardingWidget();
+                      toast.success("Onboarding reset", "The Getting Started widget will show again on Overview.");
+                    }}
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-border-subtle bg-app-bg px-3 text-xs font-medium text-tx-secondary hover:text-tx-primary"
+                  >
+                    <RotateCcw size={12} />
+                    Reset onboarding
+                  </button>
+                </SettingRow>
               </SectionCard>
             </>
           )}

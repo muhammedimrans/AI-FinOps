@@ -28,8 +28,13 @@ export type DashboardSetupState = 1 | 2 | 3 | 4;
 export interface DashboardProgress {
   isLoading: boolean;
   hasConnections: boolean;
+  /** Real connection count — EP-25.4.4's Workspace Ready card shows this
+   * directly rather than just the boolean above. */
+  connectionsCount: number;
   hasValidatedConnection: boolean;
   hasProjects: boolean;
+  /** Real project count — see `connectionsCount`. */
+  projectsCount: number;
   hasUsage: boolean;
   /**
    * True when at least one *validated* connection is for a provider that
@@ -102,8 +107,10 @@ export function useDashboardState(): DashboardProgress {
   return {
     isLoading,
     hasConnections,
+    connectionsCount: connections.data?.total ?? 0,
     hasValidatedConnection,
     hasProjects,
+    projectsCount: projects.data?.total ?? 0,
     hasUsage,
     hasUsageCapableConnection,
     state,

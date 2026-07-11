@@ -1,39 +1,56 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Loader2, PanelLeftClose, PanelLeftOpen, Plus, Search } from "lucide-react";
-import ProviderLogo from "../../components/ProviderLogo";
-import { listPlaygroundHistory } from "../../services/api";
-import { CONNECTABLE_PROVIDERS } from "../../lib/providerCatalog";
-import { groupByRelativeDay } from "./format";
+import {
+  ChevronLeft,
+  Copy,
+  Download,
+  MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pin,
+  PinOff,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { conversationTitle, exportConversationMarkdown, groupConversationsByRecency, type Conversation } from "./conversations";
 import { cn } from "../../utils";
-import type { PlaygroundExecutionRecord } from "../../services/api";
 
+// EP-25.4.3 Part 12 — the Chat tab's left rail is now a real ChatGPT-style
+// conversation manager: pinned section, Today/Yesterday/This Week/Older
+// grouping, search-by-title-or-content, and per-conversation rename/pin/
+// duplicate/delete/export — all operating on the local conversation-memory
+// layer (conversations.ts's own header comment explains why this is local,
+// not a fabricated backend feature). This intentionally supersedes
+// EP-25.4.1's version of this component, which browsed individual
+// PlaygroundExecution rows directly — that capability (search/filter real,
+// individually-persisted requests) still exists, unchanged, on the
+// standalone History tab; this sidebar is the conversation-level view.
 interface HistorySidebarProps {
-  organizationId: string;
-  onSelect: (execution: PlaygroundExecutionRecord) => void;
+  conversations: Conversation[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
   onNewChat: () => void;
+  onRename: (id: string, name: string) => void;
+  onTogglePin: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onDelete: (id: string) => void;
 }
 
-/** Redesign goal #6 — a real conversation-history sidebar, browsing the
- * same persisted PlaygroundExecution rows the History tab shows (Costorah
- * has no server-side multi-turn "conversation" entity — see types.ts —
- * so each entry here is one real, past prompt/response exchange, grouped
- * by day like a chat client's history rail). Selecting one loads it into
- * the main conversation pane to review or continue from. */
-export default function HistorySidebar({ organizationId, onSelect, onNewChat }: HistorySidebarProps) {
+export default function HistorySidebar({
+  conversations,
+  activeId,
+  onSelect,
+  onNewChat,
+  onRename,
+  onTogglePin,
+  onDuplicate,
+  onDelete,
+}: HistorySidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [search, setSearch] = useState("");
-  const [provider, setProvider] = useState("");
-
-  const historyQuery = useQuery({
-    queryKey: ["playground-history", organizationId, search, provider, "sidebar"],
-    queryFn: () =>
-      listPlaygroundHistory(organizationId, {
-        search: search || undefined,
-        provider: provider || undefined,
-        limit: 30,
-      }),
-  });
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
 
   if (collapsed) {
     return (
@@ -51,13 +68,21 @@ export default function HistorySidebar({ organizationId, onSelect, onNewChat }: 
     );
   }
 
-  const groups = groupByRelativeDay(historyQuery.data?.executions ?? []);
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? conversations.filter(
+        (c) =>
+          conversationTitle(c).toLowerCase().includes(query) ||
+          c.turns.some((t) => t.userPrompt.toLowerCase().includes(query)),
+      )
+    : conversations;
+  const groups = groupConversationsByRecency(filtered);
 
   return (
     <div className="flex flex-col gap-2 w-full lg:w-64 flex-shrink-0">
       <div className="glass-card rounded-card-lg border border-border-subtle flex flex-col overflow-hidden max-h-[560px]">
         <div className="flex items-center justify-between gap-2 px-3 py-2.5 border-b border-border-subtle">
-          <span className="text-xs font-semibold text-tx-primary">Chat history</span>
+          <span className="text-xs font-semibold text-tx-primary">Conversations</span>
           <button
             type="button"
             onClick={() => setCollapsed(true)}
@@ -70,11 +95,7 @@ export default function HistorySidebar({ organizationId, onSelect, onNewChat }: 
         </div>
 
         <div className="p-2.5 flex flex-col gap-2 border-b border-border-subtle">
-          <button
-            type="button"
-            onClick={onNewChat}
-            className="btn-outline h-8 text-xs w-full justify-center"
-          >
+          <button type="button" onClick={onNewChat} className="btn-outline h-8 text-xs w-full justify-center">
             <Plus size={13} /> New chat
           </button>
           <div className="relative">
@@ -82,34 +103,17 @@ export default function HistorySidebar({ organizationId, onSelect, onNewChat }: 
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search history…"
-              aria-label="Search chat history"
+              placeholder="Search conversations…"
+              aria-label="Search conversations"
               className="w-full rounded-lg border border-border-subtle bg-app-bg pl-7 pr-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand"
             />
           </div>
-          <select
-            value={provider}
-            onChange={(e) => setProvider(e.target.value)}
-            aria-label="Filter chat history by provider"
-            className="w-full rounded-lg border border-border-subtle bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-brand"
-          >
-            <option value="">All providers</option>
-            {CONNECTABLE_PROVIDERS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {historyQuery.isLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 size={16} className="animate-spin text-tx-muted" />
-            </div>
-          ) : groups.length === 0 ? (
+          {groups.length === 0 ? (
             <p className="text-[11px] text-tx-muted text-center px-3 py-8">
-              No past prompts yet — send your first message to start building history here.
+              No conversations yet — start a new chat to begin building history here.
             </p>
           ) : (
             groups.map((group) => (
@@ -117,22 +121,107 @@ export default function HistorySidebar({ organizationId, onSelect, onNewChat }: 
                 <p className="px-3 pt-2.5 pb-1 text-[10px] font-semibold uppercase tracking-wide text-tx-muted">
                   {group.label}
                 </p>
-                {group.items.map((execution) => (
-                  <button
-                    key={execution.id}
-                    type="button"
-                    onClick={() => onSelect(execution)}
-                    className="w-full flex items-start gap-2 px-3 py-2 text-left hover:bg-app-hover transition-colors"
+                {group.items.map((c) => (
+                  <div
+                    key={c.id}
+                    className={cn(
+                      "group relative flex items-center gap-1.5 px-3 py-2 hover:bg-app-hover transition-colors",
+                      c.id === activeId && "bg-brand-subtle",
+                    )}
                   >
-                    <ProviderLogo providerId={execution.provider} size="xs" bare />
-                    <span className="min-w-0 flex-1">
-                      <span className={cn("block text-[11px] truncate", execution.status === "failed" ? "text-danger" : "text-tx-primary")}>
-                        {execution.user_prompt}
-                      </span>
-                      <span className="block text-[10px] text-tx-muted font-mono truncate">{execution.model}</span>
-                    </span>
-                    <ChevronRight size={11} className="text-tx-muted flex-shrink-0 mt-0.5" />
-                  </button>
+                    {renamingId === c.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => {
+                          if (renameValue.trim()) onRename(c.id, renameValue.trim());
+                          setRenamingId(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            if (renameValue.trim()) onRename(c.id, renameValue.trim());
+                            setRenamingId(null);
+                          }
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        aria-label="Rename conversation"
+                        className="flex-1 min-w-0 rounded border border-brand bg-app-bg px-1.5 py-0.5 text-[11px] text-tx-primary outline-none"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => onSelect(c.id)}
+                        className="flex-1 min-w-0 text-left"
+                      >
+                        <span className="flex items-center gap-1 text-[11px] text-tx-primary truncate">
+                          {c.pinned && <Pin size={9} className="text-brand flex-shrink-0" />}
+                          {conversationTitle(c)}
+                        </span>
+                        <span className="block text-[10px] text-tx-muted">{c.turns.length} message{c.turns.length === 1 ? "" : "s"}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setMenuFor((prev) => (prev === c.id ? null : c.id))}
+                      aria-label={`Conversation options for ${conversationTitle(c)}`}
+                      className="p-1 text-tx-muted hover:text-tx-primary opacity-0 group-hover:opacity-100 flex-shrink-0"
+                    >
+                      <MoreVertical size={13} />
+                    </button>
+                    {menuFor === c.id && (
+                      <div className="absolute right-2 top-8 z-10 w-40 rounded-lg border border-border-subtle bg-app-card shadow-elevated py-1">
+                        <MenuItem
+                          icon={c.pinned ? PinOff : Pin}
+                          label={c.pinned ? "Unpin" : "Pin"}
+                          onClick={() => {
+                            onTogglePin(c.id);
+                            setMenuFor(null);
+                          }}
+                        />
+                        <MenuItem
+                          icon={Copy}
+                          label="Rename"
+                          onClick={() => {
+                            setRenamingId(c.id);
+                            setRenameValue(conversationTitle(c));
+                            setMenuFor(null);
+                          }}
+                        />
+                        <MenuItem
+                          icon={Copy}
+                          label="Duplicate"
+                          onClick={() => {
+                            onDuplicate(c.id);
+                            setMenuFor(null);
+                          }}
+                        />
+                        <MenuItem
+                          icon={Download}
+                          label="Export"
+                          onClick={() => {
+                            const blob = new Blob([exportConversationMarkdown(c)], { type: "text/markdown" });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `costorah-${conversationTitle(c).replace(/\W+/g, "-").toLowerCase() || "conversation"}.md`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                            setMenuFor(null);
+                          }}
+                        />
+                        <MenuItem
+                          icon={Trash2}
+                          label="Delete"
+                          danger
+                          onClick={() => {
+                            onDelete(c.id);
+                            setMenuFor(null);
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             ))
@@ -140,6 +229,31 @@ export default function HistorySidebar({ organizationId, onSelect, onNewChat }: 
         </div>
       </div>
     </div>
+  );
+}
+
+function MenuItem({
+  icon: Icon,
+  label,
+  onClick,
+  danger,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "w-full flex items-center gap-2 px-3 py-1.5 text-[11px] text-left hover:bg-app-hover",
+        danger ? "text-danger" : "text-tx-secondary",
+      )}
+    >
+      <Icon size={12} /> {label}
+    </button>
   );
 }
 
@@ -154,7 +268,7 @@ export function MobileHistoryToggle({ open, onToggle }: { open: boolean; onToggl
       aria-expanded={open}
     >
       <ChevronLeft size={13} className={cn("transition-transform", open && "rotate-180")} />
-      {open ? "Hide history" : "Chat history"}
+      {open ? "Hide conversations" : "Conversations"}
     </button>
   );
 }

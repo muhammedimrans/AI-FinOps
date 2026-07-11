@@ -4752,3 +4752,119 @@ Cross-provider comparison is populated **lazily**: `ChatTab` only fetches every 
 5. **Responsiveness** — three-column desktop layout collapses to a single column below `lg`; the history sidebar becomes an on-demand toggle rather than a fixed panel on mobile; Compare's result grid is 1/2/3 columns (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3`); every existing responsive convention from EP-25.4 (`Section`, `EmptyState`, button sizing) is unchanged and reused.
 6. **Validation results** — backend: unaffected, not re-run (no backend file changed; last known state 2016 passed, unchanged by this EP). Frontend: `vitest run` → **355 passed** (0 failed); `eslint src --max-warnings 0` → clean; `npx tsc -b` → clean; `vite build` → clean.
 7. **Future enhancement opportunities** — see "Future extensibility" above: Prompt Library/Templates, real token streaming (needs a backend change, out of scope here), eager cross-connection catalog warming for Cost Analysis, and real multi-turn "Continue" (needs a backend conversation entity).
+
+---
+
+# EP-25.4.3 — AI Playground Professional Polish & Production UX
+
+**Status: complete.** A pure frontend redesign layered on top of EP-25.4 (§"AI Playground (Prompt Studio)") and EP-25.4.1's own UX pass (§"AI Playground UX Redesign") — zero backend file touched (confirmed via `git status --porcelain` against every non-`apps/dashboard` path before finishing this EP), zero API contract change, zero change to `PlaygroundService`, any provider adapter, pricing, analytics, or usage recording. Every requirement was implemented as a genuine capability grounded in real data this app already has, or explicitly disclosed as not-yet-real (streaming, retry count, raw provider payloads) — never fabricated to satisfy a checklist item, consistent with this codebase's standing no-fake-functionality discipline.
+
+## Why this EP reuses almost everything EP-25.4/EP-25.4.1 already built
+
+Every backend capability this redesign surfaces already existed: `PlaygroundExecutionRecord`'s real token/cost/latency fields (EP-25.4), the live per-connection model catalog (EP-26.0.1/EP-26.0.2), `ProviderCapabilities`' six real flags (EP-06), and the FastAPI router's own declared `201 Created` status codes (`app/api/v1/playground.py`, read-only, unmodified). What EP-25.4.1 had not yet built was: a real multi-chat conversation experience (it modeled one flat, single "chat" per page-load), a slide-out execution inspector, a per-turn provider/model info header, a professional prompt editor, and a Playground-native homepage. This EP builds exactly those, composing the same `MessageBubble`/`ConfigPanel`/`CompareResultCard`/`HistorySidebar` component shells EP-25.4.1 introduced rather than replacing them wholesale.
+
+## Architecture — new `apps/dashboard/src/features/playground/` modules
+
+```
+conversations.ts          — client-only conversation-memory model (Conversation, storage,
+                             grouping, markdown export) — see "Conversation memory" below
+useConversations.ts       — the one hook (list, active, createNew, setTurns, rename,
+                             togglePin, remove, duplicate) shared by ChatTab, HistorySidebar,
+                             and PlaygroundHome's "Recent conversations"
+PromptEditor.tsx           — Part 4: auto-growing textarea, Ctrl+Enter to send, char/token/
+                             byte counters, disabled "Attach" (Coming soon), Clear
+ProviderHeaderChips.tsx    — Part 3: logo, model, platform badge, validation status, latency,
+                             cost, context window, capability tags — rendered above every
+                             completed assistant response
+PipelineTimeline.tsx       — Part 7: the 8-stage pipeline visualization — see "Pipeline
+                             timeline" below for exactly what's measured vs. inferred
+ExecutionDetailsDrawer.tsx — Part 6: the slide-out inspector — see "Execution Details
+                             Drawer" below for the real/known/disclosed breakdown
+SessionAnalyticsSidebar.tsx — Part 13: current-session requests/tokens/cost/avg latency/
+                             most-used model/provider, computed client-side from this
+                             browser session's own completed turns
+ModelInfoPanel.tsx         — Part 10: context window, pricing, capability checkmarks,
+                             explicitly-disclosed "Reasoning: Not tracked" / "Knowledge
+                             cutoff: Not available" rows — see "Model information" below
+PlaygroundHome.tsx         — Part 9: welcome page, suggested prompts, provider cards,
+                             recent conversations — shown whenever no conversation is active
+```
+
+Every one of these composes existing, unmodified primitives — `ProviderLogo`/`getProviderBrand` (EP-26.0.4), `EmptyState`, `ConfirmDialog`, `Section`, the `glass-card`/`badge`/`success`/`warning`/`danger`/`info`/`brand` Tailwind tokens — no new design-system component was introduced.
+
+## Conversation memory (Parts 8/9/12)
+
+Costorah's backend has **no server-side conversation/thread entity** — unchanged since EP-25.4; every `PlaygroundExecution` row is still one independent prompt/response pair. `conversations.ts` is therefore the same category of honest, disclosed client-only layer this codebase has used before for "the backend genuinely doesn't have this yet" gaps (e.g. the EP-25.4.1 UX redesign's own local-conversation groundwork) — its own header comment states this plainly. A `Conversation` (`id`, `name`, `pinned`, `turns[]`, `createdAt`, `updatedAt`) is persisted to `localStorage`, keyed per organization (`costorah:playground:conversations:${organizationId}`), via `useConversations`. Individual **turns** inside a conversation remain backed by a real, persisted `PlaygroundExecution` row once they succeed — deleting a message still calls the real `DELETE .../history/{id}` endpoint (unchanged from EP-25.4.1); renaming/pinning/duplicating/deleting a **conversation** is purely local memory and never touches a backend row. The standalone History tab (Part 12's other half) is intentionally **not** replaced by this local layer — it continues to browse real, individually-persisted `PlaygroundExecution` rows via `listPlaygroundHistory`, searchable/filterable/re-runnable exactly as EP-25.4.1 built it. `HistorySidebar.tsx`'s own header comment makes this split explicit: the Chat tab's left rail is now a ChatGPT-style conversation manager (local); the History tab is the real backend-execution search surface (unchanged).
+
+`groupConversationsByRecency()` buckets into Pinned (shown first, any date) → Today → Yesterday → This Week → Older, grouped by `updatedAt` (last activity), not `createdAt`. `conversationTitle()` derives a display title from the first real user prompt once a conversation has one, falling back to "New chat" otherwise — never a fabricated summary.
+
+## Provider header & response layout (Parts 2/3)
+
+`MessageBubble.tsx` was rewritten in place: user messages render right-aligned in a solid `bg-primary` bubble; assistant responses render left-aligned with `ProviderHeaderChips` mounted directly above the response text — logo, display name, model id, an optional Platform/Service badge (Google's AI Studio identity, EP-26.0.2, reused unchanged), a per-connection validation-status chip, and real latency/cost/context-window/capability badges, all sourced from the `PlaygroundExecutionRecord` and the connection's own live model-catalog entry — never invented. Timestamps render below each bubble (`formatTime`, derived from `execution.created_at`).
+
+## Prompt editor (Part 4)
+
+`PromptEditor.tsx` replaces the plain `<textarea>` composer: auto-grows up to 320px via a `useEffect` on `value` (`el.style.height = "auto"` then `scrollHeight`-driven), sends on **Ctrl/Cmd+Enter** (a deliberate behavior change from EP-25.4.1's plain-Enter-to-send, matching every reference product named in this EP's brief — plain Enter now inserts a newline), shows a live character count, a rough `Math.ceil(chars / 4)` token estimate (the same "~4 chars/token" heuristic every major provider's own docs use for ballpark estimates — labeled "(est.)" via both a `title` attribute and inline text, never presented as the real, provider-returned count, which only exists once a response actually arrives), a byte-size readout, a Clear button, and a disabled "Attach file" button carrying a visible "Coming soon" badge rather than a silent no-op. A `/`-at-start-of-empty-input hook point is wired for future slash commands but intentionally implements nothing yet (Part 4's own "future-ready" framing) — typing `/` today just types `/`.
+
+## Response actions (Part 5)
+
+Every completed assistant turn's action row now has 9 real actions: **Copy** (clipboard), **Retry** (re-runs the exact same turn in place, using the turn's own captured `connectionId`/`model`/`systemPrompt`/`userPrompt` — never whatever happens to be live in the composer at click time, which is the direct correctness property EP-25.4.1's original `retry()`/`regenerate()` split left ambiguous; this EP consolidates both into one `onRetry` that was always correct by construction, since a `ConversationTurn` already captures its own params immutably), **Continue** (sends one new, independent request with the fixed instruction "Please continue your previous response." — disclosed via the button's own `title` tooltip that this is *not* real conversation-history continuation, since Playground requests carry no history, EP-25.4's own architecture), **Download Markdown**, **Download JSON** (the full raw `PlaygroundExecutionRecord`, via `Blob`/`URL.createObjectURL`), **Share** (`navigator.share()` with a clipboard-copy fallback when unavailable), **View Raw JSON** (toggles an inline `<pre>` block of the same execution record), **View Execution Details** (opens the new drawer, below), and **Delete** (calls the real `DELETE .../history/{id}` when the turn has a persisted execution).
+
+## Execution Details Drawer (Part 6) — real vs. known vs. disclosed
+
+`ExecutionDetailsDrawer.tsx` is a right-sliding panel (`framer-motion`, focus-on-open, Escape-to-close, backdrop click-to-close — the same accessibility conventions `Dialog.tsx` already established, applied to a slide-out shape rather than a centered modal). Every field is one of three honest categories, and each row's own inline comment states which:
+
+| Field | Category |
+|---|---|
+| Execution ID, provider connection, token usage, cost, full response payload | **Real** — directly from `PlaygroundExecutionRecord` |
+| Request payload | **Real** — the literal JSON this browser sent (we're the one who constructed it) |
+| Endpoint (`POST /playground/execute`) | **Known** — a static fact of this app's own API surface, not echoed back by the response |
+| HTTP status (`201 Created`) | **Known** — verified by reading `app/api/v1/playground.py`'s router decorator directly (read-only, unmodified this EP); the frontend's generic HTTP client doesn't surface status codes to callers on success, so this is stated from the route declaration, not measured per-request |
+| Headers (safe only) | **Known** — only the headers this browser actually sent to Costorah's own API (`Accept`, `Content-Type`, a redacted `Authorization`); explicitly labeled as never the provider's own request/response headers, which Costorah's API doesn't return to the client |
+| Retry count | **Disclosed as not exposed** — HTTP-layer retries happen server-side (EP-06/EP-07's `ExponentialRetryPolicy`) but aren't counted per request in any API response; the row says so in place of a fabricated number |
+
+No backend file changed to add this drawer — every value already existed in `PlaygroundExecutionRecord` or was already known client-side before the request was sent.
+
+## Pipeline timeline (Part 7) — inferred, not measured, and disclosed as such
+
+`PipelineTimeline.tsx` renders the 8 named stages (Request Created → Sent to Provider → Provider Processing → Response Received → Usage Recorded → Dashboard Updated → Budget Evaluation → Completed) as a vertical, colored timeline. `stagesFor(turn)` is a pure function mapping a turn's actual state (`isPending`, `execution`, `error`) to per-stage `done`/`active`/`pending`/`failed`/`skipped` — there is no per-stage timestamp or telemetry anywhere in the backend to measure this against, so every stage's status is *inferred* from the one real signal Costorah has (the terminal outcome), grounded specifically in `PlaygroundService`'s own documented "no usage on failure" contract (EP-25.4, §"The 'no usage on failure' contract"): a **failed** turn's later stages (Usage Recorded, Dashboard Updated, Budget Evaluation) are marked `skipped` — accurate, since a failed provider call genuinely never reaches those steps — never `pending` (which would imply they might still happen) or `done` (which would be false). The component's own header comment states this inference explicitly rather than presenting the timeline as measured instrumentation.
+
+## Model information (Part 10)
+
+`ModelInfoPanel.tsx` (surfaced via a new "Model details" toggle in `ConfigPanel.tsx`'s Provider & Model section) shows context window, max output tokens, and real input/output per-1k pricing (all from `PlaygroundModelInfo`, EP-26.0.1/EP-26.0.2's live model catalogs), then a capability checkmark grid over exactly 5 of the 6 real `ModelCapabilityFlag` enum values (`streaming`/`vision`/`audio`/`function_calling`/`tool_calling` — `fine_tuning` omitted as not relevant to a chat-completion context), a deprecated-model warning banner when `is_deprecated`, and a link to the provider's own documentation. Two rows are explicit, deliberate disclosures rather than fabrications: **"Reasoning" is labeled "Not tracked"** (verified directly against `app/providers/models.py`'s `ModelCapabilityFlag` enum before writing this component — there is no reasoning flag anywhere in the backend's model), and **"Knowledge cutoff" is labeled "Not available"** (`ModelMetadata` has no such field). Both carry a `title` tooltip explaining why, rather than silently omitting the row or guessing a plausible-looking value.
+
+## Compare mode redesign (Part 11)
+
+`CompareResultCard.tsx` gained a `model: PlaygroundModelInfo | undefined` prop and a new **Largest context** badge (alongside the existing Fastest/Cheapest, EP-25.4.1) — all three badges are objectively measurable from real data (`latency_ms`, `estimated_cost`, `context_window`). Two new derived badge rows, **Strengths** and **Weaknesses**, are built only from real, verifiable facts: strengths from `context_window >= 200_000`, `input_cost_per_1k < 0.001`, and the connection's real capability tags (Provider Brand Registry, EP-26.0.4); weaknesses from `is_deprecated`, missing pricing, or a missing context-window value. **"Most Accurate" was deliberately not implemented** — the component's own comment states why: Costorah has no ground-truth mechanism to grade a response's correctness, and fabricating a quality judgment here would be exactly the kind of invented data this codebase's no-fake-functionality convention forbids, directly contradicting the task's own "only when measurable" instruction. `Playground.tsx`'s `CompareTab` now fetches each selected connection's live model catalog (`useQueries`, the same `["playground-models", ...]` query key every other part of this page already uses) to feed `model`/`isLargestContext` into every result card.
+
+## Playground homepage (Part 9)
+
+`PlaygroundHome.tsx` renders whenever no conversation is active — a welcome header, 6 suggested-prompt cards (clicking one starts a new conversation and pre-fills the composer with that prompt), a "Your providers" grid built from the org's real `PlaygroundConnectionOption` list (or a "Connect your first provider" CTA when empty), and up to 5 "Recent conversations" entries (real, local `Conversation` records, via `conversationTitle()`). Starting a new chat (either via "Start a new chat," the sidebar's "New chat," or a suggested prompt) transitions straight to the composer — the homepage is never shown again for that conversation, mirroring every reference product's own "home disappears once you're chatting" convention.
+
+## Session analytics (Part 13)
+
+`SessionAnalyticsSidebar.tsx`, mounted below `ConfigPanel` in the right-hand column (not a 4th layout column), computes Requests/Tokens/Cost/Avg latency/Most-used model/Most-used provider entirely client-side, from **this browser session's own succeeded turns across every local conversation** — explicitly labeled "Current session," never "All time" or "This organization," since that's genuinely its scope: closing the tab loses this view, though the underlying `PlaygroundExecution` rows remain real and are still fully visible in the standalone History tab and in Analytics regardless.
+
+## Mobile UX (Part 14) & micro-animations (Part 15)
+
+The three-column desktop layout (`flex-col lg:flex-row`) collapses to a single column below `lg`; the history sidebar becomes an on-demand `MobileHistoryToggle`-gated panel rather than a fixed column; the Execution Details Drawer slides in as a full-height right panel at every viewport width (no separate mobile treatment needed — a slide-out is already mobile-appropriate); action buttons wrap (`flex-wrap`) rather than overflowing; Compare's result grid is 1/2/3 columns (`grid-cols-1 md:grid-cols-2 xl:grid-cols-3`, unchanged from EP-25.4.1). Animation is deliberately restrained per the task's own "do NOT over-animate" instruction: a `framer-motion` fade/slide on each new message bubble (unchanged from EP-25.4.1), a 3-dot bounce + "Thinking…"/"Generating response…" label while a request is pending (staged via a 450ms `useStageLabel` timeout — no fabricated progress bar, since there is nothing to measure progress against for a synchronous request), and the drawer's own slide-in/fade transition — nothing beyond that.
+
+## Empty states (Part 16)
+
+The Chat tab's "no provider configured" state (unchanged `EmptyState` + "Go to Connections" CTA), the "start a conversation" state (shown once a conversation exists but has zero turns), and the homepage itself (Part 9, effectively the richest empty state — suggested prompts, provider cards, recent conversations) together cover every "nothing here yet" condition this page can be in; none render a bare "no data" message with no next action.
+
+## Testing
+
+- `src/__tests__/Playground.test.tsx` — rewritten in full (25 tests, up from the prior 12): provider/model catalog rendering, ProviderInfoCard health/capabilities, the homepage's suggested-prompt/provider-card rendering, disabled no-credential connections, starting a new chat clears the homepage, a suggested prompt pre-fills the composer, sending a prompt clears the composer and shows the real response/stats, Ctrl+Enter sends, the full 8-action response row renders, Retry re-sends the turn's own captured params (not live composer state), View Execution Details opens the drawer with the real execution id and the known `201 Created` status, Cost Analysis still opens, the no-provider and Personal-workspace-hides-Project-selector states, the new Model Details toggle, a sent conversation appears in the sidebar under "Today" and New chat starts a genuinely fresh, empty conversation, and the session-analytics sidebar reflects a successful send. History tab (5 tests) and Compare tab (2 tests) are unchanged from EP-25.4.1, since neither's underlying behavior was touched by this EP.
+- Full dashboard suite: **362 passed** (up from 355 pre-EP), lint clean (`eslint src --max-warnings 0`), typecheck clean (`tsc -b`), production build clean (`vite build`).
+
+## Final report
+
+1. **Files changed** — New: `apps/dashboard/src/features/playground/{conversations,useConversations,PromptEditor,ProviderHeaderChips,PipelineTimeline,ExecutionDetailsDrawer,SessionAnalyticsSidebar,ModelInfoPanel,PlaygroundHome}.{ts,tsx}`. Rewritten: `apps/dashboard/src/features/Playground.tsx`, `apps/dashboard/src/features/playground/{MessageBubble,CompareResultCard,HistorySidebar,ConfigPanel}.tsx`, `apps/dashboard/src/__tests__/Playground.test.tsx`. No backend file touched.
+2. **Components redesigned** — the entire Chat tab (conversation memory, provider header chips, prompt editor, response actions, execution drawer, session analytics, homepage), Compare tab (strengths/weaknesses/largest-context badges), and the config panel (Model Details).
+3. **UX improvements** — see each Part's own section above; every one of the 17 parts was implemented with real data or an explicitly disclosed limitation, never a fabricated field.
+4. **Performance improvements** — Compare mode's per-connection model-catalog fetches reuse the exact same query key/cache as the Chat tab's Cost Analysis feature (no duplicate network shape); the homepage renders zero extra queries beyond what the page already fetches (connections, projects); the pipeline timeline and session analytics are both pure client-side derivations over data already in memory, with no additional API calls.
+5. **Mobile improvements** — see "Mobile UX" above: collapsing sidebar, wrapping action rows, a full-height slide-out drawer at every breakpoint, unchanged responsive grid conventions from EP-25.4.1.
+6. **Accessibility improvements** — every new interactive element carries an accessible name (`aria-label` or visible text); the execution drawer uses `role="dialog"`/`aria-modal`/focus-on-open/Escape-to-close; collapsible sections expose `aria-expanded`; Ctrl+Enter is additive (plain Enter still inserts a newline, unlike a send-only binding that would trap keyboard users mid-thought).
+7. **Validation** — backend: unaffected, confirmed via `git status --porcelain` showing zero non-`apps/dashboard`/non-`CLAUDE.md` changes. Frontend: `vitest run` → 362 passed; `eslint src --max-warnings 0` → clean; `npx tsc -b` → clean; `vite build` → clean.
+8. **Remaining future opportunities** — real token-by-token streaming (needs a backend SSE/WebSocket response path, explicitly out of this EP's frontend-only scope); genuine multi-turn "Continue" (needs a backend conversation entity); slash commands (the hook point exists, no commands implemented); an "Attach file" capability (currently honestly disabled); eager (rather than lazy) cross-connection model-catalog warming for Compare/Cost Analysis if the extra background requests are ever judged worth it at scale.

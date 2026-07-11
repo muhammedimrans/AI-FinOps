@@ -38,6 +38,7 @@ import {
   AlertOctagon,
   Bell,
   TrendingUp as TrendingUpIcon,
+  Info,
 } from "lucide-react";
 import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
@@ -85,26 +86,41 @@ interface ChecklistItem {
   label: string;
   done: boolean;
   to: string;
+  /** Shown under the label when the item can't be checked off — e.g.
+   * "usage can never be imported for this provider," not just "not done
+   * yet." EP-26.0.3.2. */
+  note?: string | undefined;
 }
 
 export function GettingStartedBanner() {
   const progress = useDashboardState();
   if (progress.isLoading) return null;
 
-  const { hasConnections, hasValidatedConnection, hasProjects, hasUsage } = progress;
+  const { hasConnections, hasValidatedConnection, hasProjects, hasUsage, hasUsageCapableConnection } =
+    progress;
   const allDone = hasConnections && hasValidatedConnection && hasProjects && hasUsage;
   if (allDone) return null;
+
+  // EP-26.0.3.2 — a validated connection whose provider has no bulk usage
+  // API (Google/Azure/Grok/Ollama) can never make "Generate AI Usage"/"View
+  // Analytics" complete on its own. Rather than leaving those two items
+  // looking like an indefinitely-stuck todo, disclose why once the
+  // connection is validated but usage genuinely can't come from it.
+  const usageWillNeverArrive = hasValidatedConnection && !hasUsageCapableConnection && !hasUsage;
+  const usageNote = usageWillNeverArrive
+    ? "Connected provider doesn't expose historical usage — this is expected, not an error."
+    : undefined;
 
   const items: ChecklistItem[] = [
     { label: "Connect Provider", done: hasConnections, to: "/connections" },
     { label: "Validate Provider", done: hasValidatedConnection, to: "/connections" },
     { label: "Create Project", done: hasProjects, to: "/projects" },
-    { label: "Generate AI Usage", done: hasUsage, to: "/api-keys" },
+    { label: "Generate AI Usage", done: hasUsage, to: "/api-keys", note: usageNote },
     // "View Analytics" tracks the same signal as "Generate AI Usage" —
     // this page *is* the analytics view, so once usage exists there is
     // nothing further to detect; no separate "has visited" flag is
     // introduced (would be duplicate state the spec explicitly forbids).
-    { label: "View Analytics", done: hasUsage, to: "/analytics" },
+    { label: "View Analytics", done: hasUsage, to: "/analytics", note: usageNote },
   ];
   const doneCount = items.filter((i) => i.done).length;
 
@@ -134,22 +150,29 @@ export function GettingStartedBanner() {
             key={item.label}
             className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 -mx-2.5 hover:bg-app-hover/40 transition-colors duration-fast"
           >
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-start gap-2.5 min-w-0">
               {item.done ? (
-                <CheckCircle2 size={16} className="text-success flex-shrink-0" />
+                <CheckCircle2 size={16} className="text-success flex-shrink-0 mt-0.5" />
               ) : (
-                <Circle size={16} className="text-tx-muted flex-shrink-0" />
+                <Circle size={16} className="text-tx-muted flex-shrink-0 mt-0.5" />
               )}
-              <span
-                className={cn(
-                  "text-sm truncate",
-                  item.done ? "text-tx-muted line-through" : "text-tx-primary font-medium",
+              <div className="min-w-0">
+                <span
+                  className={cn(
+                    "text-sm truncate block",
+                    item.done ? "text-tx-muted line-through" : "text-tx-primary font-medium",
+                  )}
+                >
+                  {item.label}
+                </span>
+                {!item.done && item.note && (
+                  <span className="text-[11px] text-tx-muted leading-snug block mt-0.5">
+                    {item.note}
+                  </span>
                 )}
-              >
-                {item.label}
-              </span>
+              </div>
             </div>
-            {!item.done && (
+            {!item.done && !item.note && (
               <Link
                 to={item.to}
                 className="btn-outline h-7 px-3 text-[11px] flex-shrink-0 whitespace-nowrap"
@@ -167,7 +190,16 @@ export function GettingStartedBanner() {
 // EP-22.3 — Dashboard State Machine hero. Renders in place of "everything
 // looks empty" for states 1-3; returns null once usage exists (state 4),
 // letting the full KPI/chart dashboard below carry the page on its own.
-export function DashboardStateHero({ state }: { state: DashboardSetupState }) {
+export function DashboardStateHero({
+  state,
+  usageCapable = true,
+}: {
+  state: DashboardSetupState;
+  /** False when every validated connection is for a provider with no bulk
+   * usage-history API (Google/Azure/Grok/Ollama) — state 3's copy must not
+   * imply usage is merely delayed when it can never arrive. EP-26.0.3.2. */
+  usageCapable?: boolean;
+}) {
   if (state === 4) return null;
 
   if (state === 1) {
@@ -228,6 +260,38 @@ export function DashboardStateHero({ state }: { state: DashboardSetupState }) {
   }
 
   // state === 3
+  //
+  // EP-26.0.3.2 — a validated connection that lacks a bulk usage API
+  // (Google/Azure/Grok/Ollama) will NEVER produce usage on its own — this
+  // is the honest branch, distinct from the general "waiting for your
+  // first request" copy below, which only applies to providers that
+  // genuinely sync usage automatically once requests happen.
+  if (!usageCapable) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card rounded-card-lg border border-border-subtle p-6 sm:p-10 text-center"
+      >
+        <div className="w-14 h-14 rounded-2xl bg-info-dim flex items-center justify-center mx-auto mb-4">
+          <Info size={24} className="text-info" />
+        </div>
+        <h2 className="font-display text-xl sm:text-2xl font-bold text-tx-primary mb-2">
+          Connected — historical usage unavailable
+        </h2>
+        <p className="text-sm text-tx-muted max-w-md mx-auto leading-relaxed mb-4">
+          Your provider is connected and its credentials are valid. This provider doesn&apos;t
+          expose a bulk usage-history API, so Costorah has nothing to import from it — that&apos;s
+          expected, not an error, and won&apos;t change over time. Connect a provider that supports
+          usage sync (OpenAI, Anthropic, or OpenRouter) to see spend data here.
+        </p>
+        <Link to="/connections" className="btn-primary h-10 px-5 text-sm inline-flex">
+          View Providers
+        </Link>
+      </motion.div>
+    );
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -262,7 +326,13 @@ export function DashboardStateHero({ state }: { state: DashboardSetupState }) {
 // EP-22.3 — contextual replacements for ChartCard's generic "No data for
 // this period" empty state, matched to the dashboard state machine so a
 // brand-new org sees guidance instead of a dead end.
-function SpendTrendEmpty({ state }: { state: DashboardSetupState }) {
+function SpendTrendEmpty({
+  state,
+  usageCapable = true,
+}: {
+  state: DashboardSetupState;
+  usageCapable?: boolean;
+}) {
   if (state === 1) {
     return (
       <div className="flex flex-col items-center text-center px-6">
@@ -274,6 +344,23 @@ function SpendTrendEmpty({ state }: { state: DashboardSetupState }) {
         <Link to="/connections" className="btn-primary h-8 px-3.5 text-xs">
           Connect Provider
         </Link>
+      </div>
+    );
+  }
+  // EP-26.0.3.2 — consistent with DashboardStateHero's state-3 branch: a
+  // usage-incapable provider will never populate this chart, so don't
+  // imply it's merely a matter of time.
+  if (state === 3 && !usageCapable) {
+    return (
+      <div className="flex flex-col items-center text-center px-6">
+        <div className="w-10 h-10 rounded-xl bg-info-dim flex items-center justify-center mb-3">
+          <Info size={18} className="text-info" />
+        </div>
+        <p className="text-sm font-medium text-tx-primary mb-0.5">Historical usage unavailable.</p>
+        <p className="text-xs text-tx-muted max-w-xs leading-relaxed">
+          Your connected provider doesn&apos;t expose a bulk usage-history API — this chart won&apos;t
+          populate from it. This is expected, not an error.
+        </p>
       </div>
     );
   }
@@ -644,7 +731,12 @@ export default function Overview() {
 
       <GettingStartedBanner />
 
-      {!dashboardState.isLoading && <DashboardStateHero state={dashboardState.state} />}
+      {!dashboardState.isLoading && (
+        <DashboardStateHero
+          state={dashboardState.state}
+          usageCapable={dashboardState.hasUsageCapableConnection}
+        />
+      )}
 
       {/* Live-update strip — appears once a usage.created event has landed
           since the socket connected; the KPI numbers below refresh via the
@@ -835,7 +927,12 @@ export default function Overview() {
         error={timeSeries.error ? "Failed to load" : null}
         empty={chartData.length === 0}
         emptyContent={
-          chartData.length === 0 ? <SpendTrendEmpty state={dashboardState.state} /> : undefined
+          chartData.length === 0 ? (
+            <SpendTrendEmpty
+              state={dashboardState.state}
+              usageCapable={dashboardState.hasUsageCapableConnection}
+            />
+          ) : undefined
         }
         actions={
           <GranularityTabs

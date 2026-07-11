@@ -1126,6 +1126,23 @@ export default function Connections() {
 
       <ManageConnectionsSection />
 
+      {/* EP-26.0.3.2 — everything below this point is a separate, internal
+          diagnostic surface: it tests Costorah's own server-side
+          environment-variable-keyed credentials (an ops/staging probe from
+          EP-07), never a customer's own connections managed above. A
+          provider can be fully connected, validated, and syncing above
+          while still showing here — that's expected, not a contradiction,
+          since the two sections check entirely different credentials. */}
+      <div className="pt-2">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-tx-muted mb-1">
+          Platform diagnostics
+        </p>
+        <p className="text-xs text-tx-muted max-w-2xl">
+          Internal connectivity checks against Costorah&apos;s own server-side credentials — unrelated
+          to the customer connections you manage above.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {PRODUCTION_ADAPTERS.map((p, i) => (
           <ProductionProviderCard key={p} providerId={p} index={i} />
@@ -1133,8 +1150,8 @@ export default function Connections() {
       </div>
 
       <Section
-        title="Adapters in development"
-        description="Registered in the platform but not yet promoted to production — connection testing is unavailable until each adapter ships."
+        title="Other adapters (platform diagnostics only)"
+        description="These providers don't yet have a server-side ops credential wired up for this internal check. This has no bearing on your own connections above — a provider you've connected and validated can appear here too."
         icon={Wrench}
       >
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -1147,7 +1164,7 @@ export default function Connections() {
                 <PlugZap size={15} className="text-tx-muted" />
               </div>
               <span className="text-xs font-medium text-tx-secondary">{adapterLabel(p)}</span>
-              <span className="badge bg-app-muted text-tx-muted text-[9px]">In development</span>
+              <span className="badge bg-app-muted text-tx-muted text-[9px]">No ops probe</span>
             </div>
           ))}
         </div>

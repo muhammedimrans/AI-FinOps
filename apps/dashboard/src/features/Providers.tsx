@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   BarChart,
   Bar,
@@ -12,23 +13,95 @@ import {
   Pie,
 } from "recharts";
 import { motion } from "framer-motion";
-import { TrendingUp, Activity, Boxes, Zap, Plug } from "lucide-react";
+import { TrendingUp, Activity, Boxes, Zap, Plug, Info } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import ProviderBadge from "../components/ProviderBadge";
+import ProviderLogo from "../components/ProviderLogo";
 import { useProviders, useModels } from "../hooks/useDashboard";
-import { formatCost, formatNumber, formatTokens, providerDisplayName } from "../utils";
+import { listProviderConnections } from "../services/api";
+import { formatCost, formatNumber, formatTokens, providerDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
-import { PROVIDER_CATALOG, PROVIDER_COLORS } from "../lib/providerCatalog";
+import { PROVIDER_CATALOG, PROVIDER_COLORS, hasKnownUsageApi, getProviderBrand } from "../lib/providerCatalog";
 
 type Metric = "cost" | "requests" | "tokens";
 
+// EP-26.0.3.2 — this page renders purely from UsageCostRecord aggregation
+// (GET /v1/dashboard/providers, EP-24.1), never from ProviderConnection
+// rows — by design, since it's a spend/usage breakdown, not a connection
+// manager (that's the Connections page). But a healthy, validated
+// connection with zero usage (Google/Azure/Grok/Ollama, EP-24.3) must not
+// look identical to "you haven't connected anything" — this component
+// distinguishes the two using the same shared `["provider-connections", ...]`
+// query key Connections.tsx/useDashboardState already use, so it's never a
+// second, out-of-sync fetch.
+function ConnectedNoUsageState({
+  connections,
+}: {
+  connections: { id: string; provider_type: string; display_name: string; last_validation_status: string | null }[];
+}) {
+  return (
+    <div className="glass-card rounded-card-lg border border-border-subtle p-6 sm:p-8">
+      <div className="flex items-start gap-3 mb-5">
+        <div className="w-9 h-9 rounded-xl bg-info-dim flex items-center justify-center flex-shrink-0">
+          <Info size={16} className="text-info" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-tx-primary">Connected — no spend data yet</p>
+          <p className="text-xs text-tx-muted mt-0.5 max-w-lg leading-relaxed">
+            The provider(s) below are connected and validated. Some don&apos;t expose a bulk
+            usage-history API, so Costorah has nothing to import from them — that&apos;s expected,
+            not an error. Providers that do support usage sync will populate this page
+            automatically once requests are recorded.
+          </p>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {connections.map((c) => {
+          const capable = hasKnownUsageApi(c.provider_type);
+          const brand = getProviderBrand(c.provider_type);
+          return (
+            <div
+              key={c.id}
+              className="flex items-center gap-3 rounded-xl border border-border-subtle p-3"
+            >
+              <ProviderLogo providerId={c.provider_type} size="sm" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-tx-primary truncate">{c.display_name}</p>
+                <p className="text-[11px] text-tx-muted">
+                  {c.last_validation_status === "healthy" ? "Validated" : "Pending validation"} ·{" "}
+                  {brand.platform ?? providerDisplayName(c.provider_type)}
+                </p>
+              </div>
+              <span
+                className={cn(
+                  "badge text-[9px] flex-shrink-0",
+                  capable ? "bg-warning-dim text-warning" : "bg-app-muted text-tx-muted",
+                )}
+              >
+                {capable ? "Waiting for usage" : "No usage API"}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Providers() {
   const { currency } = useUIStore();
+  const { organizationId } = useOrgStore();
   const chrome = useChartChrome();
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
   const tooltipStyle = {
     backgroundColor: chrome.tooltipBg,
     border: `1px solid ${chrome.tooltipBorder}`,
@@ -77,11 +150,15 @@ export default function Providers() {
           ))}
         </div>
       ) : providerList.length === 0 ? (
-        <EmptyState
-          icon={Plug}
-          title="No providers found"
-          description="No AI provider spend in the selected period."
-        />
+        (connections.data?.connections ?? []).length > 0 ? (
+          <ConnectedNoUsageState connections={connections.data!.connections} />
+        ) : (
+          <EmptyState
+            icon={Plug}
+            title="No providers found"
+            description="No AI provider spend in the selected period. Connect a provider to get started."
+          />
+        )
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {providerList.map((p, i) => {

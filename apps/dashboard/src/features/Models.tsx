@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ScatterChart,
   Scatter,
@@ -10,15 +11,17 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Medal, Search } from "lucide-react";
+import { Medal, Search, Info } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
 import ProviderBadge from "../components/ProviderBadge";
-import { PROVIDER_COLORS } from "../lib/providerCatalog";
+import { PROVIDER_COLORS, hasKnownUsageApi } from "../lib/providerCatalog";
 import { useModels } from "../hooks/useDashboard";
+import { listProviderConnections } from "../services/api";
 import { formatCost, formatNumber, formatTokens, modelDisplayName, providerDisplayName, cn } from "../utils";
 import { useUIStore } from "../stores/ui";
+import { useOrgStore } from "../stores/org";
 import { useChartChrome } from "../lib/chartPalette";
 
 function MedalIcon({ rank }: { rank: number }) {
@@ -37,9 +40,24 @@ function EfficiencyBadge({ pctRank }: { pctRank: number }) {
 
 export default function Models() {
   const { currency } = useUIStore();
+  const { organizationId } = useOrgStore();
   const chrome = useChartChrome();
   const [search, setSearch] = useState("");
   const models = useModels();
+  // EP-26.0.3.2 — this page shows models *with recorded usage* (via
+  // GET /v1/dashboard/models, a UsageCostRecord aggregation), by design —
+  // it's a spend leaderboard, not a raw model-discovery catalog (that's
+  // what each connection's live model catalog, EP-26.0.1/26.0.2, is for on
+  // the Connections page). A connected provider with no usage API
+  // (Google/Azure/Grok/Ollama) will therefore correctly show zero rows
+  // here; this connections query (shared query key with
+  // useDashboardState/Connections.tsx — never a second, out-of-sync fetch)
+  // lets the empty state say so honestly instead of a bare "No models found".
+  const connections = useQuery({
+    queryKey: ["provider-connections", organizationId],
+    queryFn: () => listProviderConnections(organizationId!),
+    enabled: !!organizationId,
+  });
 
   const sorted = useMemo(
     () =>
@@ -155,9 +173,34 @@ export default function Models() {
                   ? (
                     <tr>
                       <td colSpan={9} className="py-0">
-                        <div className="flex flex-col items-center justify-center py-10 text-center">
-                          <p className="text-sm font-medium text-tx-primary mb-1">No models found</p>
-                          <p className="text-xs text-tx-muted">Try a different search term.</p>
+                        <div className="flex flex-col items-center justify-center py-10 text-center px-6">
+                          {search ? (
+                            <>
+                              <p className="text-sm font-medium text-tx-primary mb-1">No models found</p>
+                              <p className="text-xs text-tx-muted">Try a different search term.</p>
+                            </>
+                          ) : (connections.data?.connections ?? []).length > 0 ? (
+                            <>
+                              <div className="w-9 h-9 rounded-xl bg-info-dim flex items-center justify-center mb-3">
+                                <Info size={16} className="text-info" />
+                              </div>
+                              <p className="text-sm font-medium text-tx-primary mb-1">
+                                No models with recorded usage yet
+                              </p>
+                              <p className="text-xs text-tx-muted max-w-sm leading-relaxed">
+                                {connections.data!.connections.every(
+                                  (c) => !hasKnownUsageApi(c.provider_type),
+                                )
+                                  ? "Your connected provider(s) don't expose a bulk usage-history API, so no per-model spend can be imported — this is expected, not an error."
+                                  : "Models will appear here once your connected providers report usage."}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="text-sm font-medium text-tx-primary mb-1">No models found</p>
+                              <p className="text-xs text-tx-muted">Connect a provider to get started.</p>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>

@@ -169,6 +169,28 @@ describe("GettingStartedBanner (EP-22.3 checklist)", () => {
     expect(screen.getByText("View Analytics").closest("li")!.querySelector("a")).toBeNull();
   });
 
+  // EP-26.0.3.2 — a validated Google (or other usage-incapable) connection
+  // must not leave "Generate AI Usage"/"View Analytics" looking like a
+  // stuck todo with no explanation — they should disclose why, and their
+  // "Go" links (to pages that will never resolve the item) should be hidden.
+  it("shows an honest note instead of a 'Go' link when the only validated connection has no usage API", async () => {
+    mockedApi.listProviderConnections.mockResolvedValue({
+      connections: [connection({ provider_type: "google", last_validation_status: "healthy" })],
+      total: 1,
+    });
+    mockedApi.listProjectsCrud.mockResolvedValue({ projects: [], total: 0 });
+    mockedApi.getOverview.mockResolvedValue(ZERO_OVERVIEW);
+
+    renderBanner();
+
+    expect(await screen.findByText("2 of 5 steps complete")).toBeTruthy();
+    expect(
+      screen.getAllByText(/doesn't expose historical usage/i).length,
+    ).toBeGreaterThanOrEqual(2);
+    const usageRow = screen.getByText("Generate AI Usage").closest("li")!;
+    expect(usageRow.querySelector("a")).toBeNull();
+  });
+
   it("renders nothing once every step is complete", async () => {
     mockedApi.listProviderConnections.mockResolvedValue({
       connections: [connection({ last_validation_status: "healthy" })],

@@ -276,7 +276,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
                         </button>
                         <button
                           onClick={() => setDeleteTarget(k)}
-                          className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-danger inline-flex items-center justify-center"
+                          className="icon-btn icon-btn-danger w-8 h-8"
                           aria-label={`Delete ${k.name}`}
                         >
                           <Trash2 size={14} />

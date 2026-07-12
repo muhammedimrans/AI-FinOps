@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { motion } from "framer-motion";
-import { BarChart3 } from "lucide-react";
+import { AlertCircle, BarChart3 } from "lucide-react";
 import { cn } from "../utils";
 
 interface ChartCardProps {
@@ -35,6 +35,27 @@ function ChartSkeleton({ height }: { height: number }) {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+/* EP-25.5 — a real error state matching ChartEmpty's anatomy (icon chip +
+ * title + explanation), replacing the previous single line of text with a
+ * bare unicode "⚠". Error states deserve the same design care as empty ones. */
+function ChartError({ height }: { height: number }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center px-6"
+      style={{ height }}
+      role="alert"
+    >
+      <div className="w-10 h-10 rounded-xl bg-danger-dim flex items-center justify-center mb-3">
+        <AlertCircle size={18} className="text-danger" />
+      </div>
+      <p className="text-sm font-medium text-tx-primary mb-0.5">Couldn&apos;t load this chart</p>
+      <p className="text-xs text-tx-muted leading-relaxed max-w-xs">
+        The data request failed. It will retry automatically — or reload the page to try again now.
+      </p>
     </div>
   );
 }
@@ -98,9 +119,7 @@ export default function ChartCard({
         {loading ? (
           <ChartSkeleton height={minHeight} />
         ) : error ? (
-          <div className="flex items-center justify-center h-full text-tx-muted text-sm">
-            <span className="text-danger mr-1">⚠</span> Failed to load chart data
-          </div>
+          <ChartError height={minHeight} />
         ) : empty ? (
           emptyContent ? (
             <div className="flex items-center justify-center" style={{ height: minHeight }}>

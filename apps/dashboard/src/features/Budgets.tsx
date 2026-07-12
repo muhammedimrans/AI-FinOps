@@ -385,12 +385,12 @@ function BudgetCard({
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <StatusBadge status={summary.status} />
-          <button onClick={() => setEditing(true)} className="text-tx-muted hover:text-tx-primary" aria-label="Edit budget">
+          <button onClick={() => setEditing(true)} className="icon-btn" aria-label="Edit budget">
             <Pencil size={13} />
           </button>
           <button
             onClick={() => setConfirmingDelete(true)}
-            className="text-tx-muted hover:text-danger"
+            className="icon-btn icon-btn-danger"
             aria-label="Delete budget"
           >
             <Trash2 size={13} />

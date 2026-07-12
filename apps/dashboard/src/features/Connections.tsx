@@ -822,14 +822,14 @@ function ConnectionRow({
               </button>
               <button
                 onClick={() => setEditing(true)}
-                className="text-tx-muted hover:text-tx-primary"
+                className="icon-btn"
                 aria-label="Rename connection"
               >
                 <Pencil size={13} />
               </button>
               <button
                 onClick={() => setConfirmingDelete(true)}
-                className="text-tx-muted hover:text-danger"
+                className="icon-btn icon-btn-danger"
                 aria-label="Delete connection"
               >
                 <Trash2 size={13} />

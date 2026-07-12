@@ -296,7 +296,7 @@ export default function Users() {
                         </button>
                         <button
                           onClick={() => setCancelTarget(inv)}
-                          className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-danger inline-flex items-center justify-center"
+                          className="icon-btn icon-btn-danger w-8 h-8"
                           aria-label={`Cancel invitation to ${inv.email}`}
                         >
                           <X size={14} />
@@ -399,7 +399,7 @@ export default function Users() {
                           <button
                             onClick={() => setRemoveTarget(m)}
                             disabled={isSelf && isTargetOwner}
-                            className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-danger inline-flex items-center justify-center disabled:opacity-30 disabled:hover:text-tx-muted"
+                            className="icon-btn icon-btn-danger w-8 h-8"
                             aria-label={`Remove ${m.email}`}
                           >
                             <Trash2 size={14} />

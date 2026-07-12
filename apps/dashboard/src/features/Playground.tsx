@@ -859,7 +859,7 @@ function HistoryTab({ organizationId }: { organizationId: string }) {
                         type="button"
                         onClick={() => rerun.mutate(execution.id)}
                         disabled={rerun.isPending}
-                        className="p-1.5 text-tx-muted hover:text-tx-primary"
+                        className="icon-btn"
                         aria-label="Re-run"
                         title="Re-run this prompt"
                       >
@@ -868,7 +868,7 @@ function HistoryTab({ organizationId }: { organizationId: string }) {
                       <button
                         type="button"
                         onClick={() => setPendingDelete(execution)}
-                        className="p-1.5 text-tx-muted hover:text-danger"
+                        className="icon-btn icon-btn-danger"
                         aria-label="Delete"
                       >
                         <Trash2 size={13} />

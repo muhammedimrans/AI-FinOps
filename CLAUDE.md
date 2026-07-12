@@ -4943,3 +4943,51 @@ The old "Other adapters (platform diagnostics only)" tile grid — plain grey "N
 3. **Provider changes** — Google Gemini and OpenRouter promoted to "Production Providers" in the customer-facing directory (Azure OpenAI/Grok/Ollama/Cohere remain Preview); the legacy internal ops-probe allowlist (`_PRODUCTION_PROVIDERS`, backend) is unchanged and untouched, since it measures a different, narrower thing than customer-facing production readiness.
 4. **Validation** — `tsc -b` clean, `eslint src --max-warnings 0` clean, `vitest run` → 365 passed, `vite build` clean, zero backend files changed.
 5. **Remaining recommendations** — Azure OpenAI/Grok's own live model catalogs are still static (§ EP-26.0.2.1's own standing recommendation, unaffected by this EP); a future EP could extend `ProviderPromotionCard`'s Context Window/pricing display to pull from a cached catalog rather than requiring the user to open "Live Models" first; the ops-probe diagnostic section could eventually be moved to an admin-only surface now that it's clearly redundant with the customer-facing directory for OpenAI/Anthropic specifically.
+
+---
+
+# EP-25.5 — World-Class Product Design Audit & UX Transformation
+
+**Status: complete.** A design-system/UX/motion/accessibility pass across the entire dashboard — frontend-only (zero backend files touched, confirmed via `git status` before commit), zero functionality removed, zero features simplified, zero fabricated data. The audit-first methodology this EP's own brief mandated ("audit everything before changing anything") produced its most important finding up front: **the baseline was already far stronger than a typical audit target**, because every surface has been built or rebuilt within the last ~15 EPs under this document's own standing conventions. What remained were a handful of genuine, systemic gaps — and this EP fixed exactly those rather than redesigning healthy surfaces to look busy.
+
+## Phase 1 — Audit findings (what was actually wrong, verified by direct read)
+
+**Already at the target bar, needing no change** (each verified by reading the component, not assumed): `ToastContainer` (role="alert"/"status", aria-live, spring pop-layout animations), `MetricCard` (skeleton loading, count-up animation, `tabular-nums`, sparkline, hover glow), `AppLayout` (skip-to-content link, `<main id>` landmark, per-route page transition, Suspense `PageSkeleton`, scroll reset, document-title sync), `MotionConfig reducedMotion="user"` at the root (framer-motion honors OS reduced-motion), `EmptyState`/`Section`/`PageHeader` anatomy, `Dialog`/`ConfirmDialog` focus management, sticky `.data-table` headers with hover-row accent rail, three-theme token system with FOUC-blocking inline script, command palette, lazy-loaded routes with per-route `ErrorBoundary`.
+
+**Genuine defects found and fixed:**
+
+1. **A universal `* { transition: 250ms }` motion tax.** Every element in the tree carried a 250ms color/border/shadow transition — hovers that should land instantly took a quarter-second, and every class change anywhere charged a style-recalc across the whole tree. This existed to make theme switches cross-fade, but it applied the cross-fade cost to *every* interaction, permanently.
+2. **Destructive actions were hand-rolled per call site.** Settings' danger zone composed its own red button classes inline; row-level delete icons across Connections/Budgets/Projects/Alerts/Playground/Users/ApiKeys were bare ~13–16px icons with no hover surface and no consistent hit area — a WCAG 2.5.8 target-size failure and visually inconsistent between pages.
+3. **ChartCard's error state was one line of text with a unicode "⚠".** The empty state had full anatomy (icon chip, title, guidance); the error state — the moment a user most needs reassurance — had none.
+4. **No text-selection styling, browser overscroll bounce past the app shell, and no active-page rail on the nav** — three small omissions that separate "styled" from "designed."
+
+## Phase 2–4 — Design system changes (`src/index.css`, `src/stores/theme.ts`)
+
+- **Motion architecture rewritten.** Transitions are now scoped: interactive elements (`a, button, input, select, textarea, [role="button"]`) get a crisp 150ms transition covering `background-color/border-color/color/box-shadow/opacity/transform` (transform included so press states animate for free). The whole-page 250ms color cross-fade applies **only** while `html.theme-transitioning` is present — `useThemeStore.setTheme()` now adds that class, flips `data-theme`, and removes it ~350ms later (timer-guarded against rapid re-switching, SSR-guarded). Theme switches still cross-fade beautifully; every hover/press in normal use is now instant-feeling. The `prefers-reduced-motion` block (pre-existing) still zeroes everything for users who ask.
+- **Unified button system.** `.btn-primary`/`.btn-ghost`/`.btn-outline` gained a tactile `active:scale-[0.98]` press state and a single baseline `disabled:opacity-50 disabled:pointer-events-none` treatment (call sites no longer hand-add inconsistent disabled styles). Two new variants: **`.btn-danger`** (the one way every destructive button renders — adopted in Settings' Delete workspace/Delete account) and **`.icon-btn`/`.icon-btn-danger`** (28–32px hit-area icon actions with hover surface and `active:scale-[0.94]` press — adopted across Connections, Budgets, Projects, Alerts, Playground history, Users, and ApiKeys, replacing seven pages' hand-rolled variants).
+- **Nav active rail.** `.nav-item.active` gained a Linear-style 2px inset brand rail (`box-shadow: inset 2px 0 0`) so the current page reads at a glance even where the tinted background is subtle (professional-light).
+- **Signature details.** Brand-tinted `::selection` (translucent, correct in all three themes); `overscroll-behavior: none` on html/body so scroll gestures never chain into browser bounce — the dashboard is a fixed-viewport app, not a document.
+
+## Phase 7/8 — States
+
+- **`ChartCard` error state** (`ChartError`) now matches the empty state's anatomy: danger icon chip, "Couldn't load this chart" title, an explanation that names the automatic retry, and `role="alert"` for screen readers.
+
+## Phases 5/6/9–13 — audited, confirmed healthy, deliberately unchanged
+
+Charts (Recharts tooltips/legends/CSV export, EP-24.1's contextual `emptyContent` system), the Playground flagship surface (EP-25.4.1/25.4.3's own recent redesigns), responsive breakpoints (every layout built mobile-first in its originating EP), and performance (route-level code splitting, shared query keys, `content-visibility` not needed at current page sizes) were each audited and left alone — changing healthy, recently-designed surfaces to appear productive would have violated this EP's own "never simplify, never redesign for its own sake" rules.
+
+## Validation
+
+`npx tsc -b` clean · `npx eslint src --max-warnings 0` clean · `npx vitest run` → **365 passed (44 files)** · `npx vite build` clean. No test needed modification — the entire pass is visual/behavioral-polish-level, beneath every existing assertion's level of abstraction.
+
+## Files changed
+
+`src/index.css` (motion architecture, selection, overscroll, nav rail, button system), `src/stores/theme.ts` (theme-transition choreography), `src/components/ChartCard.tsx` (error state), `src/features/{Settings,Connections,Budgets,Projects,Alerts,Playground,Users,ApiKeys}.tsx` (unified button classes). Nine files, ~130 lines net — a deliberately surgical diff for a "transformation" EP, because the audit showed surgery, not reconstruction, was what the product actually needed.
+
+## Future design opportunities
+
+1. **Chart interactivity tier 2** — zoom/brush range selection and cross-chart filtering on Analytics (Recharts supports `Brush`; cross-filtering needs shared selection state) — the one Phase 6 item genuinely not present today.
+2. **View Transitions API** for route changes once browser support settles, replacing the framer-motion page fade.
+3. **Density preference** (comfortable/compact table spacing) via one more `data-` attribute on `<html>`, reusing the theme-token pattern.
+4. **`ProviderLogo` chip in Recharts legends** — still the standing EP-26.0.4 limitation (Recharts renders legends inside its own SVG tree).
+5. **Skeleton→content cross-fade** — skeletons currently swap to content instantly; a 150ms opacity handoff would remove the one remaining "pop" in the loading experience.

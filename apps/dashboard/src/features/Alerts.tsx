@@ -127,7 +127,7 @@ function AlertRow({ alert }: { alert: AlertRecord }) {
             <button
               onClick={() => archive.mutate(alert.id)}
               disabled={busy}
-              className="text-tx-muted hover:text-tx-primary"
+              className="icon-btn"
               aria-label="Dismiss alert"
             >
               <Archive size={14} />

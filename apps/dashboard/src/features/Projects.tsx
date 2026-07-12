@@ -175,10 +175,10 @@ function ProjectCrudRow({ organizationId, project }: { organizationId: string; p
           </>
         ) : (
           <>
-            <button onClick={() => setEditing(true)} className="text-tx-muted hover:text-tx-primary" aria-label="Rename project">
+            <button onClick={() => setEditing(true)} className="icon-btn" aria-label="Rename project">
               <Pencil size={13} />
             </button>
-            <button onClick={() => setConfirmingDelete(true)} className="text-tx-muted hover:text-danger" aria-label="Delete project">
+            <button onClick={() => setConfirmingDelete(true)} className="icon-btn icon-btn-danger" aria-label="Delete project">
               <Trash2 size={13} />
             </button>
           </>

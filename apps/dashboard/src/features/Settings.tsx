@@ -1450,7 +1450,7 @@ export default function Settings() {
                   <button
                     onClick={() => setDeleteWorkspaceOpen(true)}
                     disabled={!organizationId}
-                    className="flex h-9 w-fit items-center gap-1.5 rounded-lg bg-danger px-3.5 text-xs font-semibold text-white hover:bg-danger-light disabled:opacity-50"
+                    className="btn-danger h-9 w-fit px-3.5 text-xs"
                   >
                     <Trash2 size={13} />
                     Delete workspace
@@ -1466,7 +1466,7 @@ export default function Settings() {
               >
                 <button
                   onClick={() => setDeleteAccountOpen(true)}
-                  className="flex h-9 w-fit items-center gap-1.5 rounded-lg bg-danger px-3.5 text-xs font-semibold text-white hover:bg-danger-light"
+                  className="btn-danger h-9 w-fit px-3.5 text-xs"
                 >
                   <Trash2 size={13} />
                   Delete account

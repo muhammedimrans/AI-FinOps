@@ -203,13 +203,38 @@
     color: rgb(var(--color-tx-primary));
   }
 
-  /* Smooth, flash-free theme switching — colors/surfaces cross-fade, layout never shifts */
-  html,
-  body,
-  * {
-    transition-property: background-color, border-color, color, box-shadow, fill, stroke;
+  /*
+   * EP-25.5 — motion architecture.
+   *
+   * Previously EVERY element carried a universal 250ms color/border/shadow
+   * transition, which made every hover feel floaty (a hover that should be
+   * instant took a quarter second to land) and charged a style-recalc tax
+   * on every class change anywhere in the tree. World-class products scope
+   * this instead:
+   *
+   *  1. Interactive elements get a crisp ~150ms transition (colors, shadow,
+   *     opacity, transform — transform included so press states animate
+   *     without per-element classes).
+   *  2. The whole-page color cross-fade applies ONLY while a theme switch
+   *     is actually in progress — stores/theme.ts adds `theme-transitioning`
+   *     to <html> for the duration of the switch, then removes it.
+   */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    transition-property: background-color, border-color, color, box-shadow, opacity, transform;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    transition-duration: 250ms;
+    transition-duration: 150ms;
+  }
+
+  html.theme-transitioning,
+  html.theme-transitioning * {
+    transition-property: background-color, border-color, color, box-shadow, fill, stroke !important;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+    transition-duration: 250ms !important;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -233,6 +258,21 @@
     outline: 2px solid rgb(var(--color-brand));
     outline-offset: 2px;
     border-radius: 4px;
+  }
+
+  /* Brand-tinted text selection — the small signature detail every premium
+     product ships; readable in all three themes since it's a translucent
+     tint over the theme's own text color. */
+  ::selection {
+    background: rgb(var(--color-brand) / 0.25);
+    color: rgb(var(--color-tx-primary));
+  }
+
+  /* Never chain a scroll gesture past the app shell into browser overscroll
+     glow/bounce — the dashboard is a fixed-viewport app, not a document. */
+  html,
+  body {
+    overscroll-behavior: none;
   }
 }
 
@@ -299,6 +339,9 @@
   }
   .nav-item.active {
     @apply bg-brand-subtle text-brand font-medium;
+    /* Linear-style active rail — a 2px inset accent so the current page reads
+       at a glance even when the tinted background is subtle in light themes. */
+    box-shadow: inset 2px 0 0 rgb(var(--color-brand));
   }
 
   /* Data table */
@@ -325,17 +368,43 @@
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium;
   }
 
-  /* Button variants */
+  /* Button variants — EP-25.5: every variant gets a tactile press state
+     (subtle scale-down, animated by the base interactive transition above)
+     and a single baseline disabled treatment, so call sites no longer need
+     to hand-add `disabled:opacity-*` inconsistently. */
   .btn-primary {
     @apply bg-primary hover:bg-primary-hover text-white px-4 py-2 rounded-lg
-           text-sm font-medium transition-all duration-base flex items-center gap-2;
+           text-sm font-medium transition-all duration-base flex items-center justify-center gap-2
+           active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
   }
   .btn-ghost {
     @apply text-tx-secondary hover:text-tx-primary hover:bg-app-hover px-3 py-2 rounded-lg
-           text-sm font-medium transition-all duration-base flex items-center gap-2;
+           text-sm font-medium transition-all duration-base flex items-center justify-center gap-2
+           active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
   }
   .btn-outline {
     @apply border border-border text-tx-secondary hover:text-tx-primary hover:border-border-strong
-           px-3 py-2 rounded-lg text-sm font-medium transition-all duration-base flex items-center gap-2;
+           px-3 py-2 rounded-lg text-sm font-medium transition-all duration-base flex items-center justify-center gap-2
+           active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  /* Destructive actions — previously hand-rolled per call site (Settings'
+     danger zone, ConfirmDialog); one class so every destructive button in
+     the product looks and behaves identically. */
+  .btn-danger {
+    @apply bg-danger hover:bg-danger-light text-white px-4 py-2 rounded-lg
+           text-sm font-semibold transition-all duration-base flex items-center justify-center gap-2
+           active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  /* Icon-only row actions (rename/delete/copy pencils & trash cans) — a
+     consistent ≥28px hit area (WCAG 2.5.8 target size) with a hover surface,
+     replacing bare 13px icons that were nearly impossible to hit on touch. */
+  .icon-btn {
+    @apply inline-flex items-center justify-center w-7 h-7 rounded-lg text-tx-muted
+           hover:text-tx-primary hover:bg-app-hover transition-colors duration-fast
+           active:scale-[0.94] disabled:opacity-50 disabled:pointer-events-none;
+  }
+  .icon-btn-danger {
+    @apply hover:text-danger hover:bg-danger-dim;
   }
 }

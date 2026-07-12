@@ -31,10 +31,25 @@ interface ThemeState {
   setTheme: (theme: ThemeId) => void;
 }
 
+/* EP-25.5 — the whole-page color cross-fade lives behind this class (see
+ * index.css's motion architecture) instead of a universal `* { transition }`,
+ * so hovers stay crisp during normal use and the 250ms fade only ever runs
+ * while an actual theme switch is in flight. */
+let themeTransitionTimer: number | undefined;
+
 export const useThemeStore = create<ThemeState>()((set) => ({
   theme: getInitialTheme(),
   setTheme: (theme) => {
-    document.documentElement.setAttribute("data-theme", theme);
+    const root = document.documentElement;
+    root.classList.add("theme-transitioning");
+    root.setAttribute("data-theme", theme);
+    if (typeof window !== "undefined") {
+      window.clearTimeout(themeTransitionTimer);
+      themeTransitionTimer = window.setTimeout(
+        () => root.classList.remove("theme-transitioning"),
+        350,
+      );
+    }
     try {
       localStorage.setItem(STORAGE_KEY, theme);
     } catch {

@@ -38,12 +38,13 @@ import {
   AlertOctagon,
   Bell,
   TrendingUp as TrendingUpIcon,
+  TrendingDown as TrendingDownIcon,
+  Minus,
   Info,
   X,
   EyeOff,
   Rocket,
 } from "lucide-react";
-import MetricCard from "../components/MetricCard";
 import ChartCard from "../components/ChartCard";
 import LiveActivityFeed from "../components/LiveActivityFeed";
 import CriticalAlertBanner from "../components/CriticalAlertBanner";
@@ -76,6 +77,7 @@ import { useUIStore } from "../stores/ui";
 import { useChartChrome } from "../lib/chartPalette";
 import { toast } from "../stores/toast";
 import type { Granularity, ActivityRunItem, ActivityFailureItem, OverviewKPIs } from "../types/api";
+import type { BudgetSummaryResponse } from "../services/api";
 
 // EP-22.3 — Intelligent Dashboard Empty States & Guided First Experience.
 //
@@ -772,6 +774,293 @@ function RecentActivitySection({
   );
 }
 
+/* ==========================================================================
+ * EP-P2.1 — Overview page redesign (page-local composition components)
+ *
+ * The prior Overview was a flat vertical stack of sixteen equally-weighted
+ * KPI cards (two identical 4-column grids) followed by linearly-stacked
+ * charts — no visual hierarchy, no "north-star" metric, everything the same
+ * size. These components introduce a modern enterprise composition:
+ *   • a dominant SPEND hero (the number a FinOps user opens the page for)
+ *   • a BUDGET-HEALTH guardrail beside it (spend + its limit, read together)
+ *   • a compact SECONDARY-metric strip (usage/efficiency, lower emphasis)
+ * All data is the exact same `useOverview()` / `useBudgetSummary()` output —
+ * only the presentation and hierarchy change. No logic, queries, or
+ * calculations are touched.
+ * ========================================================================== */
+
+/** Trend delta pill — up/down/flat, semantic-colored (with inverse support
+ * for metrics where "down is good"). Same trend semantics MetricCard used. */
+function Delta({ pct, inverse = false }: { pct: number | undefined; inverse?: boolean }) {
+  if (pct === undefined) return null;
+  const dir = pct > 0.1 ? "up" : pct < -0.1 ? "down" : "flat";
+  const positive = inverse ? dir === "down" : dir === "up";
+  const Icon = dir === "up" ? TrendingUpIcon : dir === "down" ? TrendingDownIcon : Minus;
+  const cls =
+    dir === "flat"
+      ? "text-tx-muted bg-app-muted"
+      : positive
+        ? "text-success bg-success-dim"
+        : "text-danger bg-danger-dim";
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+        cls,
+      )}
+    >
+      <Icon size={11} />
+      {Math.abs(pct).toFixed(1)}%
+    </span>
+  );
+}
+
+/** Wide, low sparkline for the spend hero (MetricCard's is not exported). */
+function HeroSparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const w = 168;
+  const h = 52;
+  const step = w / (data.length - 1);
+  const pts = data.map((v, i) => [i * step, h - ((v - min) / range) * h] as const);
+  const line = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+  const area = `${line} L${w},${h} L0,${h} Z`;
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="overflow-visible" aria-hidden="true">
+      <defs>
+        <linearGradient id="heroSpark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="rgb(var(--color-brand))" stopOpacity={0.3} />
+          <stop offset="100%" stopColor="rgb(var(--color-brand))" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#heroSpark)" />
+      <path
+        d={line}
+        fill="none"
+        stroke="rgb(var(--color-brand))"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HeroSubStat({ icon: Icon, label, value }: { icon: React.ElementType; label: string; value: string }) {
+  return (
+    <div>
+      <p className="flex items-center gap-1.5 text-[11px] text-tx-muted">
+        <Icon size={12} className="text-tx-muted" />
+        {label}
+      </p>
+      <p className="mt-1 font-display text-lg font-semibold text-tx-primary tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+/** The spend "north-star" — the single most-important number on the page,
+ * given dominant size, its trend, a sparkline, and today/month context. */
+function SpendSummaryPanel({
+  kpi,
+  currency,
+  sparkline,
+  loading,
+}: {
+  kpi: OverviewKPIs | undefined;
+  currency: string;
+  sparkline: number[];
+  loading: boolean;
+}) {
+  return (
+    <div className="glass-card metric-gradient-teal rounded-card-lg border border-brand/20 p-5 sm:p-6 relative overflow-hidden h-full flex flex-col">
+      <div
+        className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-brand/50 to-transparent"
+        aria-hidden="true"
+      />
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="flex size-8 items-center justify-center rounded-lg bg-brand-subtle text-brand flex-shrink-0">
+              <DollarSign size={15} />
+            </span>
+            <span className="text-xs font-medium text-tx-muted">Total Spend</span>
+            {!loading && <Delta pct={kpi?.cost_trend_pct ?? undefined} />}
+          </div>
+          {loading ? (
+            <div className="mt-3 h-10 w-44 skeleton rounded" />
+          ) : (
+            <p className="mt-2.5 font-display text-[36px] leading-none font-bold text-tx-primary tabular-nums">
+              {formatCost(kpi?.total_cost ?? "0", currency)}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-tx-muted">vs previous 30 days · {currency}</p>
+        </div>
+        <div className="hidden sm:block flex-shrink-0 self-center">
+          {!loading && <HeroSparkline data={sparkline} />}
+        </div>
+      </div>
+      <div className="mt-auto grid grid-cols-2 gap-4 border-t border-border-subtle pt-4">
+        <HeroSubStat icon={CalendarClock} label="Today's Spend" value={formatCost(kpi?.today_cost ?? "0", currency)} />
+        <HeroSubStat icon={CalendarDays} label="This Month" value={formatCost(kpi?.month_cost ?? "0", currency)} />
+      </div>
+    </div>
+  );
+}
+
+/** Budget guardrail — pairs spend with its limit (utilization bar), the
+ * forecast, and the two alert counts, so "am I on track?" is one glance. */
+function BudgetHealthPanel({
+  summary,
+  currency,
+  loading,
+}: {
+  summary: BudgetSummaryResponse | undefined;
+  currency: string;
+  loading: boolean;
+}) {
+  const budgeted = parseFloat(summary?.total_budgeted ?? "0");
+  const spent = parseFloat(summary?.total_spent ?? "0");
+  const pct = budgeted > 0 ? Math.min(100, Math.max(0, (spent / budgeted) * 100)) : 0;
+  const critical = summary?.critical_alert_count ?? 0;
+  const active = summary?.active_alert_count ?? 0;
+  const barColor = pct >= 90 ? "bg-danger" : pct >= 75 ? "bg-warning" : "bg-brand";
+
+  return (
+    <div className="glass-card rounded-card-lg border border-border-subtle p-5 sm:p-6 h-full flex flex-col">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex size-8 items-center justify-center rounded-lg bg-primary-subtle text-primary-light flex-shrink-0">
+            <Wallet size={15} />
+          </span>
+          <span className="text-xs font-medium text-tx-muted">Budget Health</span>
+        </div>
+        <Link to="/budgets" className="text-[11px] font-medium text-brand hover:text-brand-light">
+          Manage
+        </Link>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 h-9 w-32 skeleton rounded" />
+      ) : budgeted > 0 ? (
+        <>
+          <p className="mt-3 font-display text-[26px] leading-none font-bold text-tx-primary tabular-nums">
+            {formatCost(summary?.total_remaining ?? "0", currency)}
+          </p>
+          <p className="mt-1.5 text-xs text-tx-muted">
+            remaining of {formatCost(summary?.total_budgeted ?? "0", currency)} budgeted
+          </p>
+          <div className="mt-3.5 h-2 rounded-full bg-app-muted overflow-hidden">
+            <div className={cn("h-full rounded-full transition-all duration-slow", barColor)} style={{ width: `${pct}%` }} />
+          </div>
+          <p className="mt-1.5 text-[11px] text-tx-muted tabular-nums">{pct.toFixed(0)}% of budget used</p>
+        </>
+      ) : (
+        <div className="mt-3">
+          <p className="text-sm font-medium text-tx-primary">No budgets set</p>
+          <p className="mt-1 text-xs text-tx-muted leading-relaxed">
+            Track spend against a limit and get alerted before you exceed it.
+          </p>
+          <Link to="/budgets" className="btn-outline h-8 px-3 text-xs mt-3 w-fit">
+            Create budget
+          </Link>
+        </div>
+      )}
+
+      <div className="mt-auto grid grid-cols-2 gap-2.5 pt-4">
+        <div className="rounded-xl border border-border-subtle bg-app-bg p-3">
+          <div className="flex items-center gap-1.5 text-[11px] text-tx-muted">
+            <Bell size={12} /> Active Alerts
+          </div>
+          <p className="mt-1 font-display text-lg font-semibold text-tx-primary tabular-nums">{active}</p>
+        </div>
+        <div className={cn("rounded-xl border p-3", critical > 0 ? "border-danger/30 bg-danger-dim" : "border-border-subtle bg-app-bg")}>
+          <div className="flex items-center gap-1.5 text-[11px] text-tx-muted">
+            <AlertOctagon size={12} className={critical > 0 ? "text-danger" : undefined} /> Critical Alerts
+          </div>
+          <p className={cn("mt-1 font-display text-lg font-semibold tabular-nums", critical > 0 ? "text-danger" : "text-tx-primary")}>
+            {critical}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2.5 flex items-center justify-between rounded-xl border border-border-subtle bg-app-bg p-3">
+        <div className="flex items-center gap-1.5 text-[11px] text-tx-muted">
+          <TrendingUpIcon size={12} /> Projected EOM Spend
+        </div>
+        <p className="font-display text-sm font-semibold text-tx-primary tabular-nums">
+          {formatCost(summary?.projected_eom_spend ?? "0", currency)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Compact secondary metric — lower visual weight than the hero, for the
+ * usage/efficiency numbers that support (not headline) the spend story. */
+function SecondaryStat({
+  icon: Icon,
+  label,
+  value,
+  hint,
+  trendPct,
+  loading,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: string;
+  hint?: string;
+  trendPct?: number | undefined;
+  loading?: boolean;
+}) {
+  return (
+    <div className="glass-card rounded-card border border-border-subtle p-4">
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-tx-muted min-w-0">
+          <Icon size={13} className="text-tx-muted flex-shrink-0" />
+          <span className="truncate">{label}</span>
+        </span>
+        {!loading && trendPct !== undefined && <Delta pct={trendPct} />}
+      </div>
+      {loading ? (
+        <div className="mt-2.5 h-6 w-20 skeleton rounded" />
+      ) : (
+        <p className="mt-2 font-display text-xl font-bold text-tx-primary tabular-nums leading-none">{value}</p>
+      )}
+      {hint && <p className="mt-1.5 text-[11px] text-tx-muted truncate">{hint}</p>}
+    </div>
+  );
+}
+
+/** Task-oriented quick actions — surfaces the FinOps workflows a user reaches
+ * for from the Overview (test provider, set a budget, explore, prototype),
+ * improving discoverability without duplicating the sidebar's full nav. */
+function QuickActionsRow() {
+  const actions = [
+    { to: "/playground", icon: Rocket, label: "Playground" },
+    { to: "/connections", icon: PlugZap, label: "Connections" },
+    { to: "/budgets", icon: Wallet, label: "Budgets" },
+    { to: "/analytics", icon: BarChart3, label: "Analytics" },
+  ] as const;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {actions.map((a) => (
+        <Link key={a.to} to={a.to} className="btn-outline h-9 px-3.5 text-sm">
+          <a.icon size={14} /> {a.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** Lightweight group label — adds section grouping/hierarchy between the
+ * hero band, the analytics charts, and the operational feeds. */
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-[11px] font-semibold uppercase tracking-widest text-tx-muted pt-1">{children}</h2>
+  );
+}
+
 export default function Overview() {
   const { currency } = useUIStore();
   const chrome = useChartChrome();
@@ -951,163 +1240,77 @@ export default function Overview() {
         )}
       </AnimatePresence>
 
-      {/* KPI Cards — 8 top-level metrics (EP-24.1) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <MetricCard
-            label="Total Spend"
-            value={kpi?.total_cost ?? "0"}
-            type="currency"
+      {/* ─── Quick actions — task-oriented shortcuts (EP-P2.1) ─────────── */}
+      <QuickActionsRow />
+
+      {/* ─── HERO BAND — the spend north-star paired with its budget
+              guardrail. Replaces the previous flat 8-card grid: the number a
+              FinOps user opens the page for now dominates, read side-by-side
+              with how much of its budget is left. (EP-P2.1) ──────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
+        <div className="lg:col-span-2">
+          <SpendSummaryPanel
+            kpi={kpi}
             currency={currency}
-            trendPct={kpi?.cost_trend_pct ?? undefined}
-            trendInverse={false}
-            subtitle="vs previous 30 days"
-            icon={DollarSign}
-            gradient="teal"
             sparkline={recent7}
             loading={overview.isLoading}
           />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
-          <MetricCard
-            label="Today's Spend"
-            value={kpi?.today_cost ?? "0"}
-            type="currency"
-            currency={currency}
-            subtitle="so far today"
-            icon={CalendarClock}
-            gradient="blue"
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
-          <MetricCard
-            label="This Month"
-            value={kpi?.month_cost ?? "0"}
-            type="currency"
-            currency={currency}
-            subtitle="month to date"
-            icon={CalendarDays}
-            gradient="purple"
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
-          <MetricCard
-            label="Total Tokens"
-            value={formatTokens((kpi?.total_input_tokens ?? 0) + (kpi?.total_output_tokens ?? 0))}
-            type="raw"
-            trendPct={kpi?.token_trend_pct ?? undefined}
-            subtitle={`${formatTokens(kpi?.total_input_tokens ?? 0)} in · ${formatTokens(kpi?.total_output_tokens ?? 0)} out`}
-            icon={Layers}
-            gradient="emerald"
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }}>
-          <MetricCard
-            label="Total Requests"
-            value={kpi?.total_requests ?? 0}
-            type="number"
-            trendPct={kpi?.request_trend_pct ?? undefined}
-            trendInverse={false}
-            subtitle="API calls processed"
-            icon={Activity}
-            gradient="blue"
-            sparkline={recent7.map((v, i) => i * 2000 + v * 10)}
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
-          <MetricCard
-            label="Active Providers"
-            value={kpi?.active_providers ?? 0}
-            type="number"
-            subtitle={`${kpi?.active_models ?? 0} models in use`}
-            icon={PlugZap}
-            gradient="teal"
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
-          <MetricCard
-            label="Projects"
-            value={kpi?.active_projects ?? 0}
-            type="number"
-            subtitle="with recorded spend"
-            icon={FolderKanban}
-            gradient="emerald"
-            loading={overview.isLoading}
-          />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }}>
-          <MetricCard
-            label="Avg Cost / Request"
-            value={kpi?.avg_cost_per_request ?? "0"}
-            type="currency"
-            currency={currency}
-            subtitle="across all providers"
-            icon={Zap}
-            gradient="purple"
-            loading={overview.isLoading}
-          />
-        </motion.div>
+        </div>
+        <BudgetHealthPanel
+          summary={budgetSummary.data}
+          currency={currency}
+          loading={budgetSummary.isLoading}
+        />
       </div>
 
-      {/* Budget & Alert Cards — EP-24.2. Wrapped in its own Section (rather
-          than a second, unlabeled 4-card grid immediately below the spend
-          KPIs) so the two metric groups read as distinct at a glance —
-          EP-25.8 information-hierarchy pass. */}
-      <Section title="Budgets & Alerts" description="How much budget remains and what needs attention">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
-          <MetricCard
-            label="Budget Remaining"
-            value={budgetSummary.data?.total_remaining ?? "0"}
-            type="currency"
-            currency={currency}
-            subtitle={`of ${budgetSummary.data?.total_budgeted ?? "0"} ${currency} budgeted`}
-            icon={Wallet}
-            gradient="teal"
-            loading={budgetSummary.isLoading}
+      {/* ─── Secondary metrics — usage & efficiency, lower visual weight than
+              the hero (EP-P2.1). Every KPI the old grid showed is preserved,
+              just re-ranked by importance. ─────────────────────────────── */}
+      <div>
+        <GroupLabel>Usage &amp; efficiency</GroupLabel>
+        <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <SecondaryStat
+            icon={Layers}
+            label="Total Tokens"
+            value={formatTokens((kpi?.total_input_tokens ?? 0) + (kpi?.total_output_tokens ?? 0))}
+            hint={`${formatTokens(kpi?.total_input_tokens ?? 0)} in · ${formatTokens(kpi?.total_output_tokens ?? 0)} out`}
+            trendPct={kpi?.token_trend_pct ?? undefined}
+            loading={overview.isLoading}
           />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
-          <MetricCard
-            label="Active Alerts"
-            value={budgetSummary.data?.active_alert_count ?? 0}
-            type="number"
-            subtitle="open budget alerts"
-            icon={Bell}
-            gradient="blue"
-            loading={budgetSummary.isLoading}
+          <SecondaryStat
+            icon={Activity}
+            label="Total Requests"
+            value={formatNumber(kpi?.total_requests ?? 0)}
+            hint="API calls processed"
+            trendPct={kpi?.request_trend_pct ?? undefined}
+            loading={overview.isLoading}
           />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.06 }}>
-          <MetricCard
-            label="Critical Alerts"
-            value={budgetSummary.data?.critical_alert_count ?? 0}
-            type="number"
-            subtitle="need immediate attention"
-            icon={AlertOctagon}
-            gradient={(budgetSummary.data?.critical_alert_count ?? 0) > 0 ? "amber" : "teal"}
-            loading={budgetSummary.isLoading}
+          <SecondaryStat
+            icon={PlugZap}
+            label="Active Providers"
+            value={formatNumber(kpi?.active_providers ?? 0)}
+            hint={`${kpi?.active_models ?? 0} models in use`}
+            loading={overview.isLoading}
           />
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.09 }}>
-          <MetricCard
-            label="Projected EOM Spend"
-            value={budgetSummary.data?.projected_eom_spend ?? "0"}
-            type="currency"
-            currency={currency}
-            subtitle="deterministic forecast"
-            icon={TrendingUpIcon}
-            gradient="purple"
-            loading={budgetSummary.isLoading}
+          <SecondaryStat
+            icon={FolderKanban}
+            label="Projects"
+            value={formatNumber(kpi?.active_projects ?? 0)}
+            hint="with recorded spend"
+            loading={overview.isLoading}
           />
-        </motion.div>
+          <SecondaryStat
+            icon={Zap}
+            label="Avg Cost / Request"
+            value={formatCost(kpi?.avg_cost_per_request ?? "0", currency)}
+            hint="across all providers"
+            loading={overview.isLoading}
+          />
+        </div>
       </div>
-      </Section>
+
+      {/* ─── Spend analytics group label (the charts that follow) ────────── */}
+      <GroupLabel>Spend analytics</GroupLabel>
 
       {/* Cost Trend Chart */}
       <ChartCard

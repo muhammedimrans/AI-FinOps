@@ -5260,3 +5260,47 @@ The foundation now makes per-page compositional rebuilds cheaper and safer. Next
 - **Charts** — shared Recharts tooltip/legend/axis theming component to unify every chart (currently themed per-call-site).
 - A shared `StatTile`/`SectionHeader` extraction if duplication warrants it.
 - Sidebar/header responsive-density audit at tablet breakpoints.
+
+---
+
+# EP-P2.2 — Overview Page Redesign (Spend North-Star, Budget Guardrail, Hierarchy)
+
+**Status: complete.** The first per-page compositional rebuild on top of EP-P2.1's depth foundation, scoped to exactly one file: `apps/dashboard/src/features/Overview.tsx`. Frontend-only, presentation-only — no backend, API, auth, routing, state, calculation, chart-data, or provider-integration change. Confirmed via `git status --porcelain`: only `Overview.tsx` is modified. Every query, every KPI value, and `exportReport()`'s CSV logic are byte-for-byte unchanged; the redesign re-ranks and re-composes the *presentation* of the identical `useOverview()` / `useBudgetSummary()` / `useTimeSeries()` output.
+
+## The problem
+
+The old Overview was a flat vertical stack: eight equally-weighted KPI cards in a 4-column grid, then a second, near-identical 4-card "Budgets & Alerts" grid, then linearly-stacked charts. Sixteen cards, all the same size, all the same weight — no north-star, no hierarchy, nothing telling a FinOps user where to look first. The page's actual job (answer "how much am I spending and am I on budget?" in one glance) was buried under uniform tiles.
+
+## The redesign
+
+Re-ranked every element by importance into four tiers, top to bottom — no data removed, only re-composed:
+
+1. **Quick actions row** (`QuickActionsRow`) — task-oriented `btn-outline` shortcuts to Playground / Connections / Budgets / Analytics, surfacing the workflows a user reaches for from the Overview without duplicating the sidebar's full nav.
+2. **Hero band** (`grid grid-cols-1 lg:grid-cols-3`) — the north-star, dominant:
+   - **`SpendSummaryPanel`** (`lg:col-span-2`) — **Total Spend** rendered at `text-[36px]` on the teal `metric-gradient-teal` + `border-brand/20` surface, paired inline with its trend `Delta` and a wide `HeroSparkline` (168×52 SVG area, brand-colored), with **Today's Spend** and **This Month** as `HeroSubStat` context below a divider. This is the single number the page exists to show, now sized like it.
+   - **`BudgetHealthPanel`** — the guardrail read *beside* spend, not in a separate grid below: **Budget Remaining** big value, a spend-vs-limit **utilization bar** (`bg-danger ≥90% / bg-warning ≥75% / bg-brand`), Active + Critical alert tiles (critical tile turns `border-danger/30 bg-danger-dim` when non-zero), and Projected EOM Spend. An honest **"No budgets set"** empty state with a "Create budget" CTA when the org has none, rather than a zeroed card.
+3. **Secondary metrics** (`GroupLabel` "Usage & efficiency" + a `grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5`) — the remaining five KPIs (Total Tokens, Total Requests, Active Providers, Projects, Avg Cost/Request) rendered as compact, lower-weight `SecondaryStat` tiles. Every KPI the old grid showed is preserved — just visually subordinate to the spend/budget story instead of competing with it.
+4. **`GroupLabel` "Spend analytics"** then the unchanged charts (Cost Trend, Provider Distribution, Top Models, Token Throughput) and the unchanged operational sections (Provider Snapshot, Sync Activity, LiveActivityFeed — all still gated on `dashboardState.state === 4`).
+
+## New page-local components (this file only, per the brief's "new reusable components for this page only")
+
+`Delta` (trend pill, up/down/flat + inverse), `HeroSparkline` (wide spend sparkline — `MetricCard`'s is not exported), `HeroSubStat`, `SpendSummaryPanel`, `BudgetHealthPanel`, `SecondaryStat`, `QuickActionsRow`, `GroupLabel`. `MetricCard` is no longer imported here (still used by 7 other pages, untouched). All eight reuse existing tokens/utilities (`glass-card`, `metric-gradient-teal`, `tabular-nums`, `bg-danger`/`bg-warning`/`bg-brand`, `formatCost`/`formatTokens`/`formatNumber`, `cn`) — no global CSS, token, or Tailwind-config change (those are EP-P2.1's foundation, deliberately not re-touched per the brief's "the focus must be the page itself, not the design system").
+
+## Test-contract preservation
+
+`Overview.test.tsx` asserts all 8 KPI label strings, `findByText("$12.34")` (today), `getByText("$567.89")` (month), and the Sync Activity section. Every one of those labels/values is preserved verbatim in the new composition, and today/month render via deterministic `formatCost` (no count-up timing dependency), so the contract holds unchanged.
+
+## Verification
+
+`npx tsc -b` clean · `npx eslint src --max-warnings 0` clean · affected tests (`Overview` / `OnboardingWidget` / `DashboardStateHero`) 18/18 · full suite **367/367 (44 files)** · production `vite build` clean. `git status` confirms only `Overview.tsx` changed.
+
+## Why the new hierarchy helps AI FinOps users
+
+- **One glance answers the core question.** Spend (with trend + 30-day sparkline) and remaining budget (with a color-coded utilization bar) sit side by side at the top — "how much, and am I on track?" is the first thing read, not the last.
+- **Attention is directed by weight, not hunted for.** A 36px spend figure and a red-tinted critical-alert tile out-rank five compact usage tiles — the eye lands on money and risk first, on token/request volume second, exactly the FinOps priority order.
+- **Fewer, better-grouped blocks.** Sixteen uniform cards became a two-panel hero + a five-tile strip + labeled analytics — the same information, an order of magnitude less visual noise, with `GroupLabel`s giving each band a name.
+- **Faster task starts.** The quick-actions row turns "I opened the dashboard, now what?" into one click to the four highest-intent destinations.
+
+## Remaining Phase 2 opportunities (unchanged from EP-P2.1's list, minus Overview)
+
+Analytics, Connections, Projects, Budgets, Alerts, Users, API Keys, RBAC, Settings, Playground — each still awaiting its own per-page compositional pass on the EP-P2.1 foundation; a shared Recharts chrome component; a `StatTile`/`SectionHeader` extraction if cross-page duplication warrants it.

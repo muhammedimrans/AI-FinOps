@@ -5215,3 +5215,48 @@ Run after the section work, per the "verify after every section" instruction: **
 - **Self-hosted fonts** (currently Google Fonts `<link>`) — the shared-token-package goal from §5.
 - If the three named design docs materialize, reconcile the token system against them.
 - Component-render test coverage for the landing would require widening the website's test harness to jsdom (pre-existing scope boundary, EP-21.2).
+
+---
+
+# EP-P2.1 — Dashboard Redesign, Phase 2 Foundation (Depth, KPI, Chrome)
+
+**Status: complete (foundation slice of an iterative Phase 2).** Scope was strictly `apps/dashboard`; `apps/website`, backend, APIs, auth, routing, state, business logic, charts data, and provider integrations were all untouched (confirmed via `git status` — only 5 dashboard files changed). This is the first, highest-leverage increment of the Phase 2 dashboard redesign; the deeper per-page compositional rebuilds are the explicit "proceed page by page" continuation.
+
+## Honest starting assessment
+
+The dashboard was **already at a high design bar** before Phase 2 — EP-25.5 ("World-Class Product Design Audit") and EP-25.8 built a real 3-theme RGB-token system, a motion architecture, a Linear-style collapsible sidebar with an active rail, a sophisticated header (command palette / date / currency / notifications), premium KPI cards (count-up + sparklines), and anatomical chart empty/error states. A reckless "rip it up" rewrite would have risked regressing that quality and breaking the 367-test suite for uncertain gain. So Phase 2 opens with the single highest-leverage, app-wide, genuinely-structural (not cosmetic) upgrade, then continues page by page.
+
+## The core finding — flat surfaces
+
+The biggest gap versus Linear / Stripe / Datadog / Grafana was **depth**: every `.glass-card` in the app had a border only and **no elevation** — surfaces sat visually flat against the background. Real products float their cards on subtle, layered, theme-aware shadows with a crisp 1px top-highlight edge. Closing this at the foundation reframes every page at once.
+
+## What shipped this increment
+
+1. **Depth & surface language (`index.css`).** `.glass-card` now carries a layered, theme-aware elevation — a 1px inner top-highlight edge + a tight contact shadow + a soft ambient shadow — all driven by the *existing* `--shadow-a-*` / `--glass-edge-a` tokens (so it's correct in all three themes: barely-there in `professional-light`, richer in the dark themes). Added a reusable `.card-interactive` hover-lift utility (the Linear/Stripe "raisable surface" signature) for clickable cards. Every card across the app gained real depth with zero call-site changes.
+2. **Refined shadow scale (`tailwind.config.ts`).** `shadow-card`, `shadow-card-hover`, and `shadow-elevated` were rebuilt from single flat drops into layered soft elevation (tight contact + wide ambient, plus a top-highlight inset on `elevated`), so popovers, dropdowns, and dialogs read as clearly floating above the page.
+3. **Premium KPI cards (`MetricCard.tsx`).** Redesigned the hierarchy: a clean icon-tile + label header, then the large value **paired with its delta pill inline** (the trend moved from a detached top-right corner to beside the number it describes — a real information-hierarchy change, Stripe/Datadog-style), then context + sparkline. Uses the new layered hover elevation. **Props API and all rendered text/values are unchanged** (Overview's "renders all 8 KPI cards" and value-text assertions still pass).
+4. **Representative skeleton loaders (`AppLayout.tsx`).** The generic route-load `PageSkeleton` (shown on every lazy page load) was rebuilt from grey blocks into a faithful preview of the real dashboard shape — a page header, a KPI row using the actual card anatomy (icon tile → value → footer row) on real `.glass-card` surfaces, and a chart grid — so loading reads as the page settling in.
+5. **Enterprise command bar (`Header.tsx`).** The ⌘K search/quick-jump trigger was elevated from a faint outline into a raised field surface (`bg-app-card` + `shadow-card`, a wider `lg:w-64`, a stronger hover and a tinted kbd chip), so it reads as a real GitHub/Linear command bar.
+
+## Preserved exactly (per the hard rules)
+
+No backend, API, auth, authorization, routing, state management, calculation, chart-data, token-usage, or billing logic was touched. Every token name and the `data-theme` 3-theme mechanism are intact; both dark and light modes are preserved and the new elevation is theme-aware. The `apps/dashboard` app has **no shadcn** (it's hand-rolled Tailwind v3 + framer-motion per §4) — so no `shadcn init` was run; the existing hand-rolled primitives were reused and elevated.
+
+## Verification
+
+`npx tsc -b` clean · `npx eslint src --max-warnings 0` clean · `npx vitest run` → **367/367 passed (44 files)** · production `vite build` clean. Run after each change and at the end. Only `apps/dashboard` files changed (`index.css`, `tailwind.config.ts`, `components/MetricCard.tsx`, `layouts/AppLayout.tsx`, `layouts/Header.tsx`).
+
+## Before vs After (this increment)
+
+- **Before**: a well-built but visually *flat* dashboard — cards were border-only with no elevation, KPI deltas sat detached in the corner, route-load skeletons were grey blocks, the search trigger was a faint outline.
+- **After**: cards float on layered, theme-aware depth with a crisp top edge; KPI value and delta are paired; skeletons preview the real page shape; the command bar reads as a proper enterprise search — the whole app gains the Linear/Stripe/Datadog depth language, applied uniformly.
+
+## Remaining opportunities (Phase 2 continuation — page by page)
+
+The foundation now makes per-page compositional rebuilds cheaper and safer. Next increments, each verified independently:
+- **Overview (flagship)** — tighten the grid rhythm and section hierarchy on top of the new surfaces.
+- **Analytics** — filter-bar and chart-comparison presentation, denser Grafana-style layout.
+- **Connections / Projects / Budgets / Alerts / Users / API Keys / RBAC / Settings / Playground** — page-by-page composition, empty/loading-state, and table-density passes on the new foundation.
+- **Charts** — shared Recharts tooltip/legend/axis theming component to unify every chart (currently themed per-call-site).
+- A shared `StatTile`/`SectionHeader` extraction if duplication warrants it.
+- Sidebar/header responsive-density audit at tablet breakpoints.

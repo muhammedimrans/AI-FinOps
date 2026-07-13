@@ -88,11 +88,16 @@ const config: Config = {
         sm:   "4px",
       },
       boxShadow: {
-        card:    "0 1px 3px rgb(var(--shadow-rgb) / var(--shadow-a-1)), 0 1px 2px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
-        "card-hover": "0 4px 12px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 2px 4px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
+        // EP-P2: refined to layered, soft, theme-aware elevation (the Linear/
+        // Stripe depth language) — a tight contact shadow plus a wider, softer
+        // ambient shadow, rather than a single flat drop.
+        card:    "0 1px 2px rgb(var(--shadow-rgb) / var(--shadow-a-1)), 0 4px 12px -6px rgb(var(--shadow-rgb) / var(--shadow-a-2))",
+        "card-hover": "0 2px 6px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 14px 34px -12px rgb(var(--shadow-rgb) / var(--shadow-a-4))",
         "glow-brand": "0 0 32px rgb(var(--color-brand) / var(--glow-a))",
         "glow-brand-lg": "0 0 60px rgb(var(--color-brand) / var(--glow-a-lg)), 0 0 120px rgb(var(--color-brand-purple) / var(--glow-a-sm))",
-        elevated: "0 8px 24px rgb(var(--shadow-rgb) / var(--shadow-a-4)), 0 2px 8px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 0 0 1px rgb(var(--glass-edge-rgb) / var(--glass-edge-a))",
+        // Floating surfaces (popovers, dropdowns, dialogs) — crisp top-highlight
+        // edge + a soft, long ambient shadow so they read as clearly above the page.
+        elevated: "0 1px 0 0 rgb(var(--glass-edge-rgb) / var(--glass-edge-a)) inset, 0 4px 14px rgb(var(--shadow-rgb) / var(--shadow-a-3)), 0 24px 56px -22px rgb(var(--shadow-rgb) / var(--shadow-a-5))",
       },
       backgroundImage: {
         "gradient-brand":   "linear-gradient(135deg, rgb(var(--color-brand)) 0%, rgb(var(--color-brand-hover)) 100%)",

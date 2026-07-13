@@ -148,15 +148,17 @@ export default function MetricCard({
         ? "text-tx-muted bg-app-muted"
         : "text-danger bg-danger-dim";
 
+  const TrendIcon = trendDir === "up" ? TrendingUp : trendDir === "down" ? TrendingDown : Minus;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -3, transition: { duration: 0.2, ease: "easeOut" } }}
+      whileHover={{ y: -4, transition: { duration: 0.2, ease: "easeOut" } }}
       className={cn(
         "group glass-card rounded-card-lg p-5 border cursor-default relative overflow-hidden",
         GRADIENT_CLASSES[gradient],
-        "transition-shadow duration-base hover:shadow-elevated",
+        "transition-shadow duration-base hover:shadow-card-hover",
       )}
     >
       <div
@@ -164,13 +166,14 @@ export default function MetricCard({
         aria-hidden="true"
       />
 
-      {/* Header row */}
-      <div className="relative flex items-start justify-between mb-4">
+      {/* Header row — icon tile + label (EP-P2: label reads cleanly beside the
+          icon; the delta moves down next to the value it describes). */}
+      <div className="relative flex items-center gap-2.5 mb-3.5">
         {Icon && (
           <div
             className={cn(
               "size-9 rounded-xl flex items-center justify-center flex-shrink-0",
-              "transition-transform duration-base group-hover:scale-110",
+              "transition-transform duration-base group-hover:scale-105",
               ICON_BG[gradient],
               ICON_GLOW[gradient],
             )}
@@ -178,36 +181,31 @@ export default function MetricCard({
             <Icon size={16} />
           </div>
         )}
-        <div className="flex-1 min-w-0 ml-2.5 pt-0.5">
-          <p className="text-xs text-tx-muted font-medium leading-tight truncate">{label}</p>
-        </div>
+        <p className="flex-1 min-w-0 text-xs text-tx-muted font-medium leading-tight truncate">{label}</p>
+      </div>
+
+      {/* Value + delta — the metric and its change, paired. */}
+      <div className="relative flex items-end justify-between gap-3 mb-1.5">
+        <p className="text-[30px] font-bold text-tx-primary tracking-tight leading-none tabular-nums">
+          <AnimatedValue value={value} type={type} currency={currency} compact={compact} />
+        </p>
         {trendPct !== undefined && trendDir !== null && (
-          <div className={cn("flex items-center gap-0.5 text-[11px] font-semibold ml-2 px-1.5 py-0.5 rounded-full flex-shrink-0", trendClass)}>
-            {trendDir === "up" ? (
-              <TrendingUp size={11} />
-            ) : trendDir === "down" ? (
-              <TrendingDown size={11} />
-            ) : (
-              <Minus size={11} />
+          <div
+            className={cn(
+              "flex items-center gap-0.5 text-[11px] font-semibold px-1.5 py-0.5 rounded-full flex-shrink-0 mb-0.5",
+              trendClass,
             )}
-            <span>{Math.abs(trendPct).toFixed(1)}%</span>
+          >
+            <TrendIcon size={11} />
+            <span className="tabular-nums">{Math.abs(trendPct).toFixed(1)}%</span>
           </div>
         )}
       </div>
 
-      {/* Value */}
-      <div className="mb-2">
-        <p className="text-[28px] font-bold text-tx-primary tracking-tight leading-none tabular-nums">
-          <AnimatedValue value={value} type={type} currency={currency} compact={compact} />
-        </p>
-      </div>
-
-      {/* Bottom row */}
-      <div className="flex items-end justify-between">
+      {/* Bottom row — context + sparkline */}
+      <div className="relative flex items-end justify-between gap-2">
         <p className="text-xs text-tx-muted leading-tight">{subtitle ?? "vs prev period"}</p>
-        {sparkline && (
-          <Sparkline data={sparkline} color={SPARK_COLORS[gradient]} />
-        )}
+        {sparkline && <Sparkline data={sparkline} color={SPARK_COLORS[gradient]} />}
       </div>
     </motion.div>
   );

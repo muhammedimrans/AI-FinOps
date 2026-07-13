@@ -963,9 +963,15 @@ export default function Settings() {
       />
 
       <div className="mt-6 flex flex-col gap-6 lg:flex-row">
-        {/* Tab list */}
+        {/* Tab list — EP-25.8: real tab semantics (role="tablist"/"tab",
+            aria-selected, aria-controls) so this reads as one selectable
+            group to assistive tech, not six unrelated buttons. */}
         <div className="flex-shrink-0 lg:w-52">
-          <div className="flex gap-1 overflow-x-auto rounded-lg border border-border-subtle bg-app-card p-1 lg:flex-col lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0">
+          <div
+            role="tablist"
+            aria-label="Settings sections"
+            className="flex gap-1 overflow-x-auto rounded-lg border border-border-subtle bg-app-card p-1 lg:flex-col lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
+          >
             {/* EP-25.1 — the Workspace tab is org rename/description/delete,
                 none of which apply to a personal (single-user, never
                 renameable/deletable) workspace — hidden entirely rather than
@@ -973,6 +979,10 @@ export default function Settings() {
             {SECTIONS.filter((s) => s.id !== "workspace" || !currentOrg?.is_personal).map((s) => (
               <button
                 key={s.id}
+                id={`settings-tab-${s.id}`}
+                role="tab"
+                aria-selected={active === s.id}
+                aria-controls="settings-panel"
                 onClick={() => setActive(s.id)}
                 className={cn(
                   "flex flex-shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-all",
@@ -991,7 +1001,13 @@ export default function Settings() {
         </div>
 
         {/* Panel */}
-        <div className="min-w-0 flex flex-1 flex-col gap-5">
+        <div
+          id="settings-panel"
+          role="tabpanel"
+          aria-labelledby={`settings-tab-${active}`}
+          tabIndex={0}
+          className="min-w-0 flex flex-1 flex-col gap-5"
+        >
           {active === "profile" && (
             <>
               <form

@@ -12,7 +12,7 @@ export function GoogleButton({ label = "Continue with Google" }: { label?: strin
       href={googleOAuthStartUrl()}
       className="flex w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-white/[0.03] px-5 py-3 text-sm font-medium text-foreground transition-colors hover:bg-white/[0.06]"
     >
-      <GoogleGlyph className="h-4 w-4" />
+      <GoogleGlyph className="size-4" />
       {label}
     </a>
   );

@@ -56,7 +56,7 @@ export function SiteNav() {
           onClick={() => setOpen((v) => !v)}
           aria-label="Toggle menu"
         >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          {open ? <X className="size-5" /> : <Menu className="size-5" />}
         </button>
       </div>
 
@@ -100,7 +100,7 @@ export function SiteNav() {
 // provided by the product team), the same real asset apps/dashboard uses, not a
 // hand-drawn approximation. Both apps rendering literally the same image is
 // what "brand consistency" means here.
-export function LogoMark({ className = "h-7 w-7" }: { className?: string }) {
+export function LogoMark({ className = "size-7" }: { className?: string }) {
   return (
     <img src={costorahMark} alt="" className={`${className} object-contain`} aria-hidden="true" />
   );

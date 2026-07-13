@@ -49,7 +49,7 @@ export function SiteFooter() {
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {col.title}
               </div>
-              <ul className="mt-4 space-y-3">
+              <ul className="mt-4 flex flex-col gap-3">
                 {col.links.map((l) => (
                   <li key={l.to}>
                     <Link to={l.to} className="text-sm text-foreground/80 hover:text-foreground">
@@ -64,7 +64,7 @@ export function SiteFooter() {
         <div className="mt-16 flex flex-col items-start justify-between gap-4 border-t border-white/5 pt-8 text-xs text-muted-foreground md:flex-row md:items-center">
           <div>© {new Date().getFullYear()} Costorah, Inc. All rights reserved.</div>
           <div className="flex items-center gap-2">
-            <span className="inline-block h-2 w-2 rounded-full bg-[#14D9D3] shadow-[0_0_10px_#14D9D3]" />
+            <span className="inline-block size-2 rounded-full bg-[#14D9D3] shadow-[0_0_10px_#14D9D3]" />
             All systems operational
           </div>
         </div>

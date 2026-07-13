@@ -31,7 +31,7 @@ export function PageHeader({
       <div className="relative mx-auto max-w-4xl px-6 py-24 text-center md:py-32">
         {eyebrow && (
           <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#14D9D3]" />
+            <span className="size-1.5 rounded-full bg-[#14D9D3]" />
             {eyebrow}
           </div>
         )}

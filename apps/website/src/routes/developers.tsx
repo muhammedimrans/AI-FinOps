@@ -97,7 +97,7 @@ function Developers() {
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm font-medium"
             >
-              <Github className="h-4 w-4" />
+              <Github className="size-4" />
               View on GitHub
             </a>
           </div>
@@ -106,8 +106,8 @@ function Developers() {
         <div className="mt-20 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {capabilities.map((c) => (
             <div key={c.title} className="rounded-2xl border border-white/10 bg-[#0C1117] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                <c.icon className="h-5 w-5" />
+              <div className="flex size-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+                <c.icon className="size-5" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold">{c.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{c.body}</p>
@@ -124,9 +124,9 @@ function CodeCard({ title, code }: { title: string; code: string }) {
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0A0E13]">
       <div className="flex items-center justify-between border-b border-white/5 bg-white/[0.02] px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-          <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-          <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
+          <span className="size-2.5 rounded-full bg-white/10" />
+          <span className="size-2.5 rounded-full bg-white/10" />
+          <span className="size-2.5 rounded-full bg-white/10" />
         </div>
         <div className="text-xs text-muted-foreground">{title}</div>
       </div>

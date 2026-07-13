@@ -27,7 +27,7 @@ function Contact() {
       <section className="mx-auto max-w-2xl px-6 pb-24">
         <form
           onSubmit={(e) => e.preventDefault()}
-          className="space-y-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
+          className="flex flex-col gap-4 rounded-2xl border border-white/10 bg-[#0C1117] p-6"
         >
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name" placeholder="Ada Lovelace" />

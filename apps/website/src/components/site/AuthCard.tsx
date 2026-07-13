@@ -32,7 +32,7 @@ export function AuthCard({ title, subtitle, children }: AuthCardProps) {
             className="absolute inset-0 -z-10 rounded-full bg-[#14D9D3]/30 blur-2xl"
             aria-hidden="true"
           />
-          <LogoMark className="h-10 w-10" />
+          <LogoMark className="size-10" />
         </div>
         <h1 className="mt-5 text-center font-display text-3xl font-semibold tracking-tight md:text-4xl">
           {title}

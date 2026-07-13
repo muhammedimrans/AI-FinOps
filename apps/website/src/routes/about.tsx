@@ -40,7 +40,7 @@ function About() {
         description="We help teams understand every AI dollar — so they can build faster with confidence."
       />
       <section className="mx-auto max-w-4xl px-6 py-16">
-        <div className="space-y-6 text-lg leading-relaxed text-foreground/90">
+        <div className="flex flex-col gap-6 text-lg leading-relaxed text-foreground/90">
           <p>
             AI is one of the fastest-growing line items on the modern engineering budget — and one
             of the least understood. Bills arrive weeks late, attribution across teams and providers

@@ -4991,3 +4991,45 @@ Charts (Recharts tooltips/legends/CSV export, EP-24.1's contextual `emptyContent
 3. **Density preference** (comfortable/compact table spacing) via one more `data-` attribute on `<html>`, reusing the theme-token pattern.
 4. **`ProviderLogo` chip in Recharts legends** — still the standing EP-26.0.4 limitation (Recharts renders legends inside its own SVG tree).
 5. **Skeleton→content cross-fade** — skeletons currently swap to content instantly; a 150ms opacity handoff would remove the one remaining "pop" in the loading experience.
+
+---
+
+# EP-25.6 — Scoped Frontend Modernization Pass (GSAP Scroll Reveals, Website)
+
+**Status: complete, intentionally scoped.** Triggered by a broad "modernize the entire frontend using shadcn/ui, GSAP, and three design reference documents" request. Two things governed how this landed: the three referenced documents (`Front end design.md`, `Skill for design.md`, `Gsap for animation.md`) do not exist anywhere in this repository — confirmed by exact-name search and a full scan of every markdown file — and this session ran non-interactively (a scheduled `/__remote-workflow` invocation), so a clarifying question about how to proceed could not be delivered (`AskUserQuestion` failed twice with `stream closed`). Rather than either doing nothing or blind-rewriting two production applications with no design spec and no way to visually verify the result in this environment, this EP does the smallest safe, real, verifiable increment: it leaves both apps' existing, already-invested-in design systems untouched (`apps/dashboard`'s hand-rolled system + framer-motion, just polished end-to-end in EP-25.5; `apps/website`'s existing shadcn/ui + Radix + framer-motion setup) and adds GSAP exactly where the site had a genuine, verifiable gap — not as a wholesale animation-library swap.
+
+## Why GSAP landed on the website, and why it's scroll reveals specifically
+
+Auditing `apps/website/src/routes/index.tsx` (the landing page — the one route CLAUDE.md's own §3 says has real content) found the Hero and Features sections already animate correctly via `motion/react` (fade + rise on mount, and one `whileInView` usage) — reusing or duplicating that would violate the repo's own "avoid duplication" rule for zero benefit. But of the landing page's 9 sections, **7 render with no entrance treatment of any kind**: SocialProof, LiveDashboard, HowItWorks' step grid, Developers, Security's feature grid, Pricing, FAQ, and FinalCTA all just appear the instant they're in the viewport. This is exactly GSAP's strength (`ScrollTrigger`-driven staggered reveals) and a gap framer-motion wasn't filling here — a genuinely additive use, not a competing system.
+
+## Implementation
+
+- **`gsap": "^3.13.0"`** added to `apps/website/package.json` (resolved `3.15.0`). No other app touched — `apps/dashboard` gets no new animation dependency, since framer-motion already fully covers its needs (EP-25.5 confirmed this directly).
+- **`apps/website/src/hooks/use-scroll-reveal.ts`** (new) — the one reusable primitive every section below composes, per the task's own "create it once, reuse everywhere" rule:
+  - `useScrollReveal({ selector, y, duration, stagger, delay })` returns a container `ref`; every descendant matching `selector` (by convention, `[data-reveal]`) fades + rises in, staggered, the first time the container's top crosses 85% of the viewport (`once: true` — never re-fires).
+  - Honors `prefers-reduced-motion: reduce` — sets the final state immediately with no animation, checked via `matchMedia` before any GSAP call.
+  - Uses `gsap.context()` scoped to the container and `ctx.revert()` on cleanup, so no `ScrollTrigger` instance leaks across route changes or React StrictMode's double-invoke in dev.
+  - SSR-safe — `gsap.registerPlugin(ScrollTrigger)` only runs when `window` exists (this is a TanStack Start SSR app).
+- **Applied to `SectionHeader`** (`index.tsx`) — the single most-leveraged component on the page, reused by 7 of the 9 sections (LiveDashboard, Features, HowItWorks, Security, Pricing, FAQ). Wiring the reveal here once gives most of the page consistent motion without touching each call site's business content.
+- **Applied directly to the remaining static content blocks**: `SocialProof`'s provider-chip strip, `HowItWorks`' 5-step grid, `Developers`' two-column layout (badge/heading/copy/feature-list on the left, code samples on the right, staggered independently), `Security`'s 8-item feature grid, and `FinalCTA`'s heading/copy/buttons — each gets its own small `useScrollReveal` call with tuned `y`/`stagger` for its content shape (a chip row staggers faster and shorter than a heading block).
+
+## What was explicitly not touched
+
+Per the "never break existing functionality" and "preserve current implementation, improve only presentation" rules: no backend file, no API contract, no auth flow, no form validation, no routing behavior, no business logic, no chart data source, and no component in `apps/dashboard` (which just went through its own complete EP-25.5 pass) were modified. `apps/website`'s Hero and Features sections keep their existing framer-motion animations unchanged. shadcn/ui was not initialized or replaced anywhere — the website's existing, already-installed primitives are untouched; `shadcn init` was never run.
+
+## Validation
+
+`pnpm --filter @costorah/website... run typecheck` — clean (the 3 pre-existing errors in unused `src/components/ui/{command,drawer,input-otp}.tsx`, already documented in EP-25.3, confirmed via `git stash` to be identical with this EP's changes removed — not introduced by this EP). `pnpm --filter @costorah/website run lint` — clean (6 pre-existing, unrelated `react-refresh/only-export-components` warnings on unused shadcn files, same count as baseline). `pnpm --filter @costorah/website run test` — **19/19 passed**. `pnpm --filter @costorah/website... build` — clean production SSR build (Nitro, Cloudflare-module preset, `gsap` correctly present in the server bundle at 252.77 kB / 66.53 kB gzipped).
+
+## Known limitations
+
+- **The three referenced design documents were never available in this session.** Every claim in this section about "the right scope" is this session's own judgment call under the repo's existing rules, not a spec the documents would have provided. If those documents exist, adding them to the repo (or pasting their contents) is the direct way to unblock the fuller modernization pass (shadcn adoption in `apps/dashboard`, broader GSAP usage, landing-page redesign) the original request asked for.
+- **No live browser verification was performed** — same standing limitation as every prior EP in this document. The scroll-reveal behavior is verified by code review and the automated gates above (typecheck/lint/test/build), not by watching it animate in a real browser.
+- **`apps/dashboard` was not touched by this EP** — it already has 38 shadcn/ui primitives sitting unused in `apps/website` (per §2/§5's own standing note) and its own complete hand-rolled system; a real shadcn migration for the dashboard is EP-21's own already-documented milestone 5 ("shadcn/ui adoption in apps/dashboard, full component de-duplication," unstarted, sized as its own multi-PR effort) — this EP does not start it, since doing so without the reference documents' target token system would mean guessing at a redesign direction rather than following one.
+- **Only the landing page (`index.tsx`) was modernized.** The website's other 12 routes (`/login`, `/signup`, `/contact`, and 9 stub pages) were not touched — `/login`/`/signup` already got a dedicated redesign pass in EP-25.3 ("Premium auth pages redesign"), and the 9 stub pages have no real content to animate yet (§3's own note, unchanged since EP-21).
+
+## Future work
+
+1. **If the three design documents become available**, revisit this EP's scope entirely — they were explicitly meant to define the target token system, shadcn adoption strategy, and GSAP usage patterns this pass had to infer without.
+2. **Extend scroll reveals to `LiveDashboard`'s live-preview mockup and `Pricing`'s plan cards** specifically (both currently reveal via their shared `SectionHeader` but have unrevealed content below it) — the same `useScrollReveal` hook, no new primitive needed.
+3. **`apps/dashboard` shadcn/ui migration** — still EP-21 milestone 5, still unstarted, still correctly scoped as its own effort separate from this one.

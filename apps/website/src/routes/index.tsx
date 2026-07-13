@@ -45,6 +45,7 @@ import {
   Zap,
 } from "lucide-react";
 import { SiteLayout } from "@/components/site/SiteLayout";
+import { useScrollReveal } from "@/hooks/use-scroll-reveal";
 
 export const Route = createFileRoute("/")({
   component: Landing,
@@ -476,16 +477,27 @@ function Legend({ color, label }: { color: string; label: string }) {
 }
 
 function SocialProof() {
+  const revealRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 10,
+    duration: 0.5,
+    stagger: 0.04,
+  });
+
   return (
     <section className="border-y border-white/5 bg-white/[0.01] py-14">
       <div className="mx-auto max-w-7xl px-6">
         <div className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Trusted AI Infrastructure
         </div>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-4">
+        <div
+          ref={revealRef}
+          className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
+        >
           {providers.map((p) => (
             <span
               key={p}
+              data-reveal
               className="rounded-full border border-white/10 bg-white/[0.02] px-4 py-1.5 text-sm text-foreground/70"
             >
               {p}
@@ -750,6 +762,12 @@ function Features() {
 }
 
 function HowItWorks() {
+  const stepsRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.07,
+  });
+
   return (
     <section className="relative border-t border-white/5 py-24 md:py-32">
       <div
@@ -762,10 +780,11 @@ function HowItWorks() {
           title="Five steps to AI cost clarity."
           desc="From first connection to automated forecasts — Costorah is designed to fit into the workflow you already have."
         />
-        <div className="mt-14 grid gap-5 md:grid-cols-5">
+        <div ref={stepsRef} className="mt-14 grid gap-5 md:grid-cols-5">
           {steps.map((s, i) => (
             <div
               key={s.title}
+              data-reveal
               className="relative rounded-2xl border border-white/10 bg-[#0C1117] p-6"
             >
               <div className="flex items-center gap-3">
@@ -785,23 +804,36 @@ function HowItWorks() {
 }
 
 function Developers() {
+  const revealRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 16,
+    stagger: 0.06,
+  });
+  const codeRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 20, delay: 0.1 });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
         <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground">
+          <div ref={revealRef}>
+            <div
+              data-reveal
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
+            >
               <LineIcon className="h-3 w-3 text-[#14D9D3]" /> Built for developers
             </div>
-            <h2 className="mt-5 font-display text-4xl font-semibold tracking-tight md:text-5xl">
+            <h2
+              data-reveal
+              className="mt-5 font-display text-4xl font-semibold tracking-tight md:text-5xl"
+            >
               Ship in minutes. <br />
               <span className="text-gradient-brand">Instrument once.</span>
             </h2>
-            <p className="mt-5 max-w-lg text-muted-foreground">
+            <p data-reveal className="mt-5 max-w-lg text-muted-foreground">
               Python and JavaScript/TypeScript SDKs, a clean REST API, and a CLI. Track every AI
               call with a single line of code — or ingest server-side with zero client changes.
             </p>
-            <div className="mt-8 grid grid-cols-2 gap-2 text-sm">
+            <div data-reveal className="mt-8 grid grid-cols-2 gap-2 text-sm">
               {[
                 "Python SDK",
                 "JavaScript / TypeScript SDK",
@@ -821,7 +853,7 @@ function Developers() {
             </div>
           </div>
 
-          <div className="grid gap-4">
+          <div ref={codeRef} data-reveal className="grid gap-4">
             <CodeBlock
               lang="python"
               title="track.py"
@@ -915,6 +947,12 @@ function Security() {
     },
     { icon: Zap, title: "TLS everywhere", desc: "Encrypted in transit, end to end." },
   ];
+  const gridRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 16,
+    stagger: 0.05,
+  });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
@@ -923,9 +961,13 @@ function Security() {
           title="Enterprise-grade from day one."
           desc="Designed with the controls that regulated industries require — and audited to prove it."
         />
-        <div className="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div ref={gridRef} className="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((s) => (
-            <div key={s.title} className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
+            <div
+              key={s.title}
+              data-reveal
+              className="rounded-2xl border border-white/10 bg-[#0C1117] p-5"
+            >
               <s.icon className="h-5 w-5 text-[#14D9D3]" />
               <div className="mt-3 font-display text-base font-semibold">{s.title}</div>
               <div className="mt-1 text-sm text-muted-foreground">{s.desc}</div>
@@ -1018,17 +1060,22 @@ function FAQ() {
 }
 
 function FinalCTA() {
+  const revealRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 18 });
+
   return (
     <section className="relative overflow-hidden border-t border-white/5 py-24 md:py-32">
       <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
-      <div className="relative mx-auto max-w-4xl px-6 text-center">
-        <h2 className="font-display text-4xl font-semibold tracking-tight md:text-6xl">
+      <div ref={revealRef} className="relative mx-auto max-w-4xl px-6 text-center">
+        <h2 data-reveal className="font-display text-4xl font-semibold tracking-tight md:text-6xl">
           Start monitoring AI costs <span className="text-gradient-brand">today</span>.
         </h2>
-        <p className="mx-auto mt-5 max-w-xl text-muted-foreground">
+        <p data-reveal className="mx-auto mt-5 max-w-xl text-muted-foreground">
           Free forever for individuals and small teams. No credit card required.
         </p>
-        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+        <div
+          data-reveal
+          className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+        >
           <Link
             to="/signup"
             className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_10px_40px_-10px_rgba(20,217,211,0.6)]"
@@ -1056,18 +1103,34 @@ function SectionHeader({
   title: string;
   desc?: string;
 }) {
+  // GSAP ScrollTrigger reveal — this one component is reused by every major
+  // landing-page section, so wiring the reveal here once gives the whole
+  // page consistent, staggered scroll-in motion without touching each
+  // section individually.
+  const revealRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]" });
+
   return (
-    <div className="mx-auto max-w-2xl text-center">
+    <div ref={revealRef} className="mx-auto max-w-2xl text-center">
       {eyebrow && (
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground">
+        <div
+          data-reveal
+          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
+        >
           <span className="h-1.5 w-1.5 rounded-full bg-[#14D9D3]" />
           {eyebrow}
         </div>
       )}
-      <h2 className="mt-5 font-display text-3xl font-semibold tracking-tight md:text-5xl">
+      <h2
+        data-reveal
+        className="mt-5 font-display text-3xl font-semibold tracking-tight md:text-5xl"
+      >
         {title}
       </h2>
-      {desc && <p className="mx-auto mt-4 max-w-xl text-muted-foreground">{desc}</p>}
+      {desc && (
+        <p data-reveal className="mx-auto mt-4 max-w-xl text-muted-foreground">
+          {desc}
+        </p>
+      )}
     </div>
   );
 }

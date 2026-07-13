@@ -184,7 +184,7 @@ function SectionCard({
         </div>
         {actions}
       </div>
-      <div className="space-y-5">{children}</div>
+      <div className="flex flex-col gap-5">{children}</div>
     </motion.div>
   );
 }
@@ -370,7 +370,7 @@ function LinkedAccountsCard() {
     >
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border-subtle bg-app-bg/60 px-4 py-3">
         <div className="flex min-w-0 items-center gap-3">
-          <GoogleGlyph className="h-5 w-5 flex-shrink-0" />
+          <GoogleGlyph className="size-5 flex-shrink-0" />
           <div className="min-w-0">
             <p className="text-sm font-medium text-tx-primary">Google</p>
             <p className="truncate text-xs text-tx-muted">
@@ -475,7 +475,7 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
       icon={Timer}
     >
       {schedulerQuery.isLoading ? (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {Array.from({ length: 2 }, (_, i) => (
             <div key={i} className="skeleton h-9 rounded-lg" />
           ))}
@@ -500,7 +500,7 @@ function AutomaticSyncCard({ organizationId }: { organizationId: string }) {
             >
               <span
                 className={cn(
-                  "absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform",
+                  "absolute top-0.5 size-5 rounded-full bg-white transition-transform",
                   data.auto_sync_enabled ? "translate-x-5" : "translate-x-0.5",
                 )}
               />
@@ -592,7 +592,7 @@ function Toggle({
     >
       <span
         className={cn(
-          "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-md transition-transform duration-base",
+          "absolute top-0.5 size-4 rounded-full bg-white shadow-md transition-transform duration-base",
           value ? "translate-x-5" : "translate-x-0.5",
         )}
       />
@@ -991,7 +991,7 @@ export default function Settings() {
         </div>
 
         {/* Panel */}
-        <div className="min-w-0 flex-1 space-y-5">
+        <div className="min-w-0 flex flex-1 flex-col gap-5">
           {active === "profile" && (
             <>
               <form
@@ -1142,7 +1142,7 @@ export default function Settings() {
             >
               <SectionCard title="Workspace" icon={Building2}>
                 {orgsQuery.isLoading ? (
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     {Array.from({ length: 3 }, (_, i) => (
                       <div key={i} className="skeleton h-9 rounded-lg" />
                     ))}

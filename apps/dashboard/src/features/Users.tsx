@@ -212,7 +212,7 @@ export default function Users() {
   const isOwner = currentMember?.role === "owner";
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Members"
         description="Invite teammates, manage roles, and control who has access to this organization."
@@ -234,7 +234,7 @@ export default function Users() {
         icon={Clock}
       >
         {invitationsQuery.isLoading ? (
-          <div className="p-5 pt-0 space-y-2">
+          <div className="p-5 pt-0 flex flex-col gap-2">
             {Array.from({ length: 2 }, (_, i) => (
               <div key={i} className="h-12 skeleton rounded-lg" />
             ))}
@@ -313,7 +313,7 @@ export default function Users() {
 
       <Section title="Members" description={`${members.length} ${members.length === 1 ? "person has" : "people have"} access`} icon={UsersIcon}>
         {membersQuery.isLoading ? (
-          <div className="p-5 pt-0 space-y-2">
+          <div className="p-5 pt-0 flex flex-col gap-2">
             {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-14 skeleton rounded-lg" />)}
           </div>
         ) : membersQuery.isError ? (
@@ -432,7 +432,7 @@ export default function Users() {
             They'll receive an email with a link to join. Nothing is granted until they accept.
           </p>
 
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
             <div>
               <label htmlFor="invite-email" className="text-xs text-tx-muted block mb-1.5">Email</label>
               <div className="relative">

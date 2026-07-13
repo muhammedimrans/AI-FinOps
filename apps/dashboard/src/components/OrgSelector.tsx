@@ -98,7 +98,7 @@ export default function OrgSelector() {
             <>
               <h1 className="text-lg font-bold text-tx-primary mb-1">Select organization</h1>
               <p className="text-sm text-tx-muted mb-4">Choose an organization to continue.</p>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 {state.orgs.map((org) => (
                   <button
                     key={org.id}

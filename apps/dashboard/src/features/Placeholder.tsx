@@ -24,7 +24,7 @@ export default function Placeholder({
   const backendReady = status === "ui-pending";
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader title={title} description={description} />
 
       <motion.div
@@ -55,7 +55,7 @@ export default function Placeholder({
             <p className="text-[11px] font-semibold text-tx-muted uppercase tracking-wide mb-2 flex items-center gap-1.5">
               <Server size={12} /> Backend endpoints required
             </p>
-            <ul className="space-y-1.5">
+            <ul className="flex flex-col gap-1.5">
               {requiredEndpoints.map((ep) => (
                 <li key={ep}>
                   <code className="text-xs font-mono bg-app-muted text-tx-secondary px-2 py-1 rounded-md">{ep}</code>

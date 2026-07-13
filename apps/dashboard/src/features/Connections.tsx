@@ -256,7 +256,7 @@ function ProductionProviderCard({ providerId, index }: { providerId: string; ind
       {modelsOpen && (
         <div className="mt-4 border-t border-border-subtle pt-3">
           {models.isLoading ? (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-5 skeleton rounded" />)}
             </div>
           ) : models.isError ? (
@@ -1112,13 +1112,13 @@ function ManageConnectionsSection() {
         </div>
       }
     >
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         {adding && organizationId && (
           <AddConnectionForm organizationId={organizationId} onDone={() => setAdding(false)} />
         )}
 
         {connections.isLoading ? (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-14 skeleton rounded-xl" />)}
           </div>
         ) : list.length === 0 ? (
@@ -1135,7 +1135,7 @@ function ManageConnectionsSection() {
             }
           />
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {list.map((c) => (
               <ConnectionRow key={c.id} organizationId={organizationId!} connection={c} />
             ))}
@@ -1328,7 +1328,7 @@ function ProviderPromotionCard({
       {modelsOpen && match && (
         <div className="mt-4 border-t border-border-subtle pt-3">
           {models.isLoading ? (
-            <div className="space-y-2">
+            <div className="flex flex-col gap-2">
               {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-5 skeleton rounded" />)}
             </div>
           ) : models.isError ? (
@@ -1684,7 +1684,7 @@ function ProviderDirectory() {
 
 export default function Connections() {
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Provider Connections"
         description="Manage persisted connections, verify credentials, and browse live model lists for each adapter."

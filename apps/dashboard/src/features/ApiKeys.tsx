@@ -155,7 +155,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
   const keys = keysQuery.data?.keys ?? [];
 
   return (
-    <div className={compact ? "space-y-4" : "space-y-4 sm:space-y-6"}>
+    <div className={compact ? "flex flex-col gap-4" : "flex flex-col gap-4 sm:gap-6"}>
       {!compact && (
         <PageHeader
           title={isPersonal ? "My API Keys" : "API Keys"}
@@ -183,7 +183,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
         }
       >
         {keysQuery.isLoading ? (
-          <div className="p-5 pt-0 space-y-2">
+          <div className="p-5 pt-0 flex flex-col gap-2">
             {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-14 skeleton rounded-lg" />)}
           </div>
         ) : keysQuery.isError ? (
@@ -239,7 +239,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
                         <button
                           onClick={() => void copyPrefix(k.prefix)}
                           aria-label={`Copy prefix for ${k.name}`}
-                          className="btn-ghost h-6 w-6 !p-0 inline-flex items-center justify-center text-tx-muted hover:text-tx-primary"
+                          className="btn-ghost size-6 !p-0 inline-flex items-center justify-center text-tx-muted hover:text-tx-primary"
                         >
                           <Copy size={12} />
                         </button>
@@ -269,14 +269,14 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => openRename(k)}
-                          className="btn-ghost h-8 w-8 !p-0 text-tx-muted hover:text-tx-primary inline-flex items-center justify-center"
+                          className="btn-ghost size-8 !p-0 text-tx-muted hover:text-tx-primary inline-flex items-center justify-center"
                           aria-label={`Rename ${k.name}`}
                         >
                           <Pencil size={13} />
                         </button>
                         <button
                           onClick={() => setDeleteTarget(k)}
-                          className="icon-btn icon-btn-danger w-8 h-8"
+                          className="icon-btn icon-btn-danger size-8"
                           aria-label={`Delete ${k.name}`}
                         >
                           <Trash2 size={14} />
@@ -306,7 +306,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
         >
           <h2 className="text-sm font-semibold text-tx-primary mb-4">Create API Key</h2>
 
-          <div className="space-y-4">
+          <div className="flex flex-col gap-4">
             <div>
               <label htmlFor="key-name" className="text-xs text-tx-muted block mb-1.5">Name</label>
               <input
@@ -335,7 +335,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
               <span className="text-xs text-tx-muted block mb-1.5">Permissions</span>
               <div className="max-h-40 overflow-y-auto rounded-lg border border-border-subtle divide-y divide-border-subtle">
                 {permissionsQuery.isLoading ? (
-                  <div className="p-3 space-y-2">
+                  <div className="p-3 flex flex-col gap-2">
                     {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-4 skeleton rounded" />)}
                   </div>
                 ) : (
@@ -423,7 +423,7 @@ export function ApiKeysManager({ compact = false }: { compact?: boolean }) {
           <button
             onClick={() => void copyKey()}
             aria-label="Copy API key"
-            className="absolute top-2.5 right-2.5 btn-ghost h-7 w-7 !p-0 inline-flex items-center justify-center"
+            className="absolute top-2.5 right-2.5 btn-ghost size-7 !p-0 inline-flex items-center justify-center"
           >
             {copied ? <Check size={14} className="text-success" /> : <Copy size={14} />}
           </button>

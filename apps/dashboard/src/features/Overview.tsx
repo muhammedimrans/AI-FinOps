@@ -303,7 +303,7 @@ export function OnboardingWidget({
           </div>
         </div>
       </div>
-      <ul className="space-y-2">
+      <ul className="flex flex-col gap-2">
         {items.map((item) => (
           <li
             key={item.label}
@@ -443,7 +443,7 @@ export function DashboardStateHero({
           doesn&apos;t expose a bulk usage-history API, so Costorah has nothing to import from it
           automatically — that&apos;s expected, not an error, and won&apos;t change over time.
         </p>
-        <ul className="text-sm text-tx-muted max-w-sm mx-auto text-left mb-6 space-y-1.5">
+        <ul className="text-sm text-tx-muted max-w-sm mx-auto text-left mb-6 flex flex-col gap-1.5">
           <li className="flex items-center gap-2">
             <CheckCircle2 size={14} className="text-success flex-shrink-0" /> Connected &amp; healthy
           </li>
@@ -897,7 +897,7 @@ export default function Overview() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Overview"
         description="Real-time AI spend across every provider and project."

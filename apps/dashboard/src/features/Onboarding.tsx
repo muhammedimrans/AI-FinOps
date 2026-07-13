@@ -119,9 +119,9 @@ function StepShell({ children, wide = false }: { children: React.ReactNode; wide
 
 function IconBadge({ icon: Icon }: { icon: typeof Sparkles }) {
   return (
-    <div className="relative mx-auto mb-5 w-14 h-14">
+    <div className="relative mx-auto mb-5 size-14">
       <div className="absolute inset-0 bg-brand/20 rounded-full blur-xl" />
-      <div className="relative w-14 h-14 rounded-2xl bg-brand-subtle flex items-center justify-center">
+      <div className="relative size-14 rounded-2xl bg-brand-subtle flex items-center justify-center">
         <Icon size={24} className="text-brand" />
       </div>
     </div>
@@ -219,7 +219,7 @@ function WelcomeStep({ firstName, onNext }: { firstName: string; onNext: () => v
       <p className="text-sm text-tx-muted leading-relaxed">
         Costorah brings every AI provider into one place, so you can:
       </p>
-      <ul className="mt-4 space-y-2 text-left text-sm text-tx-secondary max-w-xs mx-auto">
+      <ul className="mt-4 flex flex-col gap-2 text-left text-sm text-tx-secondary max-w-xs mx-auto">
         {[
           "Monitor AI costs across every provider in real time",
           "Optimize token usage and catch inefficient calls",
@@ -310,7 +310,7 @@ function WorkspaceStep({
         This is your team's shared workspace — invite others to it from Members once you're set up.
       </p>
 
-      <div className="text-left space-y-4">
+      <div className="text-left flex flex-col gap-4">
         <div>
           <label
             htmlFor="workspace-name"
@@ -433,7 +433,7 @@ function ProviderStep({
             className="flex items-center gap-2.5 rounded-xl border border-border-subtle bg-app-muted px-3 py-3"
           >
             <span
-              className="h-2.5 w-2.5 rounded-full flex-shrink-0"
+              className="size-2.5 rounded-full flex-shrink-0"
               style={{ backgroundColor: p.color }}
               aria-hidden="true"
             />
@@ -480,7 +480,7 @@ function TourStep({ onNext }: { onNext: () => void }) {
             key={item.label}
             className="flex items-start gap-3 rounded-xl border border-border-subtle bg-app-muted p-3"
           >
-            <div className="w-9 h-9 rounded-lg bg-brand-subtle flex items-center justify-center flex-shrink-0">
+            <div className="size-9 rounded-lg bg-brand-subtle flex items-center justify-center flex-shrink-0">
               <item.icon size={16} className="text-brand" />
             </div>
             <div className="min-w-0">

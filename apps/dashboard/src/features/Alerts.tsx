@@ -165,7 +165,7 @@ export default function Alerts() {
   const criticalCount = alerts.filter((a) => a.severity === "critical" && a.status === "open").length;
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Alert Center"
         description="Budget threshold, spend spike, and system alerts fired by the notification engine."
@@ -241,7 +241,7 @@ export default function Alerts() {
         }
       >
         {history.isLoading ? (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-20 skeleton rounded-xl" />)}
           </div>
         ) : alerts.length === 0 ? (
@@ -251,7 +251,7 @@ export default function Alerts() {
             description="Nothing matches the current filters — or nothing has fired yet."
           />
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             <AnimatePresence initial={false}>
               {alerts.map((a) => (
                 <AlertRow key={a.id} alert={a} />

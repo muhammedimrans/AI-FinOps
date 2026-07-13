@@ -235,13 +235,13 @@ function ManageProjectsSection() {
         )
       }
     >
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         {adding && organizationId && (
           <AddProjectForm organizationId={organizationId} onDone={() => setAdding(false)} />
         )}
 
         {projectsCrud.isLoading ? (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {Array.from({ length: 2 }, (_, i) => <div key={i} className="h-14 skeleton rounded-xl" />)}
           </div>
         ) : list.length === 0 ? (
@@ -258,7 +258,7 @@ function ManageProjectsSection() {
             }
           />
         ) : (
-          <div className="space-y-2">
+          <div className="flex flex-col gap-2">
             {list.map((p) => (
               <ProjectCrudRow key={p.id} organizationId={organizationId!} project={p} />
             ))}
@@ -308,7 +308,7 @@ export default function Projects() {
   );
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader title="Projects" description="Track budget utilization and spend by project." />
 
       <ManageProjectsSection />

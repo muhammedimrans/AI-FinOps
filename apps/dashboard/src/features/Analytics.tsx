@@ -461,7 +461,7 @@ export default function Analytics() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader title="Cost Analytics" description="Break down spend trends and model-level cost efficiency." />
 
       {/* EP-24.1 — Filters: Date Range and Organization are already the
@@ -799,7 +799,7 @@ export default function Analytics() {
         >
           <div className="p-5 pt-0">
             {timeSeries.isLoading ? (
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-10 skeleton rounded-lg" />)}
               </div>
             ) : anomalies.length === 0 ? (
@@ -807,7 +807,7 @@ export default function Analytics() {
                 No anomalous days in the selected period.
               </p>
             ) : (
-              <ul className="space-y-2">
+              <ul className="flex flex-col gap-2">
                 {anomalies.map((a) => {
                   const spike = a.sigma > 0;
                   return (

@@ -108,7 +108,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
       {/* Mobile nav trigger */}
       <button
         onClick={onMenuClick}
-        className="lg:hidden btn-ghost h-8 w-8 p-0 justify-center flex-shrink-0"
+        className="lg:hidden btn-ghost size-8 p-0 justify-center flex-shrink-0"
         aria-label="Open navigation"
       >
         <Menu size={16} />
@@ -143,7 +143,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
       </button>
       <button
         onClick={() => setCommandOpen(true)}
-        className="md:hidden btn-ghost h-8 w-8 p-0 justify-center flex-shrink-0"
+        className="md:hidden btn-ghost size-8 p-0 justify-center flex-shrink-0"
         aria-label="Search pages"
       >
         <Search size={16} />
@@ -252,7 +252,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             aria-haspopup="true"
             aria-expanded={notifOpen}
             aria-label={unreadCount > 0 ? `Notifications — ${unreadCount} unread` : "Notifications"}
-            className={cn("btn-ghost h-8 w-8 p-0 justify-center relative", notifOpen && "text-brand bg-app-hover")}
+            className={cn("btn-ghost size-8 p-0 justify-center relative", notifOpen && "text-brand bg-app-hover")}
           >
             <Bell size={16} />
             {unreadCount > 0 && (
@@ -323,7 +323,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
             )}
             {alerts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
-                <div className="w-10 h-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
+                <div className="size-10 rounded-xl bg-app-muted flex items-center justify-center mb-3">
                   <BellOff size={18} className="text-tx-muted" />
                 </div>
                 <p className="text-sm font-medium text-tx-primary mb-1">All clear</p>
@@ -358,7 +358,7 @@ export default function Header({ onMenuClick }: HeaderProps) {
                           <span className="block text-[11px] text-tx-muted mt-0.5 leading-relaxed">{a.description}</span>
                         </span>
                         {!a.read && (
-                          <span className="w-1.5 h-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" aria-label="Unread" />
+                          <span className="size-1.5 rounded-full bg-brand mt-1.5 flex-shrink-0" aria-label="Unread" />
                         )}
                       </button>
                       <div className="absolute right-2.5 top-2.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-fast">

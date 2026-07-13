@@ -34,7 +34,7 @@ const NotFound     = lazy(() => import("./features/NotFound"));
 
 function PageFallback() {
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 animate-fade-in">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 animate-fade-in">
       <div className="h-7 w-40 skeleton rounded" />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }, (_, i) => <div key={i} className="h-28 skeleton rounded-card-lg" />)}

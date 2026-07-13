@@ -510,6 +510,12 @@ function SocialProof() {
 }
 
 function LiveDashboard() {
+  const gridRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.06,
+  });
+
   return (
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
@@ -518,7 +524,7 @@ function LiveDashboard() {
           title="See your AI economy in real time."
           desc="Every provider, every model, every project — normalized, correlated, and streamed live."
         />
-        <div className="mt-14 grid gap-4 lg:grid-cols-6">
+        <div ref={gridRef} className="mt-14 grid gap-4 lg:grid-cols-6">
           <StatCard icon={Wallet} label="Spend today" value="$3,284" trend="+4.2%" />
           <StatCard icon={Activity} label="Requests" value="1.2M" trend="+11%" />
           <StatCard icon={Cpu} label="Tokens" value="284M" trend="+6%" />
@@ -526,7 +532,10 @@ function LiveDashboard() {
           <StatCard icon={Radar} label="Anomalies" value="3" trend="live" positive />
           <StatCard icon={Users} label="Active users" value="94" trend="+2" />
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-4">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-4"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Cost forecast</div>
@@ -576,7 +585,10 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-2">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-2"
+          >
             <div className="text-xs text-muted-foreground">Provider mix</div>
             <div className="mt-1 font-display text-lg font-semibold">This quarter</div>
             <div className="mt-2 h-56">
@@ -618,7 +630,10 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
+          >
             <div className="text-xs text-muted-foreground">Top models by spend</div>
             <div className="mt-1 font-display text-lg font-semibold">Last 30 days</div>
             <div className="mt-4 h-60">
@@ -647,7 +662,10 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Live activity</div>
@@ -707,7 +725,7 @@ function StatCard({
   positive?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
+    <div data-reveal className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
       <div className="flex items-center justify-between">
         <div className="text-xs text-muted-foreground">{label}</div>
         <Icon className="size-4 text-[#14D9D3]" />
@@ -980,6 +998,12 @@ function Security() {
 }
 
 function Pricing() {
+  const cardsRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.08,
+  });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
@@ -988,10 +1012,11 @@ function Pricing() {
           title="Simple pricing that scales with you."
           desc="Start free today. Team and Enterprise plans with billing are coming soon."
         />
-        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div ref={cardsRef} className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {pricing.map((p) => (
             <div
               key={p.name}
+              data-reveal
               className={`relative flex flex-col rounded-2xl border p-6 ${
                 p.highlight
                   ? "border-[#14D9D3]/40 bg-gradient-to-b from-[#14D9D3]/10 to-transparent shadow-[0_0_60px_-20px_rgba(20,217,211,0.5)]"
@@ -1036,14 +1061,24 @@ function Pricing() {
 }
 
 function FAQ() {
+  const listRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 12,
+    stagger: 0.04,
+  });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-4xl px-6">
         <SectionHeader eyebrow="FAQ" title="Everything you might ask." />
-        <div className="mt-14 divide-y divide-white/5 rounded-2xl border border-white/10 bg-[#0C1117]">
+        <div
+          ref={listRef}
+          className="mt-14 divide-y divide-white/5 rounded-2xl border border-white/10 bg-[#0C1117]"
+        >
           {faqs.map((f) => (
             <details
               key={f.q}
+              data-reveal
               className="group px-6 py-5 [&_summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4">

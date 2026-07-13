@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, Cpu, Settings2, Terminal } from "lucide-react";
 import ProviderLogo from "../../components/ProviderLogo";
-import CollapsibleSection from "./CollapsibleSection";
+import CollapsibleSection from "../../components/CollapsibleSection";
 import ProviderInfoCard from "./ProviderInfoCard";
 import ModelInfoPanel from "./ModelInfoPanel";
 import { formatNumber, cn } from "../../utils";

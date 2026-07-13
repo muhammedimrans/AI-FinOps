@@ -28,7 +28,7 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { motion } from "framer-motion";
-import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles, Flame, FolderKanban, X, Info } from "lucide-react";
+import { Search, ArrowUpDown, ArrowUp, ArrowDown, Download, DollarSign, Gauge, TrendingDown, TrendingUp, AlertTriangle, Sparkles, Flame, FolderKanban, X, Info, SlidersHorizontal } from "lucide-react";
 import ChartCard from "../components/ChartCard";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
@@ -467,8 +467,13 @@ export default function Analytics() {
       {/* EP-24.1 — Filters: Date Range and Organization are already the
           page's implicit scope (top-bar date picker + active org); Project/
           Provider/Model narrow every chart and table below via the same
-          filter-aware endpoints. */}
-      <div className="flex flex-wrap items-center gap-2">
+          filter-aware endpoints. EP-25.8 — wrapped in a labeled bar so the
+          three dropdowns read as one control group affecting every chart
+          below, not three unrelated form fields. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border-subtle bg-app-card/50 px-3 py-2.5">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-tx-muted mr-1">
+          <SlidersHorizontal size={13} /> Filters
+        </span>
         <select
           value={projectFilter}
           onChange={(e) => setProjectFilter(e.target.value)}

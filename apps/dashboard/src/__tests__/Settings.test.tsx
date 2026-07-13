@@ -202,7 +202,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     });
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Workspace" }));
     const nameInput = await screen.findByDisplayValue("Acme");
     await user.clear(nameInput);
     await user.type(nameInput, "Acme Inc");
@@ -221,7 +221,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     mockedApi.changePassword.mockResolvedValue({ message: "Password changed successfully" });
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Password" }));
+    await user.click(screen.getByRole("tab", { name: "Password" }));
     await user.type(await screen.findByLabelText("Current password"), "old-password-1");
     await user.type(screen.getByLabelText("New password"), "new-password-2");
     await user.type(screen.getByLabelText("Confirm new password"), "new-password-2");
@@ -237,7 +237,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Password" }));
+    await user.click(screen.getByRole("tab", { name: "Password" }));
     await user.type(await screen.findByLabelText("Current password"), "old-password-1");
     await user.type(screen.getByLabelText("New password"), "new-password-2");
     await user.type(screen.getByLabelText("Confirm new password"), "does-not-match");
@@ -254,7 +254,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     });
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Preferences" }));
+    await user.click(screen.getByRole("tab", { name: "Preferences" }));
     await user.click(await screen.findByRole("switch", { name: /weekly digest/i }));
 
     await waitFor(() => {
@@ -267,7 +267,7 @@ describe("Settings — EP-22.2 backend integration", () => {
   it("renders the API Keys section reusing the shared ApiKeysManager", async () => {
     const user = userEvent.setup();
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "API Keys" }));
+    await user.click(screen.getByRole("tab", { name: "API Keys" }));
     expect(await screen.findByText(/No API Keys created yet/i)).toBeTruthy();
   });
 
@@ -287,7 +287,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     });
     const user = userEvent.setup();
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(screen.getByRole("tab", { name: "Danger Zone" }));
     expect(await screen.findByText(/personal workspace can't be deleted/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete workspace/i })).toBeNull();
   });
@@ -297,7 +297,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     mockedApi.deleteOrganization.mockResolvedValue(undefined);
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(screen.getByRole("tab", { name: "Danger Zone" }));
     await user.click(await screen.findByRole("button", { name: /delete workspace/i }));
 
     const confirm = await screen.findByRole("alertdialog", { name: /delete "acme"/i });
@@ -313,7 +313,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(screen.getByRole("tab", { name: "Danger Zone" }));
     await user.click(await screen.findByRole("button", { name: /delete workspace/i }));
 
     const confirm = await screen.findByRole("alertdialog", { name: /delete "acme"/i });
@@ -335,7 +335,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     const user = userEvent.setup();
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(screen.getByRole("tab", { name: "Danger Zone" }));
     await user.click(await screen.findByRole("button", { name: /delete account/i }));
 
     const confirm = await screen.findByRole("alertdialog", { name: /delete your account/i });
@@ -349,7 +349,7 @@ describe("Settings — EP-22.2 backend integration", () => {
     mockedApi.deleteAccount.mockResolvedValue(undefined);
     renderSettings();
 
-    await user.click(screen.getByRole("button", { name: "Danger Zone" }));
+    await user.click(screen.getByRole("tab", { name: "Danger Zone" }));
     await user.click(await screen.findByRole("button", { name: /delete account/i }));
 
     const confirm = await screen.findByRole("alertdialog", { name: /delete your account/i });
@@ -491,7 +491,7 @@ describe("Settings — Automatic Sync (EP-23.4)", () => {
     });
 
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Workspace" }));
 
     const toggle = await screen.findByRole("switch");
     expect(toggle.getAttribute("aria-checked")).toBe("false");
@@ -523,7 +523,7 @@ describe("Settings — Automatic Sync (EP-23.4)", () => {
     });
 
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Workspace" }));
 
     const select = await screen.findByRole("combobox");
     expect((select as HTMLSelectElement).value).toBe("15m");
@@ -575,7 +575,7 @@ describe("Settings — Automatic Sync (EP-23.4)", () => {
     });
 
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Workspace" }));
 
     const toggle = await screen.findByRole("switch");
     await user.click(toggle);
@@ -632,7 +632,7 @@ describe("Settings — Automatic Sync (EP-23.4)", () => {
     });
 
     renderSettings();
-    await user.click(screen.getByRole("button", { name: "Workspace" }));
+    await user.click(screen.getByRole("tab", { name: "Workspace" }));
 
     const select = await screen.findByRole("combobox");
     await user.selectOptions(select, "6h");

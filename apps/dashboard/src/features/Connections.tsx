@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import Section from "../components/Section";
+import CollapsibleSection from "../components/CollapsibleSection";
 import EmptyState from "../components/EmptyState";
 import ConfirmDialog from "../components/ConfirmDialog";
 import ProviderLogo from "../components/ProviderLogo";
@@ -1708,36 +1709,48 @@ export default function Connections() {
           EP-07), never a customer's own connections managed above. A
           provider can be fully connected, validated, and syncing above
           while still showing here — that's expected, not a contradiction,
-          since the two sections check entirely different credentials. */}
-      <div className="pt-2">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-tx-muted mb-1">
-          Platform diagnostics
-        </p>
-        <p className="text-xs text-tx-muted max-w-2xl">
-          Internal connectivity checks against Costorah&apos;s own server-side credentials — unrelated
-          to the customer connections you manage above and to the Provider Directory above.
-        </p>
-      </div>
+          since the two sections check entirely different credentials.
+          EP-25.8 — this internal surface has no reason to compete for
+          attention with the primary provider-management flow above it, so
+          it's now a collapsed-by-default disclosure (reusing the same
+          CollapsibleSection AI Playground's config panel already uses,
+          promoted to a shared component) rather than always-open sections
+          every visitor scrolls past. Nothing here was removed — only
+          de-emphasized. */}
+      <CollapsibleSection
+        title="Platform diagnostics"
+        icon={Wrench}
+        defaultOpen={false}
+        summary="Internal server-side credential checks"
+      >
+        <div className="flex flex-col gap-4 pt-3">
+          <p className="text-xs text-tx-muted max-w-2xl">
+            Internal connectivity checks against Costorah&apos;s own server-side credentials —
+            unrelated to the customer connections you manage above and to the Provider Directory
+            above.
+          </p>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {PRODUCTION_ADAPTERS.map((p, i) => (
-          <ProductionProviderCard key={p} providerId={p} index={i} />
-        ))}
-      </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {PRODUCTION_ADAPTERS.map((p, i) => (
+              <ProductionProviderCard key={p} providerId={p} index={i} />
+            ))}
+          </div>
 
-      {/* EP-25.4.4 Part 3 — "Remove duplicate appearance": the old
-          "Other adapters (platform diagnostics only)" tile grid (Google,
-          Azure, Grok, OpenRouter, Ollama as plain grey "No ops probe"
-          tiles) has been removed — every one of those providers now has a
-          real, richer card in the Provider Directory's Production or
-          Preview grid above (logo, capabilities, connection status),
-          which is strictly more informative than this internal probe ever
-          was for them. Only OpenAI/Anthropic — the two providers this
-          internal probe actually supports — remain below. */}
-      <p className="text-[11px] text-tx-muted max-w-2xl">
-        Every other catalog provider is covered by the Provider Directory above — no separate
-        diagnostics tile is needed for providers this internal probe was never wired up for.
-      </p>
+          {/* EP-25.4.4 Part 3 — "Remove duplicate appearance": the old
+              "Other adapters (platform diagnostics only)" tile grid (Google,
+              Azure, Grok, OpenRouter, Ollama as plain grey "No ops probe"
+              tiles) has been removed — every one of those providers now has a
+              real, richer card in the Provider Directory's Production or
+              Preview grid above (logo, capabilities, connection status),
+              which is strictly more informative than this internal probe ever
+              was for them. Only OpenAI/Anthropic — the two providers this
+              internal probe actually supports — remain below. */}
+          <p className="text-[11px] text-tx-muted max-w-2xl">
+            Every other catalog provider is covered by the Provider Directory above — no separate
+            diagnostics tile is needed for providers this internal probe was never wired up for.
+          </p>
+        </div>
+      </CollapsibleSection>
     </div>
   );
 }

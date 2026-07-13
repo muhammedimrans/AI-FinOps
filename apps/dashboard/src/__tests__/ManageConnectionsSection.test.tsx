@@ -559,3 +559,32 @@ describe("Connections page — automatic sync status (EP-23.4)", () => {
     expect(screen.getByText(/retry 1/)).toBeTruthy();
   });
 });
+
+describe("Connections page — Platform diagnostics disclosure (EP-25.8)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useOrgStore.setState({ organizationId: "org_1", organizationName: "Acme" });
+    mockedApi.getProviderInfo.mockResolvedValue(SAMPLE_INFO);
+    mockedApi.getProviderConnectionSyncStatus.mockResolvedValue(NEVER_SYNCED_STATUS);
+    mockedApi.getSchedulerStatus.mockResolvedValue(DISABLED_SCHEDULER_STATUS);
+    mockedApi.listProviderConnections.mockResolvedValue({ connections: [], total: 0 });
+  });
+
+  it("renders collapsed by default, hiding the internal ops-probe cards", async () => {
+    renderPage();
+    const header = await screen.findByRole("button", { name: /platform diagnostics/i });
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(/internal connectivity checks against costorah/i)).toBeNull();
+  });
+
+  it("expands to reveal the diagnostics content when clicked", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const header = await screen.findByRole("button", { name: /platform diagnostics/i });
+    await user.click(header);
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      await screen.findByText(/internal connectivity checks against costorah/i),
+    ).toBeTruthy();
+  });
+});

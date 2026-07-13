@@ -40,35 +40,38 @@
   --color-brand-glow: var(--brand-glow);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
 }
 
 :root {
   --radius: 0.875rem;
 
-  /* Costorah dark palette (dark-first) */
-  --background: oklch(0.14 0.015 240);
-  --foreground: oklch(0.985 0 0);
+  /* Costorah — deep ink base. Neutrals carry a faint blue-violet bias so
+     they read as chosen, not a default grey-on-black. */
+  --ink: #060810;
+  --background: oklch(0.14 0.018 255);
+  --foreground: oklch(0.985 0.002 255);
 
-  --surface: oklch(0.19 0.018 240);
-  --surface-2: oklch(0.23 0.02 240);
+  --surface: oklch(0.185 0.02 255);
+  --surface-2: oklch(0.23 0.024 255);
 
-  --card: oklch(0.19 0.018 240);
-  --card-foreground: oklch(0.985 0 0);
+  --card: oklch(0.185 0.02 255);
+  --card-foreground: oklch(0.985 0.002 255);
 
-  --popover: oklch(0.19 0.018 240);
-  --popover-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.185 0.02 255);
+  --popover-foreground: oklch(0.985 0.002 255);
 
   --primary: oklch(0.83 0.14 190);
-  --primary-foreground: oklch(0.14 0.015 240);
+  --primary-foreground: oklch(0.14 0.018 255);
 
-  --secondary: oklch(0.25 0.02 240);
-  --secondary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.25 0.022 255);
+  --secondary-foreground: oklch(0.985 0.002 255);
 
-  --muted: oklch(0.23 0.018 240);
-  --muted-foreground: oklch(0.72 0.02 250);
+  --muted: oklch(0.23 0.02 255);
+  --muted-foreground: oklch(0.71 0.024 258);
 
   --accent: oklch(0.28 0.03 200);
-  --accent-foreground: oklch(0.985 0 0);
+  --accent-foreground: oklch(0.985 0.002 255);
 
   --destructive: oklch(0.65 0.22 22);
   --destructive-foreground: oklch(0.985 0 0);
@@ -77,63 +80,239 @@
   --input: oklch(1 0 0 / 12%);
   --ring: oklch(0.83 0.14 190);
 
-  --brand: #14D9D3;
-  --brand-glow: #7AF7E8;
+  --brand: #14d9d3;
+  --brand-glow: #7af7e8;
+  --brand-deep: #0e9c98;
+  --violet: #8b7dff;
 
-  --gradient-brand: linear-gradient(135deg, #14D9D3 0%, #7AF7E8 100%);
-  --gradient-hero: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(20, 217, 211, 0.18), transparent 70%);
-  --gradient-mesh: radial-gradient(circle at 20% 10%, rgba(20, 217, 211, 0.12), transparent 40%),
-                   radial-gradient(circle at 80% 30%, rgba(122, 247, 232, 0.08), transparent 40%),
-                   radial-gradient(circle at 50% 90%, rgba(20, 217, 211, 0.06), transparent 50%);
+  --gradient-brand: linear-gradient(135deg, #14d9d3 0%, #7af7e8 100%);
+  --gradient-brand-soft: linear-gradient(
+    135deg,
+    rgba(20, 217, 211, 0.16),
+    rgba(122, 247, 232, 0.06)
+  );
+  --gradient-hero: radial-gradient(
+    ellipse 80% 60% at 50% 0%,
+    rgba(20, 217, 211, 0.18),
+    transparent 70%
+  );
 
   --shadow-glow: 0 0 60px -10px rgba(20, 217, 211, 0.35);
-  --shadow-card: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 20px 40px -20px rgba(0,0,0,0.6);
+  --shadow-card: 0 1px 0 0 rgba(255, 255, 255, 0.05) inset, 0 24px 48px -24px rgba(0, 0, 0, 0.7);
+  --shadow-float:
+    0 40px 120px -40px rgba(20, 217, 211, 0.3), 0 1px 0 0 rgba(255, 255, 255, 0.06) inset;
 }
 
 @layer base {
   html {
     color-scheme: dark;
-    background-color: #05070A;
+    background-color: var(--ink);
+    scroll-behavior: smooth;
   }
-  * { border-color: var(--color-border); }
+  * {
+    border-color: var(--color-border);
+  }
   body {
-    background-color: #05070A;
+    background-color: var(--ink);
     color: var(--color-foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     font-feature-settings: "cv11", "ss01";
   }
-  h1, h2, h3, h4, h5 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
   }
-  ::selection { background: rgba(20, 217, 211, 0.35); color: white; }
+  ::selection {
+    background: rgba(20, 217, 211, 0.35);
+    color: white;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
 }
 
+/* ------------------------------------------------------------------ */
+/* Fluid display type — one clamp-based scale, used across the site.   */
+/* ------------------------------------------------------------------ */
+@utility display-2xl {
+  font-size: clamp(2.75rem, 1.6rem + 5.4vw, 5.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+@utility display-xl {
+  font-size: clamp(2.25rem, 1.4rem + 3.6vw, 4rem);
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+@utility display-lg {
+  font-size: clamp(1.85rem, 1.3rem + 2.4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  font-weight: 600;
+}
+
+/* Mono "telemetry" eyebrow — replaces the generic pill everywhere. */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in oklch, var(--brand) 85%, white);
+}
+
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ------------------------------------------------------------------ */
+/* Backgrounds                                                         */
+/* ------------------------------------------------------------------ */
 @utility bg-grid {
   background-image:
-    linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 48px 48px;
+    linear-gradient(to right, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
 }
 
+@utility bg-dots {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Layered aurora — replaces the flat single radial glow. Animates
+   slowly; fully stilled under prefers-reduced-motion. */
+@utility aurora {
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 120%;
+  pointer-events: none;
+  background:
+    radial-gradient(38% 45% at 22% 18%, rgba(20, 217, 211, 0.22), transparent 60%),
+    radial-gradient(34% 40% at 82% 12%, rgba(122, 247, 232, 0.14), transparent 62%),
+    radial-gradient(46% 52% at 55% 0%, rgba(139, 125, 255, 0.1), transparent 65%);
+  filter: blur(14px);
+  animation: aurora-drift 22s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(-2%, 0, 0) scale(1);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(3%, 2%, 0) scale(1.08);
+    opacity: 1;
+  }
+}
+
+/* Infinite provider marquee. */
+@utility marquee-track {
+  animation: marquee-scroll 38s linear infinite;
+}
+@keyframes marquee-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Surfaces & brand text                                               */
+/* ------------------------------------------------------------------ */
 @utility text-gradient-brand {
-  background: linear-gradient(135deg, #14D9D3 0%, #7AF7E8 100%);
+  background: linear-gradient(120deg, #14d9d3 0%, #7af7e8 55%, #14d9d3 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
 @utility bg-gradient-brand {
-  background-image: linear-gradient(135deg, #14D9D3 0%, #7AF7E8 100%);
+  background-image: linear-gradient(135deg, #14d9d3 0%, #7af7e8 100%);
 }
 
-@utility surface-card {
-  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
-  border: 1px solid rgba(255,255,255,0.08);
+/* Premium surface: soft top-highlight + inner border, layered depth. */
+@utility panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+    rgba(8, 12, 20, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-2xl);
   box-shadow: var(--shadow-card);
 }
 
+@utility panel-glow {
+  background:
+    linear-gradient(180deg, rgba(20, 217, 211, 0.06), rgba(255, 255, 255, 0.012)),
+    rgba(8, 12, 20, 0.72);
+  border: 1px solid rgba(20, 217, 211, 0.22);
+  border-radius: var(--radius-2xl);
+  box-shadow: var(--shadow-float);
+}
+
+/* Gradient hairline border via mask — used on featured cards. */
+@utility hairline-brand {
+  position: relative;
+}
+
 @utility ring-brand {
-  box-shadow: 0 0 0 1px rgba(20, 217, 211, 0.4), 0 0 40px -10px rgba(20, 217, 211, 0.5);
+  box-shadow:
+    0 0 0 1px rgba(20, 217, 211, 0.4),
+    0 0 40px -10px rgba(20, 217, 211, 0.5);
+}
+
+/* Primary CTA — refined pill with tactile press + glow. */
+@utility btn-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background-image: linear-gradient(135deg, #14d9d3 0%, #7af7e8 100%);
+  color: var(--primary-foreground);
+  font-weight: 600;
+  box-shadow: 0 10px 40px -12px rgba(20, 217, 211, 0.65);
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    filter 0.18s ease;
+}
+
+@utility btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--foreground);
+  font-weight: 500;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    transform 0.18s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .aurora,
+  .marquee-track {
+    animation: none !important;
+  }
 }

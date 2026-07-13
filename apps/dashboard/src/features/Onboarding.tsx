@@ -83,18 +83,28 @@ const TOUR_ITEMS = [
   },
 ] as const;
 
+// EP-25.8 — the dots alone gave no orientation: no step numbers, no step
+// names, and aria-hidden meant screen-reader users got nothing at all. A
+// visible "Step N of 5 · Name" label (plus a polite live region so it's
+// announced on every step change) fixes onboarding-flow orientation without
+// touching the wizard's own step/navigation logic.
 function StepDots({ current }: { current: number }) {
   return (
-    <div className="flex items-center justify-center gap-2 mb-8" aria-hidden="true">
-      {STEPS.map((label, i) => (
-        <div
-          key={label}
-          className={cn(
-            "h-1.5 rounded-full transition-all duration-300",
-            i === current ? "w-8 bg-brand" : i < current ? "w-1.5 bg-brand/50" : "w-1.5 bg-app-muted",
-          )}
-        />
-      ))}
+    <div className="flex flex-col items-center gap-2.5 mb-8">
+      <div className="flex items-center gap-2" aria-hidden="true">
+        {STEPS.map((label, i) => (
+          <div
+            key={label}
+            className={cn(
+              "h-1.5 rounded-full transition-all duration-300",
+              i === current ? "w-8 bg-brand" : i < current ? "w-1.5 bg-brand/50" : "w-1.5 bg-app-muted",
+            )}
+          />
+        ))}
+      </div>
+      <p role="status" aria-live="polite" className="text-xs font-medium text-tx-muted">
+        Step {current + 1} of {STEPS.length} · {STEPS[current]}
+      </p>
     </div>
   );
 }

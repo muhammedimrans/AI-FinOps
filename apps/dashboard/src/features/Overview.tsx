@@ -1054,7 +1054,11 @@ export default function Overview() {
         </motion.div>
       </div>
 
-      {/* Budget & Alert Cards — EP-24.2 */}
+      {/* Budget & Alert Cards — EP-24.2. Wrapped in its own Section (rather
+          than a second, unlabeled 4-card grid immediately below the spend
+          KPIs) so the two metric groups read as distinct at a glance —
+          EP-25.8 information-hierarchy pass. */}
+      <Section title="Budgets & Alerts" description="How much budget remains and what needs attention">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0 }}>
           <MetricCard
@@ -1103,6 +1107,7 @@ export default function Overview() {
           />
         </motion.div>
       </div>
+      </Section>
 
       {/* Cost Trend Chart */}
       <ChartCard

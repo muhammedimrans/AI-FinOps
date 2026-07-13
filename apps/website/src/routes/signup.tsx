@@ -26,13 +26,15 @@ function Signup() {
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors, isSubmitting },
   } = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
+    // Account type is no longer surfaced to the user — every account is
+    // created as "personal" (the backend's own default). The value is kept
+    // internally (defaultValue + hidden field below) so the register()
+    // payload, validation, and backend behavior are all unchanged.
     defaultValues: { account_type: "personal" },
   });
-  const accountType = watch("account_type");
 
   const onSubmit = async (values: SignupFormValues) => {
     setFormError(null);
@@ -94,61 +96,10 @@ function Signup() {
                   {formError}
                 </p>
               )}
-              <fieldset>
-                <legend className="text-sm text-muted-foreground">Choose your account</legend>
-                <div className="mt-1.5 grid grid-cols-2 gap-2">
-                  <label
-                    className={`cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors ${
-                      accountType === "business"
-                        ? "border-white/10 bg-white/[0.02] text-muted-foreground"
-                        : "border-[#14D9D3]/40 bg-[#14D9D3]/[0.06] text-foreground"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      value="personal"
-                      className="sr-only"
-                      disabled={isSubmitting}
-                      {...register("account_type")}
-                    />
-                    Personal
-                  </label>
-                  <label
-                    className={`cursor-pointer rounded-lg border px-3 py-2.5 text-sm transition-colors ${
-                      accountType === "business"
-                        ? "border-[#14D9D3]/40 bg-[#14D9D3]/[0.06] text-foreground"
-                        : "border-white/10 bg-white/[0.02] text-muted-foreground"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      value="business"
-                      className="sr-only"
-                      disabled={isSubmitting}
-                      {...register("account_type")}
-                    />
-                    Business / Team
-                  </label>
-                </div>
-              </fieldset>
-              {accountType === "business" && (
-                <div>
-                  <label className="text-sm text-muted-foreground" htmlFor="organization_name">
-                    Workspace name
-                  </label>
-                  <input
-                    id="organization_name"
-                    placeholder="Acme Inc"
-                    autoComplete="organization"
-                    disabled={isSubmitting}
-                    className="mt-1.5 w-full rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2.5 text-sm outline-none focus:border-[#14D9D3]/40 disabled:opacity-60"
-                    {...register("organization_name")}
-                  />
-                  {errors.organization_name && (
-                    <p className="mt-1 text-xs text-red-400">{errors.organization_name.message}</p>
-                  )}
-                </div>
-              )}
+              {/* Account-type selection removed to reduce onboarding friction.
+                  account_type is submitted as the backend default ("personal")
+                  via this hidden field — no user choice, no backend change. */}
+              <input type="hidden" value="personal" {...register("account_type")} />
               <div>
                 <label className="text-sm text-muted-foreground" htmlFor="display_name">
                   Full name

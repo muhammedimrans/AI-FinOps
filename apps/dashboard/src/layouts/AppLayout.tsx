@@ -11,16 +11,48 @@ import { useOrgStore } from "../stores/org";
 import { useRealtimeConnection } from "../realtime/hooks";
 import { useRealtimeQueryBridge } from "../realtime/queryBridge";
 
+/* EP-P2 — a representative skeleton that mirrors the real dashboard shape
+   (page header → KPI row with the actual card anatomy → chart grid), so the
+   route-load placeholder reads as the page settling in rather than grey
+   blocks. Uses the same `.glass-card` surface as real content for continuity. */
+function KpiCardSkeleton() {
+  return (
+    <div className="glass-card rounded-card-lg border p-5">
+      <div className="flex items-center gap-2.5 mb-3.5">
+        <div className="size-9 skeleton rounded-xl" />
+        <div className="h-3 w-24 skeleton rounded" />
+      </div>
+      <div className="h-7 w-28 skeleton rounded mb-2.5" />
+      <div className="flex items-end justify-between">
+        <div className="h-3 w-20 skeleton rounded" />
+        <div className="h-6 w-16 skeleton rounded" />
+      </div>
+    </div>
+  );
+}
+
 function PageSkeleton() {
   return (
-    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 animate-fade-in">
-      <div className="h-8 w-48 skeleton rounded" />
+    <div className="p-4 sm:p-6 flex flex-col gap-5 sm:gap-6 animate-fade-in">
+      <div className="flex flex-col gap-2">
+        <div className="h-7 w-56 skeleton rounded" />
+        <div className="h-3.5 w-80 max-w-full skeleton rounded" />
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }, (_, i) => (
-          <div key={i} className="h-28 skeleton rounded-card-lg" />
+          <KpiCardSkeleton key={i} />
         ))}
       </div>
-      <div className="h-72 skeleton rounded-card-lg" />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-5">
+        <div className="glass-card rounded-card-lg border h-72 lg:col-span-2 p-5">
+          <div className="h-4 w-40 skeleton rounded mb-4" />
+          <div className="h-[calc(100%-2rem)] skeleton rounded" />
+        </div>
+        <div className="glass-card rounded-card-lg border h-72 p-5">
+          <div className="h-4 w-28 skeleton rounded mb-4" />
+          <div className="h-[calc(100%-2rem)] skeleton rounded" />
+        </div>
+      </div>
     </div>
   );
 }

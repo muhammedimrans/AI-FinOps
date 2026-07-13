@@ -128,16 +128,19 @@ export default function Header({ onMenuClick }: HeaderProps) {
         <h1 className="text-sm font-semibold text-tx-primary leading-tight">{pageLabel}</h1>
       </div>
 
-      {/* Search / quick-jump trigger — full bar on md+, icon-only on mobile */}
+      {/* Search / quick-jump command bar — full bar on md+, icon-only on mobile.
+          EP-P2: a raised field surface (bg-app-card over the translucent header)
+          with a stronger hover, so it reads as a real command bar (GitHub/Linear)
+          rather than a faint outline. */}
       <button
         onClick={() => setCommandOpen(true)}
-        className="hidden md:flex items-center gap-2 h-8 px-3 w-56 rounded-lg border border-border-subtle
-                   bg-app-bg text-tx-muted text-xs hover:border-brand/40 hover:text-tx-secondary
+        className="hidden md:flex items-center gap-2 h-8 px-3 w-56 lg:w-64 rounded-lg border border-border-subtle
+                   bg-app-card text-tx-muted text-xs shadow-card hover:border-brand/50 hover:text-tx-secondary
                    transition-colors duration-fast"
       >
         <Search size={13} />
         <span className="flex-1 text-left">Search pages…</span>
-        <kbd className="px-1.5 h-4.5 rounded border border-border-subtle text-[9px] leading-none flex items-center">
+        <kbd className="px-1.5 h-4.5 rounded border border-border-subtle bg-app-muted text-[9px] leading-none flex items-center">
           ⌘K
         </kbd>
       </button>

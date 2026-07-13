@@ -277,13 +277,36 @@
 }
 
 @layer components {
-  /* Glass card */
+  /* Glass card — the base surface for every card in the app.
+     EP-P2 (Phase 2): cards previously had border only and sat visually flat.
+     Real products (Linear, Stripe, Datadog) float their surfaces on subtle,
+     layered elevation with a crisp 1px top-highlight edge. Both are now baked
+     in here (theme-aware via the existing --shadow-a-* / --glass-edge-a tokens),
+     so every card across the app gains real depth without touching call sites. */
   .glass-card {
     @apply bg-app-card border border-border-subtle rounded-card;
     background:
-      linear-gradient(145deg, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 100%),
+      linear-gradient(180deg, rgb(var(--glass-tint-rgb) / var(--glass-a-1)) 0%, rgb(var(--glass-tint-rgb) / var(--glass-a-2)) 100%),
       rgb(var(--color-app-card));
     backdrop-filter: blur(var(--glass-blur));
+    box-shadow:
+      0 1px 0 0 rgb(var(--glass-edge-rgb) / var(--glass-edge-a)) inset,
+      0 1px 2px rgb(var(--shadow-rgb) / var(--shadow-a-1)),
+      0 6px 20px -10px rgb(var(--shadow-rgb) / var(--shadow-a-3));
+  }
+
+  /* Interactive card lift — opt-in hover elevation for clickable cards
+     (KPI tiles, provider cards). Pairs the depth increase with a 1px rise so
+     the surface reads as "raisable", the Linear/Stripe hover signature. */
+  .card-interactive {
+    @apply transition-all duration-base;
+  }
+  .card-interactive:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 1px 0 0 rgb(var(--glass-edge-rgb) / var(--glass-edge-a-lg)) inset,
+      0 2px 6px rgb(var(--shadow-rgb) / var(--shadow-a-3)),
+      0 16px 40px -16px rgb(var(--shadow-rgb) / var(--shadow-a-5));
   }
 
   /* Glass panel — premium hero surface (login, splash, empty-state heroes) */

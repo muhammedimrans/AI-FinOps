@@ -69,7 +69,7 @@ export default function Support() {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader title="Support" description="Docs, FAQs, and a direct line to the Costorah team." />
 
       {/* Contact channel cards */}
@@ -107,7 +107,7 @@ export default function Support() {
             </div>
           }
         >
-          <ul className="space-y-2">
+          <ul className="flex flex-col gap-2">
             {filtered.map((f) => (
               <FaqItem key={f.q} q={f.q} a={f.a} />
             ))}
@@ -128,7 +128,7 @@ export default function Support() {
             </span>
           }
         >
-          <form className="space-y-3" onSubmit={handleSubmit}>
+          <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
             <div>
               <label className="text-xs text-tx-muted block mb-1.5">Subject</label>
               <input

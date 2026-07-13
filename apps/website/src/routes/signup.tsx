@@ -59,7 +59,7 @@ function Signup() {
     <SiteLayout>
       <AuthCard title="Start free" subtitle="Free forever. No credit card required.">
         {succeeded ? (
-          <div role="status" className="space-y-3 text-center">
+          <div role="status" className="flex flex-col gap-3 text-center">
             <h2 className="font-display text-lg font-semibold text-[#14D9D3]">Check your email</h2>
             <p className="text-sm text-muted-foreground">
               We sent a verification link to{" "}
@@ -81,7 +81,11 @@ function Signup() {
               or sign up with email
               <span className="h-px flex-1 bg-white/10" />
             </div>
-            <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="space-y-4">
+            <form
+              onSubmit={(e) => void handleSubmit(onSubmit)(e)}
+              noValidate
+              className="flex flex-col gap-4"
+            >
               {formError && (
                 <p
                   role="alert"

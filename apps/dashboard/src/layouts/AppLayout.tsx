@@ -13,7 +13,7 @@ import { useRealtimeQueryBridge } from "../realtime/queryBridge";
 
 function PageSkeleton() {
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 animate-fade-in">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6 animate-fade-in">
       <div className="h-8 w-48 skeleton rounded" />
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {Array.from({ length: 4 }, (_, i) => (

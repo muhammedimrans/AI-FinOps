@@ -87,7 +87,7 @@ export default function SetPassword() {
         </p>
       </div>
 
-      <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-4">
+      <form onSubmit={(e) => void handleSubmit(e)} noValidate className="flex flex-col gap-4">
         {error && (
           <p
             role="alert"

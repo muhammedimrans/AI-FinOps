@@ -56,7 +56,7 @@ export default function ResetPassword() {
     <AuthShell>
       {done ? (
         <div className="text-center py-2">
-          <div className="w-12 h-12 rounded-2xl bg-success-dim flex items-center justify-center mx-auto mb-4">
+          <div className="size-12 rounded-2xl bg-success-dim flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 size={22} className="text-success" />
           </div>
           <h1 className="font-display text-lg font-bold text-tx-primary mb-2">Password updated</h1>
@@ -72,7 +72,7 @@ export default function ResetPassword() {
           <h1 className="font-display text-lg font-bold text-tx-primary mb-1">Choose a new password</h1>
           <p className="text-sm text-tx-muted mb-6">Minimum 8 characters.</p>
 
-          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-4">
             <div>
               <label htmlFor="new-password" className="block text-xs font-medium text-tx-secondary mb-2">
                 New password
@@ -100,7 +100,7 @@ export default function ResetPassword() {
                   type="button"
                   onClick={() => setShow((v) => !v)}
                   aria-label={show ? "Hide password" : "Show password"}
-                  className="absolute right-0 top-0 h-11 w-11 flex items-center justify-center text-tx-muted hover:text-tx-secondary transition-colors duration-fast"
+                  className="absolute right-0 top-0 size-11 flex items-center justify-center text-tx-muted hover:text-tx-secondary transition-colors duration-fast"
                 >
                   {show ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>

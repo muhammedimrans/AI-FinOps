@@ -112,7 +112,7 @@ export default function OnboardingModal() {
                 <p className="text-sm text-tx-secondary leading-relaxed mb-5">
                   Switch anytime from the top bar. Here&apos;s a preview.
                 </p>
-                <div className="space-y-2">
+                <div className="flex flex-col gap-2">
                   {THEMES.map((t) => (
                     <button
                       key={t.id}
@@ -147,7 +147,7 @@ export default function OnboardingModal() {
                 <p className="text-sm text-tx-secondary leading-relaxed mb-5">
                   A quick tour of the essentials.
                 </p>
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   {TOUR_ITEMS.map((item) => (
                     <div key={item.label} className="flex items-start gap-3">
                       <div className="w-9 h-9 rounded-lg bg-brand-subtle flex items-center justify-center flex-shrink-0">

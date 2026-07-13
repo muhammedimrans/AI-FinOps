@@ -154,7 +154,7 @@ export default function Login() {
           >
             <div className="relative">
               <div className="absolute inset-0 animate-glow-pulse rounded-full bg-brand/30 blur-xl" />
-              <CostorahMark className="relative h-12 w-12" />
+              <CostorahMark className="relative size-12" />
             </div>
             <span className="font-display text-xl font-bold tracking-[0.12em] text-tx-primary">
               COSTORAH
@@ -205,7 +205,7 @@ export default function Login() {
 
           <div className="glass-panel relative p-8 shadow-glow-brand-lg sm:p-11">
             <div className="mb-8 hidden items-center gap-2.5 lg:flex">
-              <CostorahMark className="h-8 w-8" />
+              <CostorahMark className="size-8" />
               <span className="font-display text-sm font-bold tracking-[0.12em] text-tx-primary">
                 COSTORAH
               </span>
@@ -218,7 +218,7 @@ export default function Login() {
               href={googleOAuthStartUrl()}
               className="mb-5 flex h-12 w-full items-center justify-center gap-2.5 rounded-xl border border-border-subtle bg-app-bg/60 text-sm font-medium text-tx-primary transition-colors duration-fast hover:bg-app-hover"
             >
-              <GoogleGlyph className="h-4 w-4" />
+              <GoogleGlyph className="size-4" />
               Continue with Google
             </a>
             <div className="mb-5 flex items-center gap-3 text-xs text-tx-muted">
@@ -231,7 +231,7 @@ export default function Login() {
               onSubmit={(e) => {
                 void handleSubmit(e);
               }}
-              className="space-y-5"
+              className="flex flex-col gap-5"
               noValidate
             >
               <div>
@@ -512,14 +512,14 @@ function FloatingMetricCards() {
           <Layers size={12} className="text-brand" />
           Providers
         </div>
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-1.5">
           {[
             { name: "OpenAI", pct: 48, color: "bg-openai" },
             { name: "Anthropic", pct: 24, color: "bg-anthropic" },
             { name: "Google", pct: 15, color: "bg-google" },
           ].map((p) => (
             <div key={p.name} className="flex items-center gap-2">
-              <span className={cn("h-1.5 w-1.5 rounded-full", p.color)} />
+              <span className={cn("size-1.5 rounded-full", p.color)} />
               <span className="flex-1 text-[11px] text-tx-secondary">{p.name}</span>
               <span className="text-[11px] text-tx-muted">{p.pct}%</span>
             </div>
@@ -531,7 +531,7 @@ function FloatingMetricCards() {
         className="glass-card absolute bottom-0 left-10 flex w-40 animate-float items-center gap-2.5 border border-border-subtle px-3.5 py-2.5 shadow-elevated"
         style={{ animationDelay: "1.1s" }}
       >
-        <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-brand-subtle">
+        <div className="flex size-7 flex-shrink-0 items-center justify-center rounded-full bg-brand-subtle">
           <Sparkles size={13} className="text-brand" />
         </div>
         <div>

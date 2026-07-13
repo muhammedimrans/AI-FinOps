@@ -126,7 +126,7 @@ function Features() {
         description="Costorah unifies visibility, control, and analytics across every AI provider you use. We're honest about what's shipped and what's still coming — see below."
       />
       <section className="mx-auto max-w-7xl px-6 py-20">
-        <div className="space-y-24">
+        <div className="flex flex-col gap-24">
           {groups.map((g) => (
             <div key={g.title}>
               <div className="mb-10 flex flex-col items-start gap-2 md:flex-row md:items-end md:justify-between">
@@ -145,8 +145,8 @@ function Features() {
                     key={it.title}
                     className="rounded-2xl border border-white/10 bg-[#0C1117] p-6 transition-colors hover:border-[#14D9D3]/30"
                   >
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                      <it.icon className="h-5 w-5" />
+                    <div className="flex size-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+                      <it.icon className="size-5" />
                     </div>
                     <h3 className="mt-4 font-display text-lg font-semibold">{it.title}</h3>
                     <p className="mt-2 text-sm text-muted-foreground">{it.body}</p>

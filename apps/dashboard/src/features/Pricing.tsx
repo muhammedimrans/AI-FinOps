@@ -77,7 +77,7 @@ export default function Pricing() {
   });
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Pricing"
         description="The platform's versioned pricing catalog, and a calculator backed by the same engine that prices real usage."
@@ -164,7 +164,7 @@ export default function Pricing() {
           description="Priced by the backend engine — identical math to real usage."
           icon={Calculator}
         >
-          <div className="p-5 pt-0 space-y-4">
+          <div className="p-5 pt-0 flex flex-col gap-4">
             <div>
               <label htmlFor="calc-model" className="text-xs text-tx-muted block mb-1.5">Model</label>
               <select
@@ -218,7 +218,7 @@ export default function Pricing() {
             </button>
 
             {result && (
-              <div className="rounded-xl border border-brand/25 bg-brand-subtle p-4 space-y-2" role="status">
+              <div className="rounded-xl border border-brand/25 bg-brand-subtle p-4 flex flex-col gap-2" role="status">
                 <div className="flex items-baseline justify-between">
                   <span className="text-xs text-tx-muted">Total cost</span>
                   <span className="font-display text-xl font-bold text-tx-primary tabular-nums">

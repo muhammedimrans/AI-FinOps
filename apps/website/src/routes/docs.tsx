@@ -87,11 +87,11 @@ function Docs() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {sections.map((s) => (
             <div key={s.title} className="rounded-2xl border border-white/10 bg-[#0C1117] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                <s.icon className="h-5 w-5" />
+              <div className="flex size-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+                <s.icon className="size-5" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold">{s.title}</h3>
-              <ul className="mt-3 space-y-2">
+              <ul className="mt-3 flex flex-col gap-2">
                 {s.items.map((i) => (
                   <li key={i}>
                     <span className="text-sm text-muted-foreground">{i}</span>

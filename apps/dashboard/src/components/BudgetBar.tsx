@@ -43,7 +43,7 @@ export default function BudgetBar({
       : "text-success";
 
   return (
-    <div className="space-y-1.5">
+    <div className="flex flex-col gap-1.5">
       {showLabels && (
         <div className="flex items-center justify-between">
           <span className="text-xs text-tx-muted">

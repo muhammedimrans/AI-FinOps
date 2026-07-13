@@ -44,13 +44,13 @@ export default function ConnectionIndicator() {
           open && "text-brand bg-app-hover",
         )}
       >
-        <span className="relative flex h-2 w-2 flex-shrink-0" aria-hidden="true">
+        <span className="relative flex size-2 flex-shrink-0" aria-hidden="true">
           {connection.status === "connected" && (
             <span
               className={cn("absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping", dotClass)}
             />
           )}
-          <span className={cn("relative inline-flex h-2 w-2 rounded-full", dotClass)} />
+          <span className={cn("relative inline-flex size-2 rounded-full", dotClass)} />
         </span>
         <Icon size={13} className={cn("hidden sm:block", spin && "animate-spin")} />
         <span className="hidden sm:inline">{label}</span>
@@ -63,7 +63,7 @@ export default function ConnectionIndicator() {
         className="w-64 glass-card rounded-xl shadow-elevated z-[1000] p-4 origin-top-right"
       >
         <p className="text-sm font-semibold text-tx-primary mb-2">{label}</p>
-        <dl className="space-y-1.5 text-xs" role="status" aria-live="polite">
+        <dl className="flex flex-col gap-1.5 text-xs" role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-2">
             <dt className="text-tx-muted">Organization</dt>
             <dd className="text-tx-secondary font-medium truncate max-w-[10rem]">

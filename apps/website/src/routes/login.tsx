@@ -82,7 +82,11 @@ function Login() {
           or log in with email
           <span className="h-px flex-1 bg-white/10" />
         </div>
-        <form onSubmit={(e) => void handleSubmit(onSubmit)(e)} noValidate className="space-y-4">
+        <form
+          onSubmit={(e) => void handleSubmit(onSubmit)(e)}
+          noValidate
+          className="flex flex-col gap-4"
+        >
           {formError && (
             <div
               role="alert"

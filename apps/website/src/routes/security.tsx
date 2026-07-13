@@ -70,8 +70,8 @@ function Security() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {pillars.map((p) => (
             <div key={p.title} className="rounded-2xl border border-white/10 bg-[#0C1117] p-6">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                <p.icon className="h-5 w-5" />
+              <div className="flex size-10 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+                <p.icon className="size-5" />
               </div>
               <h3 className="mt-4 font-display text-lg font-semibold">{p.title}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{p.body}</p>
@@ -81,7 +81,7 @@ function Security() {
 
         <div className="mt-20">
           <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-[#14D9D3]" />
+            <Shield className="size-5 text-[#14D9D3]" />
             <h2 className="font-display text-2xl font-semibold tracking-tight">On the roadmap</h2>
           </div>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">

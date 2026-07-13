@@ -129,7 +129,7 @@ export default function MetricCard({
     return (
       <div className="glass-card rounded-card-lg p-5 border">
         <div className="flex items-start justify-between mb-4">
-          <div className="w-9 h-9 skeleton rounded-xl" />
+          <div className="size-9 skeleton rounded-xl" />
           <div className="w-16 h-4 skeleton rounded" />
         </div>
         <div className="w-24 h-8 skeleton rounded mb-2" />
@@ -160,7 +160,7 @@ export default function MetricCard({
       )}
     >
       <div
-        className="absolute -right-8 -top-8 h-24 w-24 rounded-full bg-brand opacity-0 blur-2xl transition-opacity duration-slow group-hover:opacity-20"
+        className="absolute -right-8 -top-8 size-24 rounded-full bg-brand opacity-0 blur-2xl transition-opacity duration-slow group-hover:opacity-20"
         aria-hidden="true"
       />
 
@@ -169,7 +169,7 @@ export default function MetricCard({
         {Icon && (
           <div
             className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0",
+              "size-9 rounded-xl flex items-center justify-center flex-shrink-0",
               "transition-transform duration-base group-hover:scale-110",
               ICON_BG[gradient],
               ICON_GLOW[gradient],

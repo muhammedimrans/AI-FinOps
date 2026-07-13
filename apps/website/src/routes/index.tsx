@@ -309,7 +309,7 @@ function Hero() {
           className="mx-auto max-w-3xl text-center"
         >
           <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground">
-            <Sparkles className="h-3 w-3 text-[#14D9D3]" />
+            <Sparkles className="size-3 text-[#14D9D3]" />
             AI FinOps, redefined
           </div>
           <h1 className="font-display text-5xl font-semibold tracking-tight md:text-7xl">
@@ -324,7 +324,7 @@ function Hero() {
               to="/signup"
               className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_10px_40px_-10px_rgba(20,217,211,0.6)] transition-transform hover:scale-[1.02]"
             >
-              Start Free <ArrowRight className="h-4 w-4" />
+              Start Free <ArrowRight className="size-4" />
             </Link>
             <Link
               to="/contact"
@@ -335,13 +335,13 @@ function Hero() {
           </div>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
-              <ShieldCheck className="h-3.5 w-3.5 text-[#14D9D3]" /> Encrypted credentials
+              <ShieldCheck className="size-3.5 text-[#14D9D3]" /> Encrypted credentials
             </span>
             <span className="flex items-center gap-1.5">
-              <Lock className="h-3.5 w-3.5 text-[#14D9D3]" /> Zero-latency ingest
+              <Lock className="size-3.5 text-[#14D9D3]" /> Zero-latency ingest
             </span>
             <span className="flex items-center gap-1.5">
-              <Zap className="h-3.5 w-3.5 text-[#14D9D3]" /> 10-minute setup
+              <Zap className="size-3.5 text-[#14D9D3]" /> 10-minute setup
             </span>
           </div>
         </motion.div>
@@ -363,9 +363,9 @@ function HeroIllustration() {
   return (
     <div className="relative rounded-3xl border border-white/10 bg-[#0C1117]/80 p-4 shadow-[0_40px_120px_-40px_rgba(20,217,211,0.35)] backdrop-blur md:p-6">
       <div className="flex items-center gap-2 border-b border-white/5 px-2 pb-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-        <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
-        <span className="h-2.5 w-2.5 rounded-full bg-white/10" />
+        <span className="size-2.5 rounded-full bg-white/10" />
+        <span className="size-2.5 rounded-full bg-white/10" />
+        <span className="size-2.5 rounded-full bg-white/10" />
         <span className="ml-3 text-xs text-muted-foreground">app.costorah.com</span>
         <span className="ml-auto text-[10px] uppercase tracking-widest text-[#14D9D3]">Live</span>
       </div>
@@ -470,7 +470,7 @@ function HeroIllustration() {
 function Legend({ color, label }: { color: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
-      <span className="h-2 w-2 rounded-full" style={{ background: color }} />
+      <span className="size-2 rounded-full" style={{ background: color }} />
       {label}
     </span>
   );
@@ -510,6 +510,12 @@ function SocialProof() {
 }
 
 function LiveDashboard() {
+  const gridRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.06,
+  });
+
   return (
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
@@ -518,7 +524,7 @@ function LiveDashboard() {
           title="See your AI economy in real time."
           desc="Every provider, every model, every project — normalized, correlated, and streamed live."
         />
-        <div className="mt-14 grid gap-4 lg:grid-cols-6">
+        <div ref={gridRef} className="mt-14 grid gap-4 lg:grid-cols-6">
           <StatCard icon={Wallet} label="Spend today" value="$3,284" trend="+4.2%" />
           <StatCard icon={Activity} label="Requests" value="1.2M" trend="+11%" />
           <StatCard icon={Cpu} label="Tokens" value="284M" trend="+6%" />
@@ -526,7 +532,10 @@ function LiveDashboard() {
           <StatCard icon={Radar} label="Anomalies" value="3" trend="live" positive />
           <StatCard icon={Users} label="Active users" value="94" trend="+2" />
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-4">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-4"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Cost forecast</div>
@@ -576,7 +585,10 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-2">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-2"
+          >
             <div className="text-xs text-muted-foreground">Provider mix</div>
             <div className="mt-1 font-display text-lg font-semibold">This quarter</div>
             <div className="mt-2 h-56">
@@ -605,11 +617,11 @@ function LiveDashboard() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-            <div className="mt-2 space-y-1.5">
+            <div className="mt-2 flex flex-col gap-1.5">
               {pieData.map((p, i) => (
                 <div key={p.name} className="flex items-center justify-between text-xs">
                   <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={{ background: pieColors[i] }} />
+                    <span className="size-2 rounded-full" style={{ background: pieColors[i] }} />
                     {p.name}
                   </span>
                   <span className="text-muted-foreground">{p.value}%</span>
@@ -618,7 +630,10 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
+          >
             <div className="text-xs text-muted-foreground">Top models by spend</div>
             <div className="mt-1 font-display text-lg font-semibold">Last 30 days</div>
             <div className="mt-4 h-60">
@@ -647,21 +662,24 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3">
+          <div
+            data-reveal
+            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
+          >
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Live activity</div>
                 <div className="mt-1 font-display text-lg font-semibold">Streaming events</div>
               </div>
               <span className="flex items-center gap-2 text-xs text-[#14D9D3]">
-                <span className="relative flex h-2 w-2">
+                <span className="relative flex size-2">
                   <span className="absolute inset-0 animate-ping rounded-full bg-[#14D9D3] opacity-60" />
-                  <span className="relative h-2 w-2 rounded-full bg-[#14D9D3]" />
+                  <span className="relative size-2 rounded-full bg-[#14D9D3]" />
                 </span>
                 Live
               </span>
             </div>
-            <div className="mt-4 space-y-2">
+            <div className="mt-4 flex flex-col gap-2">
               {[
                 { p: "OpenAI", m: "gpt-4o", t: "18,240 tok", c: "$0.42" },
                 { p: "Anthropic", m: "claude-3.5-sonnet", t: "9,120 tok", c: "$0.31" },
@@ -707,10 +725,10 @@ function StatCard({
   positive?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
+    <div data-reveal className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
       <div className="flex items-center justify-between">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <Icon className="h-4 w-4 text-[#14D9D3]" />
+        <Icon className="size-4 text-[#14D9D3]" />
       </div>
       <div className="mt-2 font-display text-2xl font-semibold">{value}</div>
       <div className={`mt-1 text-xs ${positive ? "text-[#14D9D3]" : "text-muted-foreground"}`}>
@@ -747,8 +765,8 @@ function Features() {
                 }}
               />
               <div className="relative">
-                <div className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                  <f.icon className="h-4.5 w-4.5" />
+                <div className="inline-flex size-9 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+                  <f.icon className="size-4.5" />
                 </div>
                 <div className="mt-4 font-display text-base font-semibold">{f.title}</div>
                 <div className="mt-1 text-sm text-muted-foreground">{f.desc}</div>
@@ -788,10 +806,10 @@ function HowItWorks() {
               className="relative rounded-2xl border border-white/10 bg-[#0C1117] p-6"
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-semibold text-primary-foreground">
+                <div className="flex size-8 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-semibold text-primary-foreground">
                   {i + 1}
                 </div>
-                <s.icon className="h-4 w-4 text-[#14D9D3]" />
+                <s.icon className="size-4 text-[#14D9D3]" />
               </div>
               <div className="mt-4 font-display text-base font-semibold">{s.title}</div>
               <div className="mt-1 text-sm text-muted-foreground">{s.desc}</div>
@@ -820,7 +838,7 @@ function Developers() {
               data-reveal
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
             >
-              <LineIcon className="h-3 w-3 text-[#14D9D3]" /> Built for developers
+              <LineIcon className="size-3 text-[#14D9D3]" /> Built for developers
             </div>
             <h2
               data-reveal
@@ -846,7 +864,7 @@ function Developers() {
                   key={x}
                   className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
                 >
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#14D9D3]" />
+                  <span className="size-1.5 rounded-full bg-[#14D9D3]" />
                   {x}
                 </div>
               ))}
@@ -904,9 +922,9 @@ function CodeBlock({ lang, title, code }: { lang: string; title: string; code: s
     <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0C1117]">
       <div className="flex items-center justify-between border-b border-white/5 px-4 py-2 text-xs">
         <div className="flex items-center gap-2 text-muted-foreground">
-          <span className="h-2 w-2 rounded-full bg-white/10" />
-          <span className="h-2 w-2 rounded-full bg-white/10" />
-          <span className="h-2 w-2 rounded-full bg-white/10" />
+          <span className="size-2 rounded-full bg-white/10" />
+          <span className="size-2 rounded-full bg-white/10" />
+          <span className="size-2 rounded-full bg-white/10" />
           <span className="ml-2 font-mono">{title}</span>
         </div>
         <span className="rounded-md bg-[#14D9D3]/10 px-2 py-0.5 font-mono text-[10px] uppercase text-[#14D9D3]">
@@ -968,7 +986,7 @@ function Security() {
               data-reveal
               className="rounded-2xl border border-white/10 bg-[#0C1117] p-5"
             >
-              <s.icon className="h-5 w-5 text-[#14D9D3]" />
+              <s.icon className="size-5 text-[#14D9D3]" />
               <div className="mt-3 font-display text-base font-semibold">{s.title}</div>
               <div className="mt-1 text-sm text-muted-foreground">{s.desc}</div>
             </div>
@@ -980,6 +998,12 @@ function Security() {
 }
 
 function Pricing() {
+  const cardsRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.08,
+  });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
@@ -988,10 +1012,11 @@ function Pricing() {
           title="Simple pricing that scales with you."
           desc="Start free today. Team and Enterprise plans with billing are coming soon."
         />
-        <div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div ref={cardsRef} className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {pricing.map((p) => (
             <div
               key={p.name}
+              data-reveal
               className={`relative flex flex-col rounded-2xl border p-6 ${
                 p.highlight
                   ? "border-[#14D9D3]/40 bg-gradient-to-b from-[#14D9D3]/10 to-transparent shadow-[0_0_60px_-20px_rgba(20,217,211,0.5)]"
@@ -1009,10 +1034,10 @@ function Pricing() {
                 <span className="font-display text-4xl font-semibold">{p.price}</span>
                 {p.period && <span className="text-sm text-muted-foreground">{p.period}</span>}
               </div>
-              <ul className="mt-6 flex-1 space-y-2.5 text-sm">
+              <ul className="mt-6 flex flex-1 flex-col gap-2.5 text-sm">
                 {p.features.map((f) => (
                   <li key={f} className="flex items-start gap-2">
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#14D9D3]" />
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#14D9D3]" />
                     <span className="text-foreground/85">{f}</span>
                   </li>
                 ))}
@@ -1036,19 +1061,29 @@ function Pricing() {
 }
 
 function FAQ() {
+  const listRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 12,
+    stagger: 0.04,
+  });
+
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
       <div className="mx-auto max-w-4xl px-6">
         <SectionHeader eyebrow="FAQ" title="Everything you might ask." />
-        <div className="mt-14 divide-y divide-white/5 rounded-2xl border border-white/10 bg-[#0C1117]">
+        <div
+          ref={listRef}
+          className="mt-14 divide-y divide-white/5 rounded-2xl border border-white/10 bg-[#0C1117]"
+        >
           {faqs.map((f) => (
             <details
               key={f.q}
+              data-reveal
               className="group px-6 py-5 [&_summary::-webkit-details-marker]:hidden"
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
                 <span className="font-display text-base font-medium">{f.q}</span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" />
+                <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
               </summary>
               <p className="mt-3 text-sm text-muted-foreground">{f.a}</p>
             </details>
@@ -1080,7 +1115,7 @@ function FinalCTA() {
             to="/signup"
             className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_10px_40px_-10px_rgba(20,217,211,0.6)]"
           >
-            Start Free <ArrowRight className="h-4 w-4" />
+            Start Free <ArrowRight className="size-4" />
           </Link>
           <Link
             to="/contact"
@@ -1116,7 +1151,7 @@ function SectionHeader({
           data-reveal
           className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#14D9D3]" />
+          <span className="size-1.5 rounded-full bg-[#14D9D3]" />
           {eyebrow}
         </div>
       )}

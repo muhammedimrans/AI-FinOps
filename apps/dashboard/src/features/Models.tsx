@@ -202,7 +202,7 @@ export default function Models() {
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
+    <div className="p-4 sm:p-6 flex flex-col gap-4 sm:gap-6">
       <PageHeader title="Models" description="Rank every model by spend and evaluate cost efficiency." />
 
       {/* Leaderboard */}

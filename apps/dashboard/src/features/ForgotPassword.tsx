@@ -49,7 +49,7 @@ export default function ForgotPassword() {
             Enter your account email and we&apos;ll send you a reset link.
           </p>
 
-          <form onSubmit={(e) => { void handleSubmit(e); }} className="space-y-4">
+          <form onSubmit={(e) => { void handleSubmit(e); }} className="flex flex-col gap-4">
             <div>
               <label htmlFor="email" className="block text-xs font-medium text-tx-secondary mb-2">
                 Email address

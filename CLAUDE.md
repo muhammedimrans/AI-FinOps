@@ -5033,3 +5033,56 @@ Per the "never break existing functionality" and "preserve current implementatio
 1. **If the three design documents become available**, revisit this EP's scope entirely — they were explicitly meant to define the target token system, shadcn adoption strategy, and GSAP usage patterns this pass had to infer without.
 2. **Extend scroll reveals to `LiveDashboard`'s live-preview mockup and `Pricing`'s plan cards** specifically (both currently reveal via their shared `SectionHeader` but have unrevealed content below it) — the same `useScrollReveal` hook, no new primitive needed.
 3. **`apps/dashboard` shadcn/ui migration** — still EP-21 milestone 5, still unstarted, still correctly scoped as its own effort separate from this one.
+
+---
+
+# EP-25.7 — Design-Doc-Driven Conformance Pass (shadcn Skill Rules + GSAP)
+
+**Status: complete, scoped to what the actual documents specify.** Triggered by "the three design documents are now available" — `Docs/frontend-design.md`, `Docs/shadcn-skill.md`, `Docs/gsap-animation.md` (uploaded as attachments and read in full; they were never actually added to the git repo at those paths, so this EP does not reference committed files — see "What the three documents actually are" below). This EP applies the two documents that contain real, checkable rules; the third contains no Costorah-specific direction to apply.
+
+## What the three documents actually are
+
+Read in full before any code change, per the task's own instruction:
+
+1. **`frontend-design.md`** — a public GitHub repo's `README.md` for a *registry* of 67 pullable third-party design "skills" (`npx typeui.sh pull enterprise`, `pull minimal`, `pull glassmorphism`, etc.). It names no specific skill for this project and contains no palette, type scale, or component spec of its own — it's a catalog index, not a design system. No skill was pulled (no network access to `typeui.sh` from this environment, and no skill was specified) — the task's own repeated phrase "consistent enterprise SaaS design language" is treated as the intended direction (matching the registry's own "Enterprise" entry by name), consistent with what this codebase already is.
+2. **`shadcn-skill.md`** — the real, actionable one: the actual `shadcn` CLI skill instructions (Critical Rules for styling/forms/composition/icons), the same file a shadcn-aware agent would load. This is directly enforceable and is what this EP applies.
+3. **`gsap-animation.md`** — the official GSAP AI-skills repo `README.md`. Also a meta/installer doc (skill descriptions, install commands), but its "Quick reference (for AI agents)" section gives the canonical GSAP idiom: `gsap.context()` + cleanup, `ScrollTrigger`, transform-based tweens, `useGSAP`/React cleanup pattern. This **confirms** — not changes — the pattern `use-scroll-reveal.ts` already used since EP-25.6: `gsap.context()` scoped to a container ref, `ctx.revert()` on cleanup, transform/opacity tweens, `ScrollTrigger` for scroll-linked reveals. No GSAP code needed to change; the doc validates the existing implementation as idiomatic.
+
+## Rules applied (from `shadcn-skill.md`'s Critical Rules → Styling & Tailwind)
+
+Two of the document's enforced, mechanical rules were audited and applied across **both** apps:
+
+- **`gap-*` not `space-y-*`/`space-x-*`.** `space-x-*` had zero occurrences in either app. `space-y-*` had 12 occurrences on the website and 60 on the dashboard — every one converted to `flex flex-col gap-*` (identical visual spacing, the document's stated preferred pattern), except `apps/dashboard/src/features/playground/markdown.tsx`'s one genuine `<ol>`/`<ul>` with `list-decimal`/`list-disc` markers, deliberately left alone (see "What was deliberately not touched" below).
+- **`size-*` when width and height are equal.** Every adjacent `h-N w-N` / `w-N h-N` pair (any order) in a single `className` was converted: 50 occurrences across the website, 28 across the dashboard.
+
+These two rules were chosen specifically because they're **portable Tailwind conventions independent of whether shadcn/ui itself is installed** — `apps/dashboard` has no shadcn/Radix (confirmed, unchanged architecture per §2/§5 of this document), so rule #10 ("reuse existing shadcn components") doesn't literally apply there; there's nothing to reuse. But `gap-*`/`size-*` aren't shadcn-specific — they're the document's own stated Tailwind best practice, safely applicable to any Tailwind codebase regardless of component library, and dashboard already uses semantic color tokens exclusively (verified: no raw hex/rgb literals found outside `components/site`'s brand-color constants and Recharts data colors, which are legitimately data-driven, not styling).
+
+## What was deliberately not touched, and why
+
+- **No shadcn install into `apps/dashboard`.** Rule #10 says "reuse existing shadcn components" — dashboard has none. Installing shadcn now would be *introducing* a second design system into an app that just completed a full, coherent design-system pass (EP-25.5: unified button/icon classes, motion architecture, three-theme tokens) — directly contradicting the task's own rule #4 ("preserve ALL existing functionality") and rule #16 ("improve shared components... instead of duplicating code"). This remains EP-21's own already-documented, deliberately-deferred milestone 5 ("shadcn/ui adoption in apps/dashboard, full component de-duplication... sized as its own multi-PR effort"), unaffected by this EP.
+- **No `FieldGroup`/`Field`/`InputGroup`/`Empty` composition changes on the website.** These shadcn primitives (named in the skill doc's Forms & Component Selection sections) are **not installed** in `apps/website`'s current shadcn set — confirmed by listing `src/components/ui/`, which has `form.tsx`/`toggle-group.tsx`/`alert.tsx` but no `field.tsx`/`input-group.tsx`/`empty.tsx` (these are newer shadcn primitives than this project's install). Fetching them would require live access to the shadcn registry (unverified in this sandbox) and would mean rewriting the markup of `login.tsx`/`signup.tsx`/`contact.tsx` — real auth/lead-gen forms with tested validation logic, explicitly protected by rules #4/#8 ("preserve ALL existing functionality," "do not modify authentication"). The spacing/sizing conversions already applied to these forms satisfy the document's mechanical rules without touching form composition or logic.
+- **`markdown.tsx`'s native list markers.** The one place in either app that genuinely renders `<ol class="list-decimal">`/`<ul class="list-disc">` (AI Playground's chat-response markdown renderer, EP-25.4.3). Converting its container to `flex flex-col` alongside native `::marker` rendering is a real, if narrow, interaction this sandbox has no way to visually verify (no live browser) — left as `space-y-0.5`, disclosed rather than silently risked.
+- **No further GSAP usage was added.** The GSAP doc's own guidance is to use it "for a JavaScript animation library... without specifying one" — this codebase already has framer-motion doing the job everywhere except the landing page's static sections (which EP-25.6/this EP's own follow-up already closed). Introducing GSAP into `apps/dashboard` would duplicate a working animation system for no stated benefit, violating rule #16.
+
+## EP-25.6 follow-up closed
+
+The website's `LiveDashboard` (10-panel live mockup: 6 `StatCard`s + 4 chart panels), `Pricing` (3 plan cards), and `FAQ` (8 accordion items) — all previously revealed only their shared `SectionHeader`, with the content below it appearing instantly — now stagger in via the same `useScrollReveal` hook, closing the exact gap EP-25.6's own "Future work" section named.
+
+## Validation
+
+Every checkpoint in this EP was verified independently before the next began, per the task's explicit "verify after every major change" instruction:
+
+| Checkpoint | Website | Dashboard |
+|---|---|---|
+| `gap-*`/`size-*` conformance | `typecheck` clean (3 pre-existing baseline errors, confirmed via `git stash` unchanged), `lint` clean (6 pre-existing warnings), 19/19 tests, build clean | `tsc -b` clean, `eslint --max-warnings 0` clean, 365/365 tests, build clean |
+| Extended scroll reveals | `typecheck` clean, `lint` clean, 19/19 tests, build clean | N/A (website-only change) |
+
+## A process note worth recording
+
+The first attempt at the `gap-*`/`size-*` conversion ran `npx prettier --write src` across the **entire** `apps/dashboard` tree after the targeted edits, intending to clean up formatting. This reformatted 105 files (4,367 line changes) — `prettier-plugin-tailwindcss` re-sorting every unrelated `className` in the codebase and reflowing hand-aligned object literals that predate this project's current prettier config. That reformat was reverted in full and redone with exact-string, per-line edits and **no** blanket formatting pass — `apps/dashboard`'s ESLint config (unlike the website's) doesn't enforce prettier as a lint rule, so this was a deliberate scoping choice, not a missed step. The final dashboard diff is 88 insertions / 88 deletions across 29 files — one line changed per conversion, nothing else.
+
+## Future work
+
+1. **`apps/dashboard` shadcn/ui adoption** — still EP-21 milestone 5, still its own multi-PR effort, unaffected by this EP.
+2. **`Field`/`InputGroup`/`Empty` primitives on the website** — would require pulling new components from the shadcn registry (network access unverified in this sandbox) and a dedicated, carefully-tested pass over `login.tsx`/`signup.tsx`/`contact.tsx`'s form markup, kept separate from this EP specifically because it touches real auth/lead-gen flows.
+3. If a specific named design skill from `frontend-design.md`'s registry (e.g. `enterprise`) is ever actually desired, pulling its real `SKILL.md`/`DESIGN.md` (not just the registry's own README) would give this project genuine token/palette guidance beyond what this EP had to infer.

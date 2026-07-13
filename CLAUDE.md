@@ -5140,3 +5140,78 @@ No "billing experience" page exists in this codebase to improve — confirmed vi
 1. If EP-27 (billing) is ever started, the same information-hierarchy discipline applied here (clear section boundaries, labeled control groups, accessible progress indicators) should carry into its UI from the start rather than needing a retrofit pass.
 2. A dedicated keyboard-navigation audit (roving `tabIndex`/arrow-key support for the Settings tablist, beyond the `role`/`aria-selected` semantics added here) would be the natural next increment if Settings' tab navigation is ever revisited.
 3. Everything else this document has already carried forward as the standing next-blocker list (Azure/Grok live model catalogs, a self-service password flow for Google-only accounts, delivery-event-driven alert channels, a live-account provider smoke test before broad beta) remains unaffected and unresolved by this EP.
+
+---
+
+# EP-25.9 — Website Premium Redesign, Phase 1 (Public Site)
+
+**Status: complete.** A deliberate, ground-up visual redesign of the public marketing site (`apps/website`) toward the caliber of OpenAI / Vercel / Stripe / Linear / Anthropic — **not** a cosmetic pass. Scope was strictly `apps/website`; `apps/dashboard` was not touched (confirmed via `git status` — zero dashboard files changed). No backend, API, auth, routing, or business logic was modified — only the presentation layer. All existing functionality (routes, links, forms, the 13 routes) is preserved.
+
+## Design-doc note
+
+The three docs the request named (`Front end design.md`, `Skill for design.md`, `Gsap for animation.md`) do **not** exist anywhere in the repo — confirmed by exact-name and content search, consistent with EP-25.7's own identical finding. The redesign therefore follows the design languages of the named reference companies plus the repo's existing brand constraint (the teal `#14D9D3` → mint `#7AF7E8` brand color is a fixed asset and was kept as the single accent). If those docs are ever added to the repo, a Phase-2 pass can reconcile against them.
+
+## Design direction — "AI spend instrument panel"
+
+The old site read as competent-but-AI-default: a flat single-radial hero glow, uniform `rounded-2xl bg-[#0C1117]` cards everywhere, everything centered, dot-bullet lists, and a monotonous section rhythm (every section: pill-eyebrow → centered h2 → centered desc → grid). The redesign replaces those clichés with a distinct "telemetry / instrument-panel" language while keeping the brand teal:
+
+- **Mono "telemetry" eyebrows** (`eyebrow` utility) — JetBrains Mono, uppercase, wide letter-spacing — replace the generic bordered pills everywhere, giving the site a data-instrument voice.
+- **Tabular numerals** (`tnum`) on every figure (stats, prices, chart legends) so digits align like a real dashboard.
+- **Fluid clamp-based display type** (`display-2xl`/`xl`/`lg`) — a single type scale; the hero headline is now genuinely oversized and tight.
+- **Layered animated aurora** (`aurora` utility) replaces the flat radial glow — three offset radial stops (teal + mint + a violet accent neutral) with a slow drift animation, plus a **GSAP scroll-parallax** on the hero aurora. Fully stilled under `prefers-reduced-motion`.
+- **Premium surfaces** (`panel` / `panel-glow`) — soft top-highlight, inner border, layered depth shadow — replace the flat card fill.
+
+## Sections redesigned
+
+Every section of the landing page (`src/routes/index.tsx`) plus the nav, footer, and shared page header:
+
+| Section | Before | After |
+|---|---|---|
+| **Nav** (`SiteNav`) | Static bordered bar | Scroll-elevated: transparent over the hero, condenses to a blurred hairline bar on scroll; logo hover-glow; CTA with animated arrow; polished mobile drawer with active states |
+| **Hero** | Centered text + product card, flat radial glow | Oversized fluid headline, animated aurora with GSAP scroll-parallax, grid with radial mask, refined product frame (mono browser chrome, live pulse), ambient glow bloom |
+| **Marquee** (new) | Static provider pills | Infinite CSS marquee of all 7 providers, edge-masked, pauses on hover |
+| **Metrics** (new) | — | Animated GSAP count-up stat strip (providers, tokens/day, visibility gain, setup time) — all honestly framed ("demo scale", "typical") |
+| **Product showcase** | `LiveDashboard` flat card grid | Bento of `panel` surfaces — KPI strip + forecast line + provider pie + top-models bar + live event feed (real Recharts, unchanged data) |
+| **Features** | Flat 16-card wall | Three gradient-tile **value pillars** for hierarchy, then the full 16-capability grid with bordered icon chips, hover lift, and refined borders |
+| **How it works** | 5 plain cards | 5 `panel` steps over an aurora, with a gradient connecting rail behind them on desktop |
+| **Developers** | Two static stacked code blocks | shadcn **Tabs** Python/TypeScript switcher (interactive), refined SDK checklist with arrow bullets |
+| **Security** | Plain card grid | Refined bordered-chip cards with hover states |
+| **Pricing** | Flat cards, dot bullets | Premium cards, elevated highlighted middle plan (`panel-glow`, lifted), check-circle bullets, CTA with arrow |
+| **FAQ** | Native `<details>` | shadcn **Accordion** (animated, single-open, controlled) |
+| **Final CTA** | Flat radial | Aurora + masked grid, refined CTAs |
+| **Footer** | Plain columns | Aurora top-glow, brand CTA button, mono eyebrows, animated status dot |
+| **PageHeader** (shared, used by the other route pages) | Flat radial + pill | Aurora + masked grid + mono eyebrow + fluid display type |
+
+## GSAP usage (purposeful, not decorative)
+
+Reuses the existing `useScrollReveal` hook (EP-25.6/25.7) for section reveals, and adds two new, narrowly-scoped effects, both `gsap.context()`-scoped with `revert()` cleanup and both **skipped entirely under `prefers-reduced-motion`**: (1) a single scrubbed `ScrollTrigger` parallax on the hero aurora; (2) a scroll-triggered count-up (`AnimatedNumber`) for the metrics strip. The provider marquee is pure CSS (`marquee-track` keyframes), no JS. No GSAP was added to `apps/dashboard`.
+
+## shadcn reuse
+
+Per the "reuse existing shadcn components" instruction, the redesign adopts two already-installed-but-previously-unused shadcn primitives where they genuinely improve the experience: **Tabs** (developer code-sample switcher) and **Accordion** (FAQ). No new shadcn components were pulled from the registry; no component library was swapped.
+
+## Accessibility
+
+`:focus-visible` ring added globally; nav toggle has `aria-expanded`; all decorative background layers are `aria-hidden`; the marquee and aurora respect reduced-motion; `text-wrap: balance` on headings; the Accordion/Tabs bring proper ARIA semantics for free.
+
+## Files changed
+
+`apps/website/src/styles.css` (token refresh + new utilities: `aurora`, `marquee-track`, `panel`/`panel-glow`, `btn-brand`/`btn-ghost`, `eyebrow`, `display-*`, `tnum`, `bg-dots`), `apps/website/src/routes/index.tsx` (full landing rewrite), `apps/website/src/components/site/SiteNav.tsx`, `apps/website/src/components/site/SiteFooter.tsx`, `apps/website/src/components/site/SiteLayout.tsx` (PageHeader). Five files, all under `apps/website`.
+
+## Verification
+
+Run after the section work, per the "verify after every section" instruction: **typecheck** — only the 3 pre-existing errors in unused shadcn files (`command`/`drawer`/`input-otp`, documented since EP-25.3), zero new; **lint** — 6 pre-existing `react-refresh` warnings on unused shadcn files, 0 errors (prettier was run on **only the changed files**, never a blanket `src` pass — the EP-25.7 lesson); **tests** — 19/19 pass (website test scope is `environment: "node"`, `.test.ts` only, so no component-render test exists for the landing — unchanged, pre-existing boundary); **build** — clean production SSR build (Nitro, Cloudflare-module preset, all 13 routes).
+
+## Before vs After (summary)
+
+- **Before**: a clean but generic dark SaaS page — flat radial glow, uniform cards, centered rhythm, dot bullets, static code blocks and native `<details>`.
+- **After**: a distinct instrument-panel identity — animated aurora with scroll parallax, mono telemetry eyebrows, tabular numerals, fluid oversized type, premium layered surfaces, two brand-new sections (provider marquee + animated metrics), a bento product showcase, value-pillar hierarchy, interactive Tabs/Accordion, and a scroll-elevated nav — substantially different visually while preserving every route, link, and form.
+
+## Remaining opportunities (Phase 2+)
+
+- **Interior route pages** (`/features`, `/pricing`, `/security`, `/developers`, `/docs`, `/blog`, `/about` — 9 are `StubPage` placeholders per §3) still need real, redesigned content beyond the shared `PageHeader`.
+- **`/login` / `/signup`** already got a dedicated `AuthCard` redesign in EP-25.3; they were left as-is here.
+- A **light theme** for the website (currently dark-only) if the product ever wants one.
+- **Self-hosted fonts** (currently Google Fonts `<link>`) — the shared-token-package goal from §5.
+- If the three named design docs materialize, reconcile the token system against them.
+- Component-render test coverage for the landing would require widening the website's test harness to jsdom (pre-existing scope boundary, EP-21.2).

@@ -1,5 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
+import { gsap } from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
 import {
   Area,
   AreaChart,
@@ -19,11 +22,11 @@ import {
 import {
   Activity,
   ArrowRight,
+  ArrowUpRight,
   BarChart3,
   Bell,
   Boxes,
   Building2,
-  ChevronDown,
   Cpu,
   Database,
   Fingerprint,
@@ -31,7 +34,6 @@ import {
   GitBranch,
   KeyRound,
   Layers,
-  LineChart as LineIcon,
   Lock,
   Radar,
   Shield,
@@ -46,10 +48,21 @@ import {
 } from "lucide-react";
 import { SiteLayout } from "@/components/site/SiteLayout";
 import { useScrollReveal } from "@/hooks/use-scroll-reveal";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/")({
   component: Landing,
 });
+
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger);
+}
 
 /* -------------------------------------------------------------------------- */
 /* Data                                                                        */
@@ -90,6 +103,24 @@ const pieData = [
   { name: "Other", value: 12 },
 ];
 const pieColors = ["#14D9D3", "#7AF7E8", "#3ea8b8", "#1f5b64"];
+
+const pillars = [
+  {
+    icon: Wallet,
+    title: "One ledger for every AI dollar",
+    desc: "Normalize spend across OpenAI, Anthropic, Google, Azure, OpenRouter, Grok, and Ollama into a single, correlated view.",
+  },
+  {
+    icon: Activity,
+    title: "Live, out-of-band by design",
+    desc: "Streaming metrics over WebSocket with a polling fallback — collected via provider APIs and SDKs, never in your request path.",
+  },
+  {
+    icon: Target,
+    title: "Budgets that stay ahead of spend",
+    desc: "Org, project, provider, and model budgets with configurable thresholds and trend-based forecasts on your dashboard.",
+  },
+];
 
 const features = [
   {
@@ -279,8 +310,9 @@ function Landing() {
   return (
     <SiteLayout>
       <Hero />
-      <SocialProof />
-      <LiveDashboard />
+      <Marquee />
+      <Metrics />
+      <ProductShowcase />
       <Features />
       <HowItWorks />
       <Developers />
@@ -293,47 +325,143 @@ function Landing() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Sections                                                                    */
+/* Primitives                                                                  */
+/* -------------------------------------------------------------------------- */
+
+function Eyebrow({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-2 eyebrow">
+      <span className="size-1.5 rounded-full bg-[#14D9D3] shadow-[0_0_8px_#14D9D3]" />
+      {children}
+    </span>
+  );
+}
+
+function SectionHeading({
+  eyebrow,
+  title,
+  desc,
+  align = "center",
+}: {
+  eyebrow?: string;
+  title: React.ReactNode;
+  desc?: string;
+  align?: "center" | "left";
+}) {
+  const revealRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]" });
+  return (
+    <div
+      ref={revealRef}
+      className={align === "center" ? "mx-auto max-w-2xl text-center" : "max-w-2xl"}
+    >
+      {eyebrow && (
+        <div data-reveal>
+          <Eyebrow>{eyebrow}</Eyebrow>
+        </div>
+      )}
+      <h2 data-reveal className="mt-5 display-lg">
+        {title}
+      </h2>
+      {desc && (
+        <p
+          data-reveal
+          className={`mt-4 text-[0.975rem] leading-relaxed text-muted-foreground ${
+            align === "center" ? "mx-auto max-w-xl" : "max-w-xl"
+          }`}
+        >
+          {desc}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span className="size-2 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
+  );
+}
+
+const chartTooltip = {
+  background: "rgba(8,12,20,0.95)",
+  border: "1px solid rgba(255,255,255,0.1)",
+  borderRadius: 12,
+  fontSize: 12,
+  boxShadow: "0 20px 40px -20px rgba(0,0,0,0.8)",
+} as const;
+
+/* -------------------------------------------------------------------------- */
+/* Hero                                                                        */
 /* -------------------------------------------------------------------------- */
 
 function Hero() {
+  const auroraRef = useRef<HTMLDivElement | null>(null);
+
+  // Subtle scroll parallax on the aurora — a single scrubbed ScrollTrigger,
+  // reverted on cleanup. Skipped entirely under reduced-motion.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const el = auroraRef.current;
+    if (!el) return;
+    const ctx = gsap.context(() => {
+      gsap.to(el, {
+        yPercent: 18,
+        ease: "none",
+        scrollTrigger: { trigger: el, start: "top top", end: "bottom top", scrub: 0.6 },
+      });
+    });
+    return () => ctx.revert();
+  }, []);
+
   return (
     <section className="relative overflow-hidden">
-      <div className="absolute inset-0 bg-grid opacity-40 [mask-image:radial-gradient(ellipse_at_center,black,transparent_70%)]" />
-      <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
-      <div className="relative mx-auto max-w-7xl px-6 pb-24 pt-20 md:pb-32 md:pt-28">
+      <div ref={auroraRef} className="aurora" aria-hidden="true" />
+      <div className="absolute inset-0 bg-grid opacity-50 [mask-image:radial-gradient(ellipse_70%_55%_at_50%_0%,black,transparent_75%)]" />
+
+      <div className="relative mx-auto max-w-[80rem] px-6 pb-20 pt-16 md:pb-28 md:pt-24">
         <motion.div
-          initial={{ opacity: 0, y: 12 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: "easeOut" }}
           className="mx-auto max-w-3xl text-center"
         >
-          <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground">
-            <Sparkles className="size-3 text-[#14D9D3]" />
-            AI FinOps, redefined
+          <div className="mx-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 backdrop-blur">
+            <span className="relative flex size-1.5">
+              <span className="absolute inset-0 animate-ping rounded-full bg-[#14D9D3] opacity-70" />
+              <span className="relative size-1.5 rounded-full bg-[#14D9D3]" />
+            </span>
+            <span className="eyebrow">AI FinOps · Live</span>
           </div>
-          <h1 className="font-display text-5xl font-semibold tracking-tight md:text-7xl">
-            Understand Every <span className="text-gradient-brand">AI Dollar</span>.
+
+          <h1 className="mt-7 display-2xl">
+            Understand every
+            <br className="hidden sm:block" />{" "}
+            <span className="text-gradient-brand">AI dollar</span>.
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
-            Monitor OpenAI, Anthropic, Google, Azure OpenAI, Grok, OpenRouter, Ollama, and every AI
-            provider from one unified platform.
+
+          <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-muted-foreground md:text-lg">
+            Monitor, optimize, and forecast AI spend across OpenAI, Anthropic, Google, Azure,
+            OpenRouter, Grok, and Ollama — from one unified platform.
           </p>
-          <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+
+          <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <Link
               to="/signup"
-              className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_10px_40px_-10px_rgba(20,217,211,0.6)] transition-transform hover:scale-[1.02]"
+              className="btn-brand group px-6 py-3 text-sm hover:scale-[1.02] hover:brightness-105 active:scale-[0.98]"
             >
-              Start Free <ArrowRight className="size-4" />
+              Start free
+              <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Link>
-            <Link
-              to="/contact"
-              className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-medium text-foreground hover:bg-white/[0.06]"
-            >
-              Book Demo
+            <Link to="/contact" className="btn-ghost px-6 py-3 text-sm hover:bg-white/[0.06]">
+              Book a demo
             </Link>
           </div>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+
+          <div className="mt-7 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <ShieldCheck className="size-3.5 text-[#14D9D3]" /> Encrypted credentials
             </span>
@@ -347,11 +475,12 @@ function Hero() {
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, y: 24 }}
+          initial={{ opacity: 0, y: 28 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.15, ease: "easeOut" }}
+          transition={{ duration: 0.75, delay: 0.15, ease: "easeOut" }}
           className="relative mx-auto mt-16 max-w-6xl"
         >
+          <div className="pointer-events-none absolute -inset-x-8 -bottom-10 top-10 -z-10 rounded-[2.5rem] bg-[#14D9D3]/10 blur-3xl" />
           <HeroIllustration />
         </motion.div>
       </div>
@@ -361,19 +490,23 @@ function Hero() {
 
 function HeroIllustration() {
   return (
-    <div className="relative rounded-3xl border border-white/10 bg-[#0C1117]/80 p-4 shadow-[0_40px_120px_-40px_rgba(20,217,211,0.35)] backdrop-blur md:p-6">
+    <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-[#080C14]/85 p-4 shadow-[var(--shadow-float)] backdrop-blur md:p-6">
       <div className="flex items-center gap-2 border-b border-white/5 px-2 pb-3">
         <span className="size-2.5 rounded-full bg-white/10" />
         <span className="size-2.5 rounded-full bg-white/10" />
         <span className="size-2.5 rounded-full bg-white/10" />
-        <span className="ml-3 text-xs text-muted-foreground">app.costorah.com</span>
-        <span className="ml-auto text-[10px] uppercase tracking-widest text-[#14D9D3]">Live</span>
+        <span className="ml-3 font-mono text-xs text-muted-foreground">app.costorah.com</span>
+        <span className="ml-auto flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-[#14D9D3]">
+          <span className="size-1.5 rounded-full bg-[#14D9D3] shadow-[0_0_8px_#14D9D3]" /> Live
+        </span>
       </div>
       <div className="grid gap-4 pt-4 md:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-5">
           <div className="text-xs text-muted-foreground">This month</div>
-          <div className="mt-2 font-display text-3xl font-semibold">$48,392</div>
-          <div className="mt-1 text-xs text-[#14D9D3]">↓ 18% vs last month</div>
+          <div className="mt-2 tnum font-display text-3xl font-semibold">$48,392</div>
+          <div className="mt-1 flex items-center gap-1 text-xs text-[#14D9D3]">
+            <TrendingUp className="size-3" /> 18% under budget
+          </div>
           <div className="mt-4 h-16">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={spendData}>
@@ -429,14 +562,7 @@ function HeroIllustration() {
                   axisLine={false}
                 />
                 <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    background: "#0C1117",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    borderRadius: 12,
-                    fontSize: 12,
-                  }}
-                />
+                <Tooltip contentStyle={chartTooltip} />
                 <Area
                   type="monotone"
                   dataKey="openai"
@@ -467,39 +593,24 @@ function HeroIllustration() {
   );
 }
 
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="size-2 rounded-full" style={{ background: color }} />
-      {label}
-    </span>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/* Marquee                                                                     */
+/* -------------------------------------------------------------------------- */
 
-function SocialProof() {
-  const revealRef = useScrollReveal<HTMLDivElement>({
-    selector: "[data-reveal]",
-    y: 10,
-    duration: 0.5,
-    stagger: 0.04,
-  });
-
+function Marquee() {
   return (
-    <section className="border-y border-white/5 bg-white/[0.01] py-14">
-      <div className="mx-auto max-w-7xl px-6">
-        <div className="text-center text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          Trusted AI Infrastructure
-        </div>
-        <div
-          ref={revealRef}
-          className="mt-8 flex flex-wrap items-center justify-center gap-x-8 gap-y-4"
-        >
-          {providers.map((p) => (
+    <section className="border-y border-white/5 bg-white/[0.012] py-12">
+      <div className="mx-auto max-w-[80rem] px-6">
+        <p className="text-center eyebrow">Connect every major AI provider</p>
+      </div>
+      <div className="group relative mt-8 overflow-hidden [mask-image:linear-gradient(to_right,transparent,black_12%,black_88%,transparent)]">
+        <div className="marquee-track flex w-max items-center gap-4 group-hover:[animation-play-state:paused]">
+          {[...providers, ...providers].map((p, i) => (
             <span
-              key={p}
-              data-reveal
-              className="rounded-full border border-white/10 bg-white/[0.02] px-4 py-1.5 text-sm text-foreground/70"
+              key={`${p}-${i}`}
+              className="flex items-center gap-2.5 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.02] px-5 py-2 text-sm text-foreground/70"
             >
+              <span className="size-1.5 rounded-full bg-[#14D9D3]/70" />
               {p}
             </span>
           ))}
@@ -509,21 +620,100 @@ function SocialProof() {
   );
 }
 
-function LiveDashboard() {
+/* -------------------------------------------------------------------------- */
+/* Metrics — animated count-up strip                                           */
+/* -------------------------------------------------------------------------- */
+
+function AnimatedNumber({
+  value,
+  prefix = "",
+  suffix = "",
+  decimals = 0,
+}: {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+  decimals?: number;
+}) {
+  const ref = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const el = ref.current;
+    if (!el) return;
+    const format = (n: number) =>
+      `${prefix}${n.toLocaleString("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      })}${suffix}`;
+
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      el.textContent = format(value);
+      return;
+    }
+
+    const obj = { n: 0 };
+    el.textContent = format(0);
+    const ctx = gsap.context(() => {
+      gsap.to(obj, {
+        n: value,
+        duration: 1.6,
+        ease: "power2.out",
+        scrollTrigger: { trigger: el, start: "top 90%", once: true },
+        onUpdate: () => {
+          el.textContent = format(obj.n);
+        },
+      });
+    });
+    return () => ctx.revert();
+  }, [value, prefix, suffix, decimals]);
+
+  return <span ref={ref} className="tnum" />;
+}
+
+function Metrics() {
+  const stats = [
+    { value: 7, suffix: "+", label: "AI providers, one ledger" },
+    { value: 284, suffix: "M", label: "Tokens tracked / day, demo scale" },
+    { value: 18, suffix: "%", label: "Typical spend visibility gain" },
+    { value: 10, suffix: " min", label: "From connect to first insight" },
+  ];
+  return (
+    <section className="border-b border-white/5 py-14">
+      <div className="mx-auto grid max-w-[80rem] grid-cols-2 gap-x-6 gap-y-10 px-6 lg:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} className="text-center lg:text-left">
+            <div className="display-lg text-gradient-brand">
+              <AnimatedNumber value={s.value} suffix={s.suffix} />
+            </div>
+            <div className="mt-2 text-sm text-muted-foreground">{s.label}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Product showcase — bento                                                    */
+/* -------------------------------------------------------------------------- */
+
+function ProductShowcase() {
   const gridRef = useScrollReveal<HTMLDivElement>({
     selector: "[data-reveal]",
-    y: 20,
-    stagger: 0.06,
+    y: 22,
+    stagger: 0.07,
   });
 
   return (
     <section className="relative py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
-        <SectionHeader
+      <div className="mx-auto max-w-[80rem] px-6">
+        <SectionHeading
           eyebrow="Live dashboard"
-          title="See your AI economy in real time."
+          title={<>See your AI economy in real time.</>}
           desc="Every provider, every model, every project — normalized, correlated, and streamed live."
         />
+
         <div ref={gridRef} className="mt-14 grid gap-4 lg:grid-cols-6">
           <StatCard icon={Wallet} label="Spend today" value="$3,284" trend="+4.2%" />
           <StatCard icon={Activity} label="Requests" value="1.2M" trend="+11%" />
@@ -532,10 +722,7 @@ function LiveDashboard() {
           <StatCard icon={Radar} label="Anomalies" value="3" trend="live" positive />
           <StatCard icon={Users} label="Active users" value="94" trend="+2" />
 
-          <div
-            data-reveal
-            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-4"
-          >
+          <div data-reveal className="panel p-5 lg:col-span-4">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Cost forecast</div>
@@ -557,14 +744,7 @@ function LiveDashboard() {
                     axisLine={false}
                   />
                   <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#0C1117",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 12,
-                      fontSize: 12,
-                    }}
-                  />
+                  <Tooltip contentStyle={chartTooltip} />
                   <Line
                     type="monotone"
                     dataKey="openai"
@@ -585,10 +765,7 @@ function LiveDashboard() {
             </div>
           </div>
 
-          <div
-            data-reveal
-            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-2"
-          >
+          <div data-reveal className="panel p-5 lg:col-span-2">
             <div className="text-xs text-muted-foreground">Provider mix</div>
             <div className="mt-1 font-display text-lg font-semibold">This quarter</div>
             <div className="mt-2 h-56">
@@ -606,14 +783,7 @@ function LiveDashboard() {
                       <Cell key={i} fill={pieColors[i]} />
                     ))}
                   </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      background: "#0C1117",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 12,
-                      fontSize: 12,
-                    }}
-                  />
+                  <Tooltip contentStyle={chartTooltip} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -624,16 +794,13 @@ function LiveDashboard() {
                     <span className="size-2 rounded-full" style={{ background: pieColors[i] }} />
                     {p.name}
                   </span>
-                  <span className="text-muted-foreground">{p.value}%</span>
+                  <span className="tnum text-muted-foreground">{p.value}%</span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div
-            data-reveal
-            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
-          >
+          <div data-reveal className="panel p-5 lg:col-span-3">
             <div className="text-xs text-muted-foreground">Top models by spend</div>
             <div className="mt-1 font-display text-lg font-semibold">Last 30 days</div>
             <div className="mt-4 h-60">
@@ -648,24 +815,14 @@ function LiveDashboard() {
                     axisLine={false}
                   />
                   <YAxis stroke="#6b7280" fontSize={11} tickLine={false} axisLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#0C1117",
-                      border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: 12,
-                      fontSize: 12,
-                    }}
-                  />
+                  <Tooltip contentStyle={chartTooltip} />
                   <Bar dataKey="v" fill="#14D9D3" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div
-            data-reveal
-            className="rounded-2xl border border-white/10 bg-[#0C1117] p-5 lg:col-span-3"
-          >
+          <div data-reveal className="panel p-5 lg:col-span-3">
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs text-muted-foreground">Live activity</div>
@@ -698,8 +855,8 @@ function LiveDashboard() {
                     <span className="font-mono text-xs text-foreground/80">{r.m}</span>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>{r.t}</span>
-                    <span className="text-foreground">{r.c}</span>
+                    <span className="tnum">{r.t}</span>
+                    <span className="tnum text-foreground">{r.c}</span>
                   </div>
                 </div>
               ))}
@@ -725,12 +882,14 @@ function StatCard({
   positive?: boolean;
 }) {
   return (
-    <div data-reveal className="rounded-2xl border border-white/10 bg-[#0C1117] p-5">
+    <div data-reveal className="panel p-5">
       <div className="flex items-center justify-between">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <Icon className="size-4 text-[#14D9D3]" />
+        <span className="flex size-7 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
+          <Icon className="size-3.5" />
+        </span>
       </div>
-      <div className="mt-2 font-display text-2xl font-semibold">{value}</div>
+      <div className="mt-2 tnum font-display text-2xl font-semibold">{value}</div>
       <div className={`mt-1 text-xs ${positive ? "text-[#14D9D3]" : "text-muted-foreground"}`}>
         {trend}
       </div>
@@ -738,38 +897,63 @@ function StatCard({
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Features                                                                    */
+/* -------------------------------------------------------------------------- */
+
 function Features() {
+  const pillarRef = useScrollReveal<HTMLDivElement>({
+    selector: "[data-reveal]",
+    y: 20,
+    stagger: 0.08,
+  });
+
   return (
     <section className="relative border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
-        <SectionHeader
+      <div className="mx-auto max-w-[80rem] px-6">
+        <SectionHeading
           eyebrow="Platform"
-          title="Every capability a modern AI team needs."
+          title={<>Every capability a modern AI team needs.</>}
           desc="From ingestion to forecasting — one focused platform for FinOps, platform, and finance teams."
         />
-        <div className="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+
+        {/* Three value pillars — hierarchy above the full capability grid. */}
+        <div ref={pillarRef} className="mt-14 grid gap-4 md:grid-cols-3">
+          {pillars.map((p) => (
+            <div
+              key={p.title}
+              data-reveal
+              className="panel-glow group relative overflow-hidden p-7"
+            >
+              <div className="pointer-events-none absolute -right-10 -top-10 size-32 rounded-full bg-[#14D9D3]/10 blur-2xl transition-opacity duration-300 group-hover:opacity-100" />
+              <span className="relative flex size-11 items-center justify-center rounded-xl bg-gradient-brand text-primary-foreground shadow-[0_8px_24px_-8px_rgba(20,217,211,0.7)]">
+                <p.icon className="size-5" />
+              </span>
+              <h3 className="relative mt-5 font-display text-lg font-semibold">{p.title}</h3>
+              <p className="relative mt-2 text-sm leading-relaxed text-muted-foreground">
+                {p.desc}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Full capability grid. */}
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((f, i) => (
             <motion.div
               key={f.title}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 12 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true, margin: "-50px" }}
-              transition={{ duration: 0.35, delay: (i % 4) * 0.05 }}
-              className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#0C1117] p-5 transition-colors hover:border-[#14D9D3]/30"
+              transition={{ duration: 0.4, delay: (i % 4) * 0.05 }}
+              className="group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.015] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:border-[#14D9D3]/30 hover:bg-white/[0.03]"
             >
-              <div
-                className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100"
-                style={{
-                  background:
-                    "radial-gradient(600px circle at var(--x,50%) var(--y,50%), rgba(20,217,211,0.06), transparent 40%)",
-                }}
-              />
-              <div className="relative">
-                <div className="inline-flex size-9 items-center justify-center rounded-lg bg-[#14D9D3]/10 text-[#14D9D3]">
-                  <f.icon className="size-4.5" />
-                </div>
-                <div className="mt-4 font-display text-base font-semibold">{f.title}</div>
-                <div className="mt-1 text-sm text-muted-foreground">{f.desc}</div>
+              <div className="inline-flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-[#14D9D3] transition-colors group-hover:border-[#14D9D3]/40 group-hover:bg-[#14D9D3]/10">
+                <f.icon className="size-4.5" />
+              </div>
+              <div className="mt-4 font-display text-[0.95rem] font-semibold">{f.title}</div>
+              <div className="mt-1 text-[0.8125rem] leading-relaxed text-muted-foreground">
+                {f.desc}
               </div>
             </motion.div>
           ))}
@@ -779,40 +963,41 @@ function Features() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* How it works                                                                */
+/* -------------------------------------------------------------------------- */
+
 function HowItWorks() {
   const stepsRef = useScrollReveal<HTMLDivElement>({
     selector: "[data-reveal]",
-    y: 20,
-    stagger: 0.07,
+    y: 22,
+    stagger: 0.08,
   });
 
   return (
-    <section className="relative border-t border-white/5 py-24 md:py-32">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-60"
-        style={{ background: "var(--gradient-mesh)" }}
-      />
-      <div className="relative mx-auto max-w-7xl px-6">
-        <SectionHeader
+    <section className="relative overflow-hidden border-t border-white/5 py-24 md:py-32">
+      <div className="aurora opacity-40" aria-hidden="true" />
+      <div className="relative mx-auto max-w-[80rem] px-6">
+        <SectionHeading
           eyebrow="How it works"
-          title="Five steps to AI cost clarity."
-          desc="From first connection to automated forecasts — Costorah is designed to fit into the workflow you already have."
+          title={<>Five steps to AI cost clarity.</>}
+          desc="From first connection to automated forecasts — Costorah fits into the workflow you already have."
         />
-        <div ref={stepsRef} className="mt-14 grid gap-5 md:grid-cols-5">
+        <div ref={stepsRef} className="relative mt-16 grid gap-5 md:grid-cols-5">
+          {/* Connecting rail behind the step cards on desktop. */}
+          <div className="pointer-events-none absolute inset-x-[10%] top-[2.1rem] hidden h-px bg-gradient-to-r from-transparent via-[#14D9D3]/30 to-transparent md:block" />
           {steps.map((s, i) => (
-            <div
-              key={s.title}
-              data-reveal
-              className="relative rounded-2xl border border-white/10 bg-[#0C1117] p-6"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex size-8 items-center justify-center rounded-full bg-gradient-brand font-display text-sm font-semibold text-primary-foreground">
+            <div key={s.title} data-reveal className="relative panel p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex size-9 items-center justify-center rounded-full bg-gradient-brand tnum font-display text-sm font-semibold text-primary-foreground shadow-[0_8px_20px_-8px_rgba(20,217,211,0.8)]">
                   {i + 1}
                 </div>
                 <s.icon className="size-4 text-[#14D9D3]" />
               </div>
-              <div className="mt-4 font-display text-base font-semibold">{s.title}</div>
-              <div className="mt-1 text-sm text-muted-foreground">{s.desc}</div>
+              <div className="mt-5 font-display text-[0.95rem] font-semibold">{s.title}</div>
+              <div className="mt-1.5 text-[0.8125rem] leading-relaxed text-muted-foreground">
+                {s.desc}
+              </div>
             </div>
           ))}
         </div>
@@ -821,33 +1006,66 @@ function HowItWorks() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Developers                                                                  */
+/* -------------------------------------------------------------------------- */
+
+const pythonCode = `from costorah import Costorah
+
+client = Costorah(api_key="ck_live_...")
+
+response = openai.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+
+client.track(
+    provider="openai",
+    model="gpt-4o",
+    usage=response.usage,
+    project="production",
+)`;
+
+const tsCode = `import { Costorah } from "costorah";
+
+const client = new Costorah({ apiKey: process.env.COSTORAH_KEY! });
+
+const res = await openai.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Hello" }],
+});
+
+await client.track({
+  provider: "openai",
+  model: "gpt-4o",
+  usage: res.usage,
+  project: "production",
+});`;
+
 function Developers() {
   const revealRef = useScrollReveal<HTMLDivElement>({
     selector: "[data-reveal]",
-    y: 16,
+    y: 18,
     stagger: 0.06,
   });
-  const codeRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 20, delay: 0.1 });
+  const codeRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 22, delay: 0.1 });
 
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
+      <div className="mx-auto max-w-[80rem] px-6">
         <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
           <div ref={revealRef}>
-            <div
-              data-reveal
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
-            >
-              <LineIcon className="size-3 text-[#14D9D3]" /> Built for developers
+            <div data-reveal>
+              <Eyebrow>Built for developers</Eyebrow>
             </div>
-            <h2
-              data-reveal
-              className="mt-5 font-display text-4xl font-semibold tracking-tight md:text-5xl"
-            >
+            <h2 data-reveal className="mt-5 display-lg">
               Ship in minutes. <br />
               <span className="text-gradient-brand">Instrument once.</span>
             </h2>
-            <p data-reveal className="mt-5 max-w-lg text-muted-foreground">
+            <p
+              data-reveal
+              className="mt-5 max-w-lg text-[0.975rem] leading-relaxed text-muted-foreground"
+            >
               Python and JavaScript/TypeScript SDKs, a clean REST API, and a CLI. Track every AI
               call with a single line of code — or ingest server-side with zero client changes.
             </p>
@@ -862,54 +1080,45 @@ function Developers() {
               ].map((x) => (
                 <div
                   key={x}
-                  className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2"
+                  className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2.5 text-[0.8125rem]"
                 >
-                  <span className="size-1.5 rounded-full bg-[#14D9D3]" />
+                  <ArrowUpRight className="size-3.5 shrink-0 text-[#14D9D3]" />
                   {x}
                 </div>
               ))}
             </div>
           </div>
 
-          <div ref={codeRef} data-reveal className="grid gap-4">
-            <CodeBlock
-              lang="python"
-              title="track.py"
-              code={`from costorah import Costorah
-
-client = Costorah(api_key="ck_live_...")
-
-response = openai.chat.completions.create(
-    model="gpt-4o",
-    messages=[{"role": "user", "content": "Hello"}],
-)
-
-client.track(
-    provider="openai",
-    model="gpt-4o",
-    usage=response.usage,
-    project="production",
-)`}
-            />
-            <CodeBlock
-              lang="typescript"
-              title="track.ts"
-              code={`import { Costorah } from "costorah";
-
-const client = new Costorah({ apiKey: process.env.COSTORAH_KEY! });
-
-const res = await openai.chat.completions.create({
-  model: "gpt-4o",
-  messages: [{ role: "user", content: "Hello" }],
-});
-
-await client.track({
-  provider: "openai",
-  model: "gpt-4o",
-  usage: res.usage,
-  project: "production",
-});`}
-            />
+          <div ref={codeRef} data-reveal>
+            <Tabs defaultValue="python" className="w-full">
+              <div className="flex items-center justify-between overflow-hidden rounded-t-2xl border border-b-0 border-white/10 bg-[#080C14] px-4 py-2.5">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <span className="size-2 rounded-full bg-white/10" />
+                  <span className="size-2 rounded-full bg-white/10" />
+                  <span className="size-2 rounded-full bg-white/10" />
+                </div>
+                <TabsList className="h-8 border border-white/10 bg-white/[0.03]">
+                  <TabsTrigger
+                    value="python"
+                    className="text-xs data-[state=active]:bg-[#14D9D3]/15 data-[state=active]:text-[#14D9D3]"
+                  >
+                    Python
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="ts"
+                    className="text-xs data-[state=active]:bg-[#14D9D3]/15 data-[state=active]:text-[#14D9D3]"
+                  >
+                    TypeScript
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="python" className="mt-0">
+                <CodeBody code={pythonCode} />
+              </TabsContent>
+              <TabsContent value="ts" className="mt-0">
+                <CodeBody code={tsCode} />
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </div>
@@ -917,26 +1126,19 @@ await client.track({
   );
 }
 
-function CodeBlock({ lang, title, code }: { lang: string; title: string; code: string }) {
+function CodeBody({ code }: { code: string }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0C1117]">
-      <div className="flex items-center justify-between border-b border-white/5 px-4 py-2 text-xs">
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <span className="size-2 rounded-full bg-white/10" />
-          <span className="size-2 rounded-full bg-white/10" />
-          <span className="size-2 rounded-full bg-white/10" />
-          <span className="ml-2 font-mono">{title}</span>
-        </div>
-        <span className="rounded-md bg-[#14D9D3]/10 px-2 py-0.5 font-mono text-[10px] uppercase text-[#14D9D3]">
-          {lang}
-        </span>
-      </div>
+    <div className="overflow-hidden rounded-b-2xl border border-t-0 border-white/10 bg-[#080C14]">
       <pre className="overflow-x-auto p-5 font-mono text-[12.5px] leading-relaxed text-foreground/85">
         <code>{code}</code>
       </pre>
     </div>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Security                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function Security() {
   const items = [
@@ -973,22 +1175,26 @@ function Security() {
 
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
-        <SectionHeader
+      <div className="mx-auto max-w-[80rem] px-6">
+        <SectionHeading
           eyebrow="Security"
-          title="Enterprise-grade from day one."
-          desc="Designed with the controls that regulated industries require — and audited to prove it."
+          title={<>Enterprise-grade from day one.</>}
+          desc="Designed with the controls that regulated industries require — prompts and completions are never collected."
         />
         <div ref={gridRef} className="mt-14 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {items.map((s) => (
             <div
               key={s.title}
               data-reveal
-              className="rounded-2xl border border-white/10 bg-[#0C1117] p-5"
+              className="group rounded-2xl border border-white/[0.08] bg-white/[0.015] p-5 transition-colors hover:border-[#14D9D3]/25 hover:bg-white/[0.03]"
             >
-              <s.icon className="size-5 text-[#14D9D3]" />
-              <div className="mt-3 font-display text-base font-semibold">{s.title}</div>
-              <div className="mt-1 text-sm text-muted-foreground">{s.desc}</div>
+              <span className="flex size-9 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-[#14D9D3]">
+                <s.icon className="size-4.5" />
+              </span>
+              <div className="mt-3.5 font-display text-[0.95rem] font-semibold">{s.title}</div>
+              <div className="mt-1 text-[0.8125rem] leading-relaxed text-muted-foreground">
+                {s.desc}
+              </div>
             </div>
           ))}
         </div>
@@ -997,60 +1203,81 @@ function Security() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* Pricing                                                                     */
+/* -------------------------------------------------------------------------- */
+
 function Pricing() {
   const cardsRef = useScrollReveal<HTMLDivElement>({
     selector: "[data-reveal]",
-    y: 20,
+    y: 22,
     stagger: 0.08,
   });
 
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-7xl px-6">
-        <SectionHeader
+      <div className="mx-auto max-w-[80rem] px-6">
+        <SectionHeading
           eyebrow="Pricing"
-          title="Simple pricing that scales with you."
+          title={<>Simple pricing that scales with you.</>}
           desc="Start free today. Team and Enterprise plans with billing are coming soon."
         />
-        <div ref={cardsRef} className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        <div ref={cardsRef} className="mt-14 grid items-start gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {pricing.map((p) => (
             <div
               key={p.name}
               data-reveal
-              className={`relative flex flex-col rounded-2xl border p-6 ${
+              className={`relative flex flex-col rounded-3xl p-7 ${
                 p.highlight
-                  ? "border-[#14D9D3]/40 bg-gradient-to-b from-[#14D9D3]/10 to-transparent shadow-[0_0_60px_-20px_rgba(20,217,211,0.5)]"
-                  : "border-white/10 bg-[#0C1117]"
+                  ? "panel-glow lg:-translate-y-3"
+                  : "border border-white/[0.08] bg-white/[0.015]"
               }`}
             >
               {p.highlight && (
-                <span className="absolute -top-2.5 right-6 rounded-full bg-gradient-brand px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
-                  Popular
+                <span className="absolute -top-3 left-7 rounded-full bg-gradient-brand px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground shadow-[0_8px_20px_-8px_rgba(20,217,211,0.8)]">
+                  Most popular
                 </span>
               )}
               <div className="font-display text-lg font-semibold">{p.name}</div>
               <div className="mt-1 text-sm text-muted-foreground">{p.desc}</div>
-              <div className="mt-6 flex items-baseline gap-1">
-                <span className="font-display text-4xl font-semibold">{p.price}</span>
-                {p.period && <span className="text-sm text-muted-foreground">{p.period}</span>}
+              <div className="mt-6 flex items-baseline gap-1.5">
+                <span className="tnum display-lg">{p.price}</span>
+                {p.period && <span className="text-sm text-muted-foreground">/ {p.period}</span>}
               </div>
-              <ul className="mt-6 flex flex-1 flex-col gap-2.5 text-sm">
+              <ul className="mt-7 flex flex-1 flex-col gap-3 text-sm">
                 {p.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2">
-                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-[#14D9D3]" />
+                  <li key={f} className="flex items-start gap-2.5">
+                    <span
+                      className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full ${
+                        p.highlight
+                          ? "bg-[#14D9D3] text-[#060810]"
+                          : "bg-[#14D9D3]/15 text-[#14D9D3]"
+                      }`}
+                    >
+                      <svg viewBox="0 0 12 12" className="size-2.5" fill="none">
+                        <path
+                          d="M2.5 6.5 5 9l4.5-5.5"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
                     <span className="text-foreground/85">{f}</span>
                   </li>
                 ))}
               </ul>
               <Link
                 to={p.name === "Starter" ? "/signup" : "/contact"}
-                className={`mt-8 inline-flex items-center justify-center rounded-full px-4 py-2.5 text-sm font-medium ${
+                className={`mt-8 inline-flex items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-medium transition-all ${
                   p.highlight
-                    ? "bg-gradient-brand text-primary-foreground"
-                    : "border border-white/10 bg-white/[0.03] text-foreground hover:bg-white/[0.06]"
+                    ? "btn-brand hover:scale-[1.02] hover:brightness-105 active:scale-[0.98]"
+                    : "btn-ghost hover:bg-white/[0.06]"
                 }`}
               >
                 {p.cta}
+                {p.name === "Starter" && <ArrowRight className="size-4" />}
               </Link>
             </div>
           ))}
@@ -1060,112 +1287,84 @@ function Pricing() {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* FAQ                                                                         */
+/* -------------------------------------------------------------------------- */
+
 function FAQ() {
-  const listRef = useScrollReveal<HTMLDivElement>({
-    selector: "[data-reveal]",
-    y: 12,
-    stagger: 0.04,
-  });
+  const listRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 12 });
+  const [openItem, setOpenItem] = useState<string | undefined>(undefined);
 
   return (
     <section className="border-t border-white/5 py-24 md:py-32">
-      <div className="mx-auto max-w-4xl px-6">
-        <SectionHeader eyebrow="FAQ" title="Everything you might ask." />
-        <div
-          ref={listRef}
-          className="mt-14 divide-y divide-white/5 rounded-2xl border border-white/10 bg-[#0C1117]"
-        >
-          {faqs.map((f) => (
-            <details
-              key={f.q}
-              data-reveal
-              className="group px-6 py-5 [&_summary::-webkit-details-marker]:hidden"
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
-                <span className="font-display text-base font-medium">{f.q}</span>
-                <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
-              </summary>
-              <p className="mt-3 text-sm text-muted-foreground">{f.a}</p>
-            </details>
-          ))}
+      <div className="mx-auto max-w-3xl px-6">
+        <SectionHeading eyebrow="FAQ" title={<>Everything you might ask.</>} />
+        <div ref={listRef} data-reveal className="mt-14">
+          <Accordion
+            type="single"
+            collapsible
+            value={openItem}
+            onValueChange={setOpenItem}
+            className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.015]"
+          >
+            {faqs.map((f, i) => (
+              <AccordionItem
+                key={f.q}
+                value={`item-${i}`}
+                className="border-white/5 px-6 last:border-b-0"
+              >
+                <AccordionTrigger className="py-5 text-left font-display text-[0.975rem] font-medium hover:no-underline hover:text-[#14D9D3]">
+                  {f.q}
+                </AccordionTrigger>
+                <AccordionContent className="pb-5 text-sm leading-relaxed text-muted-foreground">
+                  {f.a}
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </div>
       </div>
     </section>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Final CTA                                                                   */
+/* -------------------------------------------------------------------------- */
 
 function FinalCTA() {
   const revealRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]", y: 18 });
 
   return (
-    <section className="relative overflow-hidden border-t border-white/5 py-24 md:py-32">
-      <div className="absolute inset-0" style={{ background: "var(--gradient-hero)" }} />
-      <div ref={revealRef} className="relative mx-auto max-w-4xl px-6 text-center">
-        <h2 data-reveal className="font-display text-4xl font-semibold tracking-tight md:text-6xl">
+    <section className="relative overflow-hidden border-t border-white/5 py-28 md:py-36">
+      <div className="aurora" aria-hidden="true" />
+      <div className="absolute inset-0 bg-grid opacity-30 [mask-image:radial-gradient(ellipse_60%_60%_at_50%_50%,black,transparent_75%)]" />
+      <div ref={revealRef} className="relative mx-auto max-w-3xl px-6 text-center">
+        <h2 data-reveal className="display-xl">
           Start monitoring AI costs <span className="text-gradient-brand">today</span>.
         </h2>
-        <p data-reveal className="mx-auto mt-5 max-w-xl text-muted-foreground">
+        <p
+          data-reveal
+          className="mx-auto mt-5 max-w-xl text-[0.975rem] leading-relaxed text-muted-foreground"
+        >
           Free forever for individuals and small teams. No credit card required.
         </p>
         <div
           data-reveal
-          className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row"
+          className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row"
         >
           <Link
             to="/signup"
-            className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-brand px-6 py-3 text-sm font-medium text-primary-foreground shadow-[0_10px_40px_-10px_rgba(20,217,211,0.6)]"
+            className="btn-brand group px-6 py-3 text-sm hover:scale-[1.02] hover:brightness-105 active:scale-[0.98]"
           >
-            Start Free <ArrowRight className="size-4" />
+            Start free
+            <ArrowRight className="size-4 transition-transform duration-200 group-hover:translate-x-0.5" />
           </Link>
-          <Link
-            to="/contact"
-            className="inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.03] px-6 py-3 text-sm font-medium hover:bg-white/[0.06]"
-          >
-            Contact Sales
+          <Link to="/contact" className="btn-ghost px-6 py-3 text-sm hover:bg-white/[0.06]">
+            Contact sales
           </Link>
         </div>
       </div>
     </section>
-  );
-}
-
-function SectionHeader({
-  eyebrow,
-  title,
-  desc,
-}: {
-  eyebrow?: string;
-  title: string;
-  desc?: string;
-}) {
-  // GSAP ScrollTrigger reveal — this one component is reused by every major
-  // landing-page section, so wiring the reveal here once gives the whole
-  // page consistent, staggered scroll-in motion without touching each
-  // section individually.
-  const revealRef = useScrollReveal<HTMLDivElement>({ selector: "[data-reveal]" });
-
-  return (
-    <div ref={revealRef} className="mx-auto max-w-2xl text-center">
-      {eyebrow && (
-        <div
-          data-reveal
-          className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-muted-foreground"
-        >
-          <span className="size-1.5 rounded-full bg-[#14D9D3]" />
-          {eyebrow}
-        </div>
-      )}
-      <h2
-        data-reveal
-        className="mt-5 font-display text-3xl font-semibold tracking-tight md:text-5xl"
-      >
-        {title}
-      </h2>
-      {desc && (
-        <p data-reveal className="mx-auto mt-4 max-w-xl text-muted-foreground">
-          {desc}
-        </p>
-      )}
-    </div>
   );
 }

@@ -11,6 +11,16 @@ import { isServerPing, type ConnectionSnapshot, type ConnectionStatus, type Real
 // EP-24.4.1 — see scheduleReconnect() below for why this exists.
 export const MAX_RECONNECT_ATTEMPTS = 10;
 
+/** EP-19.4 — cheap, always-on diagnostic breadcrumbs (console.debug is
+ * invisible in devtools unless "Verbose" level is enabled, so this costs
+ * nothing in normal use) for the exact lifecycle events a WebSocket
+ * regression investigation needs: connect, heartbeat ping/pong, close
+ * code/reason. Companion to the structured server-side logs added in
+ * `app/api/v1/realtime.py`'s own EP-19.4 fix. */
+function logRealtime(event: string, detail: Record<string, unknown>): void {
+  console.debug(`[realtime] ${event}`, { ...detail, ts: new Date().toISOString() });
+}
+
 export interface RealtimeClientOptions {
   baseUrl?: string;
   /** Returns the current access token at connect/reconnect time — a
@@ -76,6 +86,11 @@ export class RealtimeClient {
       this.lastConnectedAt = Date.now();
       this.heartbeat.reset();
       this.setStatus("connected");
+      // EP-19.4 — lightweight instrumentation for diagnosing connection
+      // regressions in production (console.debug: free at runtime, invisible
+      // unless devtools' "Verbose" log level is on). Mirrors the server-side
+      // structured logs added in app/api/v1/realtime.py's own EP-19.4 fix.
+      logRealtime("connected", { organizationId: this.options.organizationId });
     });
 
     socket.addEventListener("message", (evt) => {
@@ -86,6 +101,12 @@ export class RealtimeClient {
     socket.addEventListener("close", (evt) => {
       if (this.disposed) return;
       this.socket = null;
+      logRealtime("closed", {
+        code: evt.code,
+        reason: evt.reason || null,
+        wasClean: evt.wasClean,
+        organizationId: this.options.organizationId,
+      });
       if (evt.code === WS_CLOSE_AUTH_FAILED) {
         this.setStatus("auth_failed", evt.reason || "Authentication failed");
         return;
@@ -144,8 +165,13 @@ export class RealtimeClient {
     }
 
     if (isServerPing(parsed)) {
+      logRealtime("heartbeat_ping_received", { organizationId: this.options.organizationId });
       const pong = this.heartbeat.handlePing();
       this.socket?.send(JSON.stringify(pong));
+      logRealtime("heartbeat_pong_sent", {
+        organizationId: this.options.organizationId,
+        replyLatencyMs: this.heartbeat.snapshot().replyLatencyMs,
+      });
       // Heartbeat timing changed — republish the snapshot for the status UI.
       this.setStatus(this.status);
       return;
@@ -165,6 +191,10 @@ export class RealtimeClient {
     // working — reconnectNow() (org switch / fresh login) resets the
     // counter and tries again.
     if (this.reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      logRealtime("reconnect_abandoned", {
+        organizationId: this.options.organizationId,
+        attempts: this.reconnectAttempts,
+      });
       this.setStatus("offline", `Gave up reconnecting after ${MAX_RECONNECT_ATTEMPTS} attempts`);
       return;
     }
@@ -172,6 +202,12 @@ export class RealtimeClient {
     this.setStatus("reconnecting", reason);
     const delay = reconnectDelayMs(this.reconnectAttempts);
     this.reconnectAttempts += 1;
+    logRealtime("reconnect_scheduled", {
+      organizationId: this.options.organizationId,
+      attempt: this.reconnectAttempts,
+      delayMs: delay,
+      reason,
+    });
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();

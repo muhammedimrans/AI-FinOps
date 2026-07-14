@@ -39,6 +39,47 @@ that delays the pong past the client's own send. See
 [Deployment](./07-deployment.md#load-balancer--proxy-requirements) for
 proxy-side causes.
 
+## WebSocket connection closes with code 1006 ("abnormal closure")
+
+`1006` is the browser's own catch-all for "the connection ended without a
+proper WebSocket closing handshake" — it is never a code the server sends
+on purpose, since the server always closes explicitly (see below). Two
+distinct historical causes, both fixed, both worth knowing if `1006`
+reappears in the future (e.g. from a proxy/infra issue rather than this
+server):
+
+1. **Rejecting before accepting** (EP-24.6.1). If the server ever sends
+   `websocket.close` as its *first* ASGI message — before
+   `websocket.accept` — the opening HTTP Upgrade handshake never
+   completes, and no custom close code can reach the client at all. This
+   codebase's own connection handler accepts first, always (see the
+   comment at the top of `websocket_gateway()` in
+   `app/api/v1/realtime.py`).
+2. **Returning without closing** (EP-19.4). If the ASGI application
+   coroutine for a websocket route returns having never sent a
+   `"websocket.close"` message — because an internal exception was
+   logged but not converted into an explicit close, for example — uvicorn
+   falls back to a raw `transport.close()` with no closing handshake,
+   which is exactly what a browser reports as `1006`, with no code or
+   reason ever delivered. This server's connection handler now
+   unconditionally attempts an explicit close (`1011` for an unexpected
+   internal failure, `1000` otherwise) before returning, for every
+   completion path — not just the heartbeat-timeout one. See the
+   docstring-length comment above `write_lock` in
+   `app/api/v1/realtime.py::websocket_gateway()` for the full
+   root-cause writeup, and `tests/test_ep19_4_ws_close_regression.py` for
+   the regression tests (they drive the ASGI app directly, since
+   Starlette's `TestClient` cannot reproduce either of these two bugs —
+   its in-process simulation has no equivalent of uvicorn's "app returned
+   without closing" fallback).
+
+If `1006` shows up in production **with no server-side `realtime_ws_closed`
+log line for that `connection_id`**, the cause is outside this server's own
+process — check for a proxy/load-balancer idle-connection timeout or a
+network-level drop between the client and the server (see
+[Deployment](./07-deployment.md#load-balancer--proxy-requirements)) rather
+than re-suspecting the handler itself.
+
 ## SSE endpoint returns 401
 
 Same failure reasons as the WebSocket 4401 case, translated to an HTTP

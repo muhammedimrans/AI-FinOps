@@ -50,6 +50,20 @@ organization or the connection is rejected
    (see [Heartbeat](#heartbeat)).
 7. Events for that organization are pushed as JSON text frames, one
    `RealtimeEvent` per frame (see [Event Model](./04-event-model.md)).
+8. **The server always sends an explicit `close` frame before the
+   connection ends** (EP-19.4) — regardless of *why* it ends (heartbeat
+   timeout, the client disconnecting, or an internal error). This closes
+   a second class of `1006` bug distinct from the accept-ordering one
+   above: per uvicorn's own ASGI runner, a WebSocket handler that returns
+   without ever having sent a `"websocket.close"` message causes uvicorn
+   to fall back to a raw TCP close with no WebSocket closing handshake —
+   which a browser also reports as `CloseEvent{code: 1006}`, this time
+   with no code or reason at all. A single lock now serializes every
+   outbound frame (ping, forwarded event, close) across the connection's
+   two internal tasks, and the connection handler's cleanup path always
+   attempts a close — `1011`/"Internal error" for an unexpected failure,
+   `1000` otherwise — before returning. See the comment above `write_lock`
+   in `app/api/v1/realtime.py` for the full root-cause writeup.
 
 ## Python example
 
@@ -112,7 +126,8 @@ the `aifinops_realtime_heartbeat_failures_total` Prometheus counter.
 | `4429` | Rate limited — too many connection attempts from this IP |
 | `4401` | Authentication failed (invalid/expired token, insufficient permission, wrong organization, etc.) |
 | `4408` | Heartbeat timeout — no client frame within 10s of a ping |
-| `1000` | Normal closure (client disconnected) |
+| `1000` | Normal closure (client disconnected, or the server ended the connection with nothing else to report) |
+| `1011` | Internal error — an unexpected exception on the server side (EP-19.4); still an explicit close, never a silent `1006` |
 
 ## Reconnecting
 

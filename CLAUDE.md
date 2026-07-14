@@ -5304,3 +5304,67 @@ Re-ranked every element by importance into four tiers, top to bottom — no data
 ## Remaining Phase 2 opportunities (unchanged from EP-P2.1's list, minus Overview)
 
 Analytics, Connections, Projects, Budgets, Alerts, Users, API Keys, RBAC, Settings, Playground — each still awaiting its own per-page compositional pass on the EP-P2.1 foundation; a shared Recharts chrome component; a `StatTile`/`SectionHeader` extraction if cross-page duplication warrants it.
+
+---
+
+# EP-19.4 — WebSocket Abnormal-Closure (1006) Forensic Investigation & Fix
+
+**Status: complete.** A production regression: dashboard WebSocket connections repeatedly showed `Connection closed (1006)`, growing reconnect counts, heartbeat latency stuck at `—`, and eventual fallback to 60-second polling. Per the task's own explicit instruction — "do not guess, do not implement changes until the precise root cause is identified" — this EP performed a full source-level forensic trace (backend handler → Starlette → uvicorn → the `websockets` library internals, and the frontend client) before writing a single line of fix code, and confirmed the root cause by proving a regression test fails against the pre-fix code and passes against the fix.
+
+## The two confirmed defects (both verified against library source, not assumed)
+
+1. **No write serialization.** `starlette.websockets.WebSocket.send()` (read directly from `starlette/websockets.py`) has no internal lock — it only inspects `application_state`. `_forward_events` and `_heartbeat_and_read` (`app/api/v1/realtime.py`, unchanged since the original EP-19.1 commit — confirmed via `git log`) are two independent `asyncio` tasks that both call `websocket.send_*()`/`close()` on the same socket with zero synchronization. The concrete, reachable failure: `_heartbeat_and_read` times out and calls `close(4408)`, which flips `application_state` to `DISCONNECTED` *before* the close frame is even written; if `_forward_events` is mid-flight sending a queued event at that moment, its `send_text()` raises `RuntimeError('Cannot call "send" once a close message has been sent.')` — confirmed by reading Starlette's `send()` source directly, not inferred.
+2. **No close-on-every-path.** That `RuntimeError` (and any other exception — a client disconnect surfacing as `WebSocketDisconnect` from the heartbeat task's read, a serialization bug, anything) used to just make `asyncio.wait()` return; the handler logged it and returned **without ever calling `websocket.close()`**. Per uvicorn's `run_asgi()` (`uvicorn/protocols/websockets/websockets_impl.py`, read directly): when the ASGI app coroutine returns having never sent a `"websocket.close"` message, uvicorn falls back to `self.transport.close()` — a raw TCP close with **no WebSocket closing handshake**. That is exactly what a browser reports as `CloseEvent{code: 1006, wasClean: false}`, with no code or reason ever delivered — matching every reported symptom precisely, including the client-side heartbeat UI showing "—" (the connection died before any diagnosable frame reached it).
+
+This has been present, unchanged, since the very first EP-19.1 commit (`8f2d3b4`) — confirmed by diffing that commit against the current file before any edit. EP-24.6.1's earlier hotfix (§26) fixed a *different* bug (accept()-before-close ordering for the two rejection paths, rate-limit and auth-failure) and never touched this gap in the steady-state task loop — the two bugs are adjacent but distinct, both producing the same `1006` symptom via different mechanisms.
+
+## Answering the investigation checklist directly
+
+1. **`websocket.accept()` before every close?** Yes, unchanged and still correct (EP-24.6.1's fix). Confirmed by direct code read.
+2. **Any exception escaping after `accept()`?** Yes — this was the actual bug: exceptions from `_forward_events`/`_heartbeat_and_read` were caught for *logging* but never converted into an explicit `websocket.close()`.
+3. **Heartbeat task still running?** Yes — created via `asyncio.create_task`, part of `asyncio.wait(..., FIRST_COMPLETED)`, never disabled.
+4/5. **Server receive/send heartbeat pings, pongs?** Yes, unchanged — `websocket.send_json({"type": "ping"})` every 30s, client replies `{"type": "pong"}`, server reads via `receive_text()` with a 10s timeout.
+6/7. **Does the browser or server close first?** Neither closed *cleanly* in the buggy path — the server's ASGI handler returned with no close message at all, so uvicorn's raw `transport.close()` fired, which the browser experiences indistinguishably from "the peer vanished."
+8/9. **Cloudflare/Render idle-connection termination?** Not confirmable from this sandbox (no live deployed instance, no network access to Render) — genuinely disclosed as unverifiable, not asserted either way. The source-level bug fully explains every reported symptom independent of whether infra timeouts are *also* a contributing factor, so fixing it is correct regardless.
+10. **Exponential backoff on reconnect?** Yes, unchanged and correct (`connection.ts`'s `reconnectDelayMs`, capped at 30s with jitter).
+11. **Polling correctly disabled after reconnect?** Yes, unchanged — `useRealtimeRefetchInterval` falls back to polling for any non-`"connected"` status and stops once `"connected"` is restored.
+
+## The fix (`app/api/v1/realtime.py`)
+
+- **One `asyncio.Lock` (`write_lock`)** now serializes every outbound frame — ping, forwarded event, and close — across both tasks, eliminating the send-after-close race at its source (both `_forward_events` and `_heartbeat_and_read` re-check `websocket.application_state == CONNECTED` *inside* the lock before writing).
+- **One `_close_gracefully(code, reason)` helper is now the only call site that ever sends `websocket.close()`**, and it is **always invoked before the handler returns**, regardless of which task completed or why:
+  - Heartbeat timeout → `4408` / "Heartbeat timeout" (unchanged, pre-existing correct behavior).
+  - Client-initiated disconnect (`WebSocketDisconnect` from the heartbeat task's read) → `1000` / "Client disconnected" (a correct, explicit acknowledgment attempt — `client_state` and `application_state` are tracked separately by Starlette, so a client disconnect alone doesn't mark `application_state` as already closed).
+  - Any other exception → `1011` / "Internal error" — the new, previously-missing case.
+  - `_close_gracefully` catches both `RuntimeError` (send-after-close) and `WebSocketDisconnect` (Starlette converts a dead-transport `OSError` into this) internally, so a best-effort close attempt can never itself become a new uncaught exception that skips the guarantee this fix exists to provide.
+- **Structured logging** added at every requested instrumentation point: `realtime_ws_heartbeat_sent`/`realtime_ws_heartbeat_pong_received` (debug), `realtime_ws_event_forwarded` (debug), `realtime_ws_heartbeat_timeout` (info), `realtime_ws_task_failed` (warning, with `exc_type`), and `realtime_ws_closed` (info, now always fired, carrying `close_code`/`close_reason`/`connection_id`/`organization_id`).
+
+## Frontend instrumentation (`apps/dashboard/src/realtime/client.ts`)
+
+Per the task's "instrument both server and client" instruction: added a lightweight `logRealtime()` helper (`console.debug`, invisible in devtools unless "Verbose" level is enabled — free at runtime in normal use) at `connected`, `heartbeat_ping_received`, `heartbeat_pong_sent` (with `replyLatencyMs`), `closed` (code/reason/`wasClean`), `reconnect_scheduled` (attempt/delay/reason), and `reconnect_abandoned`. This mirrors the server-side structured logs one-to-one, closing the loop for future diagnosis from either side. No existing behavior changed — purely additive logging.
+
+## Regression tests (`backend/tests/test_ep19_4_ws_close_regression.py`, 4 new tests)
+
+Like EP-24.6.1's own accept()-ordering regression, Starlette's `TestClient.websocket_connect()` (`WebSocketTestSession`) **cannot reproduce this bug** — its in-process ASGI simulation has no equivalent of uvicorn's "app returned without closing" fallback, so a `TestClient`-based test cannot distinguish "closed cleanly" from "the ASGI app returned with nothing sent." A `_RawWebSocketHarness` (same pattern EP-24.6.1 introduced) drives the ASGI app directly and inspects the literal outgoing message sequence:
+
+- `TestForwardTaskFailureStillCloses` — the primary regression pin: patches `connection_manager.receive()` to raise `RuntimeError`, asserts an explicit `"websocket.close"` message (code `1011`) is sent. **Verified to fail against the pre-fix code** (`git stash` the fix, re-run: `AssertionError: assert 'websocket.close' in ['websocket.accept']`) and pass against the fix — proving this is a genuine regression guard, not a test written to match whatever the fix happens to do.
+- `TestHeartbeatTimeoutStillCloses` — regression guard confirming the pre-existing, already-correct `4408` path still works unchanged (intervals patched down to milliseconds so the test doesn't wait 30s+10s for real).
+- `TestClientDisconnectDuringHeartbeatReadStillCloses` — a client-initiated disconnect must not raise unhandled and must still unregister cleanly.
+- `TestNoConcurrentWriteRaceOnSendAfterClose` — direct pin for the secondary defect: exactly one close message, no raised `RuntimeError`, when the heartbeat-timeout path fires.
+
+Full backend suite: **2020 passed, 30 skipped** (unchanged, pre-existing `DATABASE_URL`-gated integration tests), `ruff check app tests` / `black --check app tests` / `mypy app` all clean (mypy is intentionally scoped to `app/`, not `tests/`, matching this repo's own CI — the one test-file mypy note, an ASGI `send` callable's `Message` type, already exists identically in the pre-existing `test_ep24_6_1_hotfix.py` harness this file's pattern is modeled on, confirmed by re-running mypy against that file too). Full dashboard suite: **367/367 passed** (44 files, including all 48 realtime tests), `tsc -b` clean, `eslint src --max-warnings 0` clean, production `vite build` clean.
+
+## Documentation
+
+`backend/docs/realtime/02-websocket-guide.md` — connection-flow step 8 added (the always-explicit-close guarantee), close-codes table gained `1011`. `backend/docs/realtime/08-troubleshooting.md` — new "WebSocket connection closes with code 1006" section explaining both historical causes (accept-ordering, EP-24.6.1; return-without-closing, this EP) and how to tell a genuine infra-level `1006` apart from a server-side one (check for a matching `realtime_ws_closed` log line).
+
+## Known limitations
+
+- **Never verified against a live deployed instance or a real browser.** Every finding is grounded in direct source-code reads (Starlette, uvicorn, the `websockets` library) and a hermetic regression test proven to fail against the actual pre-fix code — not a live reproduction, since this sandbox has no way to drive a real browser against a live deployment (the same standing limitation every prior EP in this document discloses).
+- **Whether Cloudflare/Render idle-connection timeouts are also a contributing factor could not be confirmed or ruled out** — genuinely unknown from this sandbox. The fix is correct and complete regardless (a server that always sends an explicit close frame is strictly more correct than one that sometimes doesn't), but if `1006` closures persist after this fix ships, the troubleshooting doc's new guidance (check for a matching `realtime_ws_closed` log line) is the next diagnostic step.
+- **The concurrent-write lock is a fix for a *reachable* race, not a fix for a *proven-to-have-occurred* one** — the RuntimeError-on-send-after-close race was confirmed reachable by reading Starlette's `send()` state machine directly, but this sandbox has no production log access to confirm it was the specific trigger behind every historical `1006` occurrence (as opposed to, say, a plain client disconnect hitting defect #2 alone). Both defects are real and both are now fixed; distinguishing which one fired for any specific historical incident isn't possible without production log access this sandbox doesn't have.
+
+## Future recommendations
+
+1. If `1006` closures are ever observed again in production, correlate the browser's `close` event timestamp against a `realtime_ws_closed` log line for the same `connection_id` (now always logged, per this fix) — a matching line with a real code/reason means the client-side reconnect/backoff logic is the next place to look; no matching line at all means the connection died below this server's own process (infra/proxy), not in application code.
+2. Everything else this document has already carried forward as the standing next-blocker list remains unaffected and unresolved by this EP.
